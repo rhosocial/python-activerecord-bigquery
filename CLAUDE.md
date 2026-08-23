@@ -31,6 +31,29 @@ This project is under active development. Key features planned:
 - Protocol definitions for BigQuery-specific features
 - Transaction management (BigQuery uses session-level transactions)
 
+## Local Testing with BigQuery Emulator
+
+Instead of real GCP credentials, tests use `goccy/bigquery-emulator`:
+
+```bash
+bash tests/scripts/start_emulator.sh
+# Or manually:
+docker run -d -p 9050:9050 -p 9060:9060 ghcr.io/goccy/bigquery-emulator:latest --project=test
+
+# Python connection (used by tests):
+from google.auth.credentials import AnonymousCredentials
+from google.api_core.client_options import ClientOptions
+from google.cloud import bigquery
+
+client = bigquery.Client(
+    project="test",
+    credentials=AnonymousCredentials(),
+    client_options=ClientOptions(api_endpoint="http://localhost:9050"),
+)
+```
+
+The backend config supports `api_endpoint` and `use_anonymous_credentials` for emulator mode.
+
 ## BigQuery-Specific Considerations
 
 - **Backtick identifiers**: `` `COLUMN_NAME` `` (BigQuery uses backticks for identifiers)
@@ -40,3 +63,4 @@ This project is under active development. Key features planned:
 - **No native RETURNING clause**: BigQuery does not support `RETURNING` — use separate SELECT or MERGE instead
 - **Service account authentication**: Key file or application default credentials
 - **Query jobs**: All queries run as jobs; results fetched asynchronously
+- **Local Testing**: Uses `goccy/bigquery-emulator` (Docker) for CI/integration tests; no real GCP account needed

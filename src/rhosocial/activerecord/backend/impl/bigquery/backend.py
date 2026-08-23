@@ -35,15 +35,35 @@ class BigQueryBackend(StorageBackend):
     def connect(self) -> None:
         try:
             from google.cloud import bigquery
+            from google.auth.credentials import AnonymousCredentials
+            from google.api_core.client_options import ClientOptions
             config = self.config
-            if getattr(config, 'credentials_path', None):
-                self._client = bigquery.Client.from_service_account_json(config.credentials_path)
+            endpoint = getattr(config, 'api_endpoint', None) or None
+            use_anonymous = getattr(config, 'use_anonymous_credentials', False)
+            client_options = ClientOptions(api_endpoint=endpoint) if endpoint else None
+            if use_anonymous:
+                self._client = bigquery.Client(
+                    project=getattr(config, 'project', None) or 'test',
+                    credentials=AnonymousCredentials(),
+                    client_options=client_options,
+                )
+            elif getattr(config, 'credentials_path', None):
+                self._client = bigquery.Client.from_service_account_json(
+                    config.credentials_path,
+                    client_options=client_options,
+                )
             elif getattr(config, 'credentials_json', None):
                 import json
-                self._client = bigquery.Client.from_service_account_info(config.credentials_json)
+                self._client = bigquery.Client.from_service_account_info(
+                    config.credentials_json,
+                    client_options=client_options,
+                )
             else:
                 project = getattr(config, 'project', None)
-                self._client = bigquery.Client(project=project)
+                self._client = bigquery.Client(
+                    project=project,
+                    client_options=client_options,
+                )
             self._connected = True
             self.log(logging.INFO, "Connected to BigQuery")
         except Exception as e:
@@ -117,10 +137,24 @@ class BigQueryBackend(StorageBackend):
             self._handle_error(e)
 
     def get_default_adapter_suggestions(self) -> Dict:
-        return {}
+        return {
+            dict: (self.adapter_registry.get_adapter(dict, str) or self.adapter_registry.get_adapter(dict, dict), str),
+        }
 
     def _register_bigquery_adapters(self):
-        pass
+        from .adapters import (
+            BigQueryStructAdapter, BigQueryArrayAdapter,
+            BigQueryJSONAdapter, BigQueryDecimalAdapter,
+            BigQueryTimestampAdapter,
+        )
+        for adapter in [
+            BigQueryStructAdapter(), BigQueryArrayAdapter(),
+            BigQueryJSONAdapter(), BigQueryDecimalAdapter(),
+            BigQueryTimestampAdapter(),
+        ]:
+            for py_type, driver_types in adapter.supported_types.items():
+                for driver_type in driver_types:
+                    self.adapter_registry.register(adapter, py_type, driver_type, allow_override=True)
 
     @property
     def adapter_registry(self):

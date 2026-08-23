@@ -15,6 +15,8 @@ class BigQueryStructAdapter(SQLTypeAdapter):
     def to_database(self, value: Any, target_type: Type, options: Optional[Dict[str, Any]] = None) -> Any:
         if value is None:
             return None
+        if isinstance(value, dict):
+            return value
         return value
 
     def from_database(self, value: Any, target_type: Type, options: Optional[Dict[str, Any]] = None) -> Any:
@@ -31,6 +33,8 @@ class BigQueryArrayAdapter(SQLTypeAdapter):
     def to_database(self, value: Any, target_type: Type, options: Optional[Dict[str, Any]] = None) -> Any:
         if value is None:
             return None
+        if isinstance(value, list):
+            return value
         return value
 
     def from_database(self, value: Any, target_type: Type, options: Optional[Dict[str, Any]] = None) -> Any:

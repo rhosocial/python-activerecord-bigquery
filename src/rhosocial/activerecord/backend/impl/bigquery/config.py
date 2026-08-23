@@ -30,6 +30,9 @@ class BigQueryConnectionConfig(
     location: Optional[str] = None
     credentials_path: Optional[str] = None
     credentials_json: Optional[Dict[str, Any]] = None
+    # Emulator settings
+    api_endpoint: Optional[str] = None  # e.g. http://localhost:9050 for bigquery-emulator
+    use_anonymous_credentials: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         config_dict = super().to_dict()

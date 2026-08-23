@@ -1,0 +1,13 @@
+scenarios:
+  bigquery_emulator:
+    project: "test"
+    dataset: "test_dataset"
+    location: "US"
+    api_endpoint: "http://localhost:9050"
+    use_anonymous_credentials: true
+  bigquery_default:
+    project: ""
+    dataset: ""
+    location: "US"
+    api_endpoint: ""
+    use_anonymous_credentials: false
