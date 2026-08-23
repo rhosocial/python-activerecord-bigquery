@@ -1,0 +1,117 @@
+name: Python Test
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/v**'
+      - 'maint/**'
+  pull_request:
+    branches:
+      - main
+      - 'release/v**'
+      - 'maint/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test-with-coverage:
+    name: Python 3.12 with coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Install package
+        run: |
+          pip install -e . --no-deps
+
+      - name: Run tests with coverage (unit only, no Snowflake instance)
+        run: |
+          pytest tests/ -k "not integration" --tb=short
+          coverage run --source=src -m pytest tests/ -k "not integration" --tb=short
+          coverage xml
+          coverage report
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: unittests,python-3.12
+          name: codecov-snowflake-3.12
+          fail_ci_if_error: false
+
+  test-other-versions:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.13', '3.14']
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.8" ]; then
+            pip install rhosocial-activerecord rhosocial-activerecord-testsuite
+          fi
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Install package
+        run: |
+          pip install -e . --no-deps
+
+      - name: Run tests (unit only, no Snowflake instance)
+        run: |
+          pytest tests/ -k "not integration" --tb=short
+
+  test-free-threaded:
+    name: Python ${{ matrix.python-version }} (free-threaded)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.14t']
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Install package
+        run: |
+          pip install -e . --no-deps
+
+      - name: Run tests (unit only, no Snowflake instance)
+        run: |
+          pytest tests/ -k "not integration" --tb=short

@@ -1,0 +1,2 @@
+# Enforce LF line endings globally
+* text=auto eol=lf

@@ -1,0 +1,139 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rhosocial-activerecord-bigquery"
+version = "1.0.0.dev1"
+description = "BigQuery backend implementation for rhosocial-activerecord, providing cloud data warehouse support with STRUCT, ARRAY, JSON, and standard SQL features."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "vistart", email = "i@vistart.me" }
+]
+keywords = ["activerecord", "orm", "database", "bigquery", "google-cloud", "data-warehouse"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Database",
+    "Topic :: Database :: Front-Ends",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "rhosocial-activerecord>=0.9.0,<2.0.0",
+    "google-cloud-bigquery>=3.20.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "coverage>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "rhosocial-activerecord[test]>=0.9.0,<2.0.0",
+    "rhosocial-activerecord-testsuite",
+    "pytest-timeout>=2.1.0",
+    "pytest-mock>=3.10.0",
+]
+dev = [
+    "black>=23.0.0",
+    "isort>=5.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+    "pre-commit>=3.0.0",
+    "rhosocial-activerecord-testsuite",
+]
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=1.0.0",
+    "myst-parser>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rhosocial/python-activerecord-bigquery"
+Documentation = "https://docs.python-activerecord.dev.rho.social"
+Repository = "https://github.com/rhosocial/python-activerecord-bigquery.git"
+Issues = "https://github.com/rhosocial/python-activerecord-bigquery/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests requiring a real BigQuery instance",
+    "requires_protocol: marks tests requiring specific backend protocol support",
+    "requires_functions: marks tests requiring specific database functions",
+]
+
+[tool.coverage.run]
+source = ["rhosocial.activerecord.backend.impl.bigquery"]
+branch = true
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312", "py313", "py314"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 100
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+select = ["E", "F", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.towncrier]
+package = "rhosocial.activerecord.backend.impl.bigquery"
+package_dir = "src"
+filename = "CHANGELOG.md"
+directory = "changelog.d"
+title_format = "## [{version}] - {project_date}"
+template = "changelog.d/template.md"
+start_string = "<!-- towncrier release notes start -->\n"
+underlines = ["", "", ""]
+issue_format = "[#{issue}](https://github.com/rhosocial/python-activerecord-bigquery/issues/{issue})"
+
+[[tool.towncrier.type]]
+directory = "security"
+name = "Security"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "added"
+name = "Added"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "changed"
+name = "Changed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fixed"
+name = "Fixed"
+showcontent = true
