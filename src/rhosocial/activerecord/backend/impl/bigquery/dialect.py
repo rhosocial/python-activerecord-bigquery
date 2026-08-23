@@ -96,3 +96,21 @@ class BigQueryDialect(
 
     def supports_returning_clause(self) -> bool:
         return False
+
+    def format_limit_offset(self, sql: str, limit: Optional[int] = None, offset: Optional[int] = None) -> str:
+        if limit is not None:
+            sql += f" LIMIT {limit}"
+        if offset is not None:
+            sql += f" OFFSET {offset}"
+        return sql
+
+    def get_type_mappings(self) -> Dict[str, Any]:
+        return {
+            "INTEGER": "INT64",
+            "TEXT": "STRING",
+            "REAL": "FLOAT64",
+            "BOOLEAN": "BOOL",
+            "TIMESTAMP": "TIMESTAMP",
+            "DATE": "DATE",
+            "DECIMAL": "BIGNUMERIC",
+        }

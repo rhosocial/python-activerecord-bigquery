@@ -82,3 +82,13 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
             return QueryResult(rows=rows)
         except Exception as e:
             raise DatabaseError(str(e)) from e
+
+    def _handle_error(self, error: Exception) -> None:
+        from rhosocial.activerecord.backend.errors import ConnectionError, IntegrityError, QueryError, DatabaseError
+        raise DatabaseError(str(error)) from error
+
+    def get_server_version(self) -> Tuple[int, ...]:
+        return self._version
+
+    def introspect_and_adapt(self) -> None:
+        pass
