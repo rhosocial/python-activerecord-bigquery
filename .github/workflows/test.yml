@@ -37,12 +37,20 @@ jobs:
         run: |
           pip install -e . --no-deps
 
-      - name: Run tests with coverage (unit only, no Snowflake instance)
+      - name: Start BigQuery emulator
         run: |
-          pytest tests/ -k "not integration" --tb=short
-          coverage run --source=src -m pytest tests/ -k "not integration" --tb=short
-          coverage xml
-          coverage report
+          bash tests/scripts/start_emulator.sh || true
+          docker ps || true
+
+      - name: Run tests with coverage (with emulator)
+        run: |
+          PYTHONPATH=/mnt/d/Projects/rhosocial/python-activerecord/src:src pytest tests/ -k "not integration" --tb=short --scenarios=bigquery_emulator
+          PYTHONPATH=/mnt/d/Projects/rhosocial/python-activerecord/src:src coverage run --source=src -m pytest tests/ -k "not integration" --tb=short --scenarios=bigquery_emulator
+          PYTHONPATH=/mnt/d/Projects/rhosocial/python-activerecord/src:src coverage xml
+          PYTHONPATH=/mnt/d/Projects/rhosocial/python-activerecord/src:src coverage report
+        env:
+          BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
+          BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -50,7 +58,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
           flags: unittests,python-3.12
-          name: codecov-snowflake-3.12
+          name: codecov-bigquery-3.12
           fail_ci_if_error: false
 
   test-other-versions:
@@ -82,7 +90,7 @@ jobs:
         run: |
           pip install -e . --no-deps
 
-      - name: Run tests (unit only, no Snowflake instance)
+      - name: Run tests (unit only (with emulator), no BigQuery instance)
         run: |
           pytest tests/ -k "not integration" --tb=short
 
@@ -112,6 +120,6 @@ jobs:
         run: |
           pip install -e . --no-deps
 
-      - name: Run tests (unit only, no Snowflake instance)
+      - name: Run tests (unit only (with emulator), no BigQuery instance)
         run: |
           pytest tests/ -k "not integration" --tb=short
