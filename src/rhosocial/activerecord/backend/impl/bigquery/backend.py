@@ -155,7 +155,3 @@ class BigQueryBackend(StorageBackend):
             for py_type, driver_types in adapter.supported_types.items():
                 for driver_type in driver_types:
                     self.adapter_registry.register(adapter, py_type, driver_type, allow_override=True)
-
-    @property
-    def adapter_registry(self):
-        return super().adapter_registry
