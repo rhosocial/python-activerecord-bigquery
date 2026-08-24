@@ -385,6 +385,9 @@ class BigQueryBackend(StorageBackend):
             return float(value)
         if ftype in ("BOOLEAN", "BOOL"):
             return str(value).lower() == "true"
+        if ftype in ("NUMERIC", "DECIMAL", "BIGNUMERIC", "BIGDECIMAL"):
+            from decimal import Decimal
+            return Decimal(str(value))
         if ftype == "BYTES":
             import base64
             return base64.b64decode(value)
