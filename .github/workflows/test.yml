@@ -92,7 +92,7 @@ jobs:
               echo "=== $suite/$name (fresh emulator) ==="
               restart_emulator
               set +e
-              pytest "$d" --tb=short -q -o asyncio_mode=auto
+              pytest "$d" --tb=short -q -o asyncio_mode=auto --confcutdir="$TESTSUITE_DIR/$suite"
               rc=$?
               set -e
               if [ $rc -eq 5 ]; then
