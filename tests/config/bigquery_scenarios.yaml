@@ -5,9 +5,7 @@ scenarios:
     location: "US"
     api_endpoint: "http://localhost:9050"
     use_anonymous_credentials: true
-  bigquery_default:
-    project: ""
-    dataset: ""
-    location: "US"
-    api_endpoint: ""
-    use_anonymous_credentials: false
+  # The emulator scenario is the only one that can actually connect in a
+  # local/CI run. A real-GCP scenario can be re-added here when credentials
+  # are available.
+

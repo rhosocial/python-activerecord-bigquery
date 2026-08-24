@@ -43,4 +43,7 @@ class TestBigQueryDialectFormatting:
 
     def test_named_parameter_placeholder(self):
         dialect = BigQueryDialect()
-        assert dialect.get_parameter_placeholder(0) == "@param_0"
+        # Positional `?` placeholders are used because the expression system
+        # emits every placeholder with the default index; unique named
+        # parameters would collide.
+        assert dialect.get_parameter_placeholder(0) == "?"

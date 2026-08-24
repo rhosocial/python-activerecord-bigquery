@@ -10,7 +10,14 @@ from .types import BigQueryStruct, BigQueryArray, BigQueryJSON
 class BigQueryStructAdapter(SQLTypeAdapter):
     @property
     def supported_types(self) -> Dict[Type, List[Any]]:
-        return {dict: [str]}
+        return {dict: [dict]}
+
+    def to_database(self, value: Any, target_type: Type, options: Optional[Dict[str, Any]] = None) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return value
+        return value
 
     def to_database(self, value: Any, target_type: Type, options: Optional[Dict[str, Any]] = None) -> Any:
         if value is None:
@@ -28,7 +35,7 @@ class BigQueryStructAdapter(SQLTypeAdapter):
 class BigQueryArrayAdapter(SQLTypeAdapter):
     @property
     def supported_types(self) -> Dict[Type, List[Any]]:
-        return {list: [str]}
+        return {list: [list]}
 
     def to_database(self, value: Any, target_type: Type, options: Optional[Dict[str, Any]] = None) -> Any:
         if value is None:
@@ -46,16 +53,20 @@ class BigQueryArrayAdapter(SQLTypeAdapter):
 class BigQueryJSONAdapter(SQLTypeAdapter):
     @property
     def supported_types(self) -> Dict[Type, List[Any]]:
-        return {dict: [str]}
+        return {dict: [str], list: [str]}
 
     def to_database(self, value: Any, target_type: Type, options: Optional[Dict[str, Any]] = None) -> Any:
         if value is None:
             return None
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
         return value
 
     def from_database(self, value: Any, target_type: Type, options: Optional[Dict[str, Any]] = None) -> Any:
         if value is None:
             return None
+        if isinstance(value, str):
+            return json.loads(value)
         return value
 
 

@@ -1,3 +1,4 @@
+# tests/providers/scenarios.py
 """BigQuery test scenario configuration."""
 import os
 from typing import Dict, Any, Tuple, Type

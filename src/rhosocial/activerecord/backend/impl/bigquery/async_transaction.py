@@ -15,7 +15,15 @@ class AsyncBigQueryTransactionManager:
             yield self
             await self.connection.execute("COMMIT TRANSACTION")
         except Exception:
-            await self.connection.execute("ROLLBACK TRANSACTION")
+            try:
+                await self.connection.execute("ROLLBACK TRANSACTION")
+            except Exception:
+                # The original exception must propagate; a backend that
+                # rejects ROLLBACK (e.g. the emulator) should not mask it.
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Failed to roll back BigQuery transaction", exc_info=True
+                )
             raise
 
     @asynccontextmanager

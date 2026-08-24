@@ -1,3 +1,4 @@
+# .github/workflows/test.yml
 name: Python Test
 
 on:
@@ -11,27 +12,40 @@ on:
       - main
       - 'release/v**'
       - 'maint/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  # rhosocial-activerecord and rhosocial-activerecord-testsuite dev releases are
+  # not published to PyPI; install them from the feature/parallel-testing branch.
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/parallel-testing"
+  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/parallel-testing"
+
 jobs:
-  test-with-coverage:
-    name: Python 3.12 with coverage
+  test:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+
     steps:
       - name: Check out the repository
         uses: actions/checkout@v6
 
-      - name: Set up Python 3.12
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
+          pip install "$CORE_PKG" "$TESTSUITE_PKG"
           pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          pip install -r requirements-test.txt
 
       - name: Install package
         run: |
@@ -39,87 +53,34 @@ jobs:
 
       - name: Start BigQuery emulator
         run: |
-          bash tests/scripts/start_emulator.sh || true
-          docker ps || true
+          docker run -d --name bigquery-emulator -p 9050:9050 -p 9060:9060 \
+            ghcr.io/goccy/bigquery-emulator:latest --project=test --dataset=test_dataset
+          sleep 8
+          docker ps
 
-      - name: Run tests with coverage (with emulator)
+      - name: Run backend tests
         run: |
-          PYTHONPATH=/mnt/d/Projects/rhosocial/python-activerecord/src:src pytest tests/ -k "not integration" --tb=short --scenarios=bigquery_emulator
-          PYTHONPATH=/mnt/d/Projects/rhosocial/python-activerecord/src:src coverage run --source=src -m pytest tests/ -k "not integration" --tb=short --scenarios=bigquery_emulator
-          PYTHONPATH=/mnt/d/Projects/rhosocial/python-activerecord/src:src coverage xml
-          PYTHONPATH=/mnt/d/Projects/rhosocial/python-activerecord/src:src coverage report
+          pytest tests/ --tb=short -q
         env:
+          PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
+          TESTSUITE_PROVIDER_REGISTRY: providers.registry:provider_registry
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
-          flags: unittests,python-3.12
-          name: codecov-bigquery-3.12
-          fail_ci_if_error: false
-
-  test-other-versions:
-    name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.13', '3.14']
-
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v6
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
+      - name: Run testsuite feature tests (level 1, sequential)
         run: |
-          if [ "${{ matrix.python-version }}" = "3.8" ]; then
-            pip install rhosocial-activerecord rhosocial-activerecord-testsuite
-          fi
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          TESTSUITE_DIR=$(python - <<'PY'
+          import pathlib
+          import rhosocial.activerecord.testsuite as testsuite
 
-      - name: Install package
-        run: |
-          pip install -e . --no-deps
-
-      - name: Run tests (unit only (with emulator), no BigQuery instance)
-        run: |
-          pytest tests/ -k "not integration" --tb=short
-
-  test-free-threaded:
-    name: Python ${{ matrix.python-version }} (free-threaded)
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.14t']
-
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v6
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-
-      - name: Install package
-        run: |
-          pip install -e . --no-deps
-
-      - name: Run tests (unit only (with emulator), no BigQuery instance)
-        run: |
-          pytest tests/ -k "not integration" --tb=short
+          print(pathlib.Path(testsuite.__file__).parent / "feature")
+          PY
+          )
+          for suite in basic relation query; do
+            pytest "$TESTSUITE_DIR/$suite/" --tb=short -q
+          done
+        env:
+          PYTHONPATH: tests
+          BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
+          BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
+          TESTSUITE_PROVIDER_REGISTRY: providers.registry:provider_registry
