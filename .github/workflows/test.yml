@@ -60,7 +60,7 @@ jobs:
 
       - name: Run backend tests
         run: |
-          pytest tests/ --tb=short -q
+          pytest tests/ --tb=short -q -o asyncio_mode=auto
         env:
           PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
@@ -77,7 +77,7 @@ jobs:
           PY
           )
           for suite in basic relation query; do
-            pytest "$TESTSUITE_DIR/$suite/" --tb=short -q
+            pytest "$TESTSUITE_DIR/$suite/" --tb=short -q -o asyncio_mode=auto
           done
         env:
           PYTHONPATH: tests
