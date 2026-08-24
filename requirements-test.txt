@@ -4,3 +4,6 @@ pytest-cov>=4.0.0
 rhosocial-activerecord-testsuite
 pytest-timeout>=2.1.0
 pytest-mock>=3.10.0
+pyyaml>=6.0
+email-validator>=2.0
+dnspython>=2.0
