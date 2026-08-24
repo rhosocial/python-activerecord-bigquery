@@ -35,14 +35,25 @@ _MODEL_NAMES = (
 )
 
 _FIXTURE_MODULE_PREFIX = "rhosocial.activerecord.testsuite.feature.query.fixtures"
+import sys
+
+# Only probe fixture modules compatible with the running interpreter;
+# models_py312 uses PEP 695 syntax and would raise SyntaxError on < 3.12.
+_MODNAME_CANDIDATES = ["models"]
+if sys.version_info >= (3, 10):
+    _MODNAME_CANDIDATES.insert(0, "models_py310")
+if sys.version_info >= (3, 11):
+    _MODNAME_CANDIDATES.insert(0, "models_py311")
+if sys.version_info >= (3, 12):
+    _MODNAME_CANDIDATES.insert(0, "models_py312")
 _models_mod = None
-for _modname in ("models_py312", "models_py311", "models_py310", "models"):
+for _modname in _MODNAME_CANDIDATES:
     try:
         _candidate = importlib.import_module(f"{_FIXTURE_MODULE_PREFIX}.{_modname}")
         if all(hasattr(_candidate, n) for n in _MODEL_NAMES):
             _models_mod = _candidate
             break
-    except ImportError as e:
+    except (ImportError, SyntaxError) as e:
         logger.debug("query fixtures module %s unavailable: %s", _modname, e)
 if _models_mod is None:
     _models_mod = importlib.import_module(f"{_FIXTURE_MODULE_PREFIX}.models")
