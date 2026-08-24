@@ -98,6 +98,10 @@ jobs:
               if [ "$suite/$name" = "basic/crud" ]; then
                 extra_args=(-k "not test_transaction_crud")
               fi
+              # BigQuery does not enforce NOT NULL constraints at storage level.
+              if [ "$suite/$name" = "basic/type_adapter" ]; then
+                extra_args=(-k "not test_db_null_with_non_optional_field_raises_error")
+              fi
               pytest "$d" --tb=short -q -o asyncio_mode=auto --confcutdir="$TESTSUITE_DIR/$suite" "${extra_args[@]}"
               rc=$?
               set -e
