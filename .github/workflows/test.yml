@@ -67,8 +67,14 @@ jobs:
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
           TESTSUITE_PROVIDER_REGISTRY: providers.registry:provider_registry
 
-      - name: Run testsuite feature tests (level 1, sequential)
+      - name: Run testsuite feature tests (level 1, sequential, fresh emulator per subdirectory)
         run: |
+          restart_emulator() {
+            docker rm -f bigquery-emulator >/dev/null 2>&1 || true
+            docker run -d --name bigquery-emulator -p 9050:9050 -p 9060:9060 \
+              ghcr.io/goccy/bigquery-emulator:latest --project=test --dataset=test_dataset >/dev/null
+            sleep 8
+          }
           TESTSUITE_DIR=$(python - <<'PY'
           import pathlib
           import rhosocial.activerecord.testsuite as testsuite
@@ -76,8 +82,15 @@ jobs:
           print(pathlib.Path(testsuite.__file__).parent / "feature")
           PY
           )
+          # goccy/bigquery-emulator degrades as jobs/tables accumulate within a
+          # single container, so restart the emulator before each subdirectory.
           for suite in basic relation query; do
-            pytest "$TESTSUITE_DIR/$suite/" --tb=short -q -o asyncio_mode=auto
+            for d in "$TESTSUITE_DIR/$suite"/*/; do
+              [ -d "$d" ] || continue
+              echo "=== $suite/$(basename "$d") (fresh emulator) ==="
+              restart_emulator
+              pytest "$d" --tb=short -q -o asyncio_mode=auto
+            done
           done
         env:
           PYTHONPATH: tests
