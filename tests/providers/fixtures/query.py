@@ -201,3 +201,22 @@ TABLE_EXPRESSIONS: Dict[str, Callable] = {
     "profiles": create_profiles_table,
     "searchable_items": create_searchable_items_table,
 }
+
+
+def create_composite_order_items_table(dataset: str, table_name: str = "order_items") -> str:
+    """DDL for the composite-PK OrderItem model from the basic fixtures.
+
+    The query fixtures' regular ``order_items`` table has a single-column PK
+    and no ``product_id`` column, while the composite-PK model (shared with
+    feature/basic) requires a (order_id, product_id) primary key.
+    """
+    return f"""
+CREATE TABLE {_qualify(dataset, table_name)} (
+    order_id INT64 NOT NULL,
+    product_id INT64 NOT NULL,
+    quantity INT64,
+    unit_price NUMERIC(10, 2),
+    created_at STRING,
+    updated_at STRING,
+    PRIMARY KEY (order_id, product_id) NOT ENFORCED
+)"""

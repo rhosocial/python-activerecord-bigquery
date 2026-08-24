@@ -160,7 +160,12 @@ class BigQueryDialect(
         return False
 
     def supports_explain(self) -> bool:
-        return True
+        # BigQuery has no EXPLAIN statement; query plans are obtained via
+        # dry-run jobs / INFORMATION_SCHEMA instead.
+        return False
+
+    def supports_explain_plan(self) -> bool:
+        return False
 
     def supports_advanced_grouping(self) -> bool:
         return True

@@ -118,13 +118,14 @@ class QuerySyncProvider(QueryProviderBase, IQuerySyncProvider):
 
         backend.execute(sql, options=ExecutionOptions(stmt_type=StatementType.DDL))
 
-    def _reset_table(self, backend, dataset: Optional[str], table_name: str) -> None:
+    def _reset_table(self, backend, dataset: Optional[str], table_name: str,
+                     ddl: Optional[str] = None) -> None:
         qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
         try:
             self._execute_ddl(backend, f"DROP TABLE IF EXISTS {qualified}")
         except Exception:
             pass
-        self._execute_ddl(backend, self._table_ddl(dataset, table_name))
+        self._execute_ddl(backend, ddl or self._table_ddl(dataset, table_name))
         self._created_tables.add(table_name)
 
     def _setup_model(
@@ -218,7 +219,15 @@ class QuerySyncProvider(QueryProviderBase, IQuerySyncProvider):
         from rhosocial.activerecord.testsuite.feature.basic.fixtures.models import (
             OrderItem as CompositeOrderItem,
         )
-        return self._setup_model(CompositeOrderItem, scenario_name, "order_items")
+        from .fixtures.query import create_composite_order_items_table
+        backend_class, config = get_scenario(scenario_name)
+        CompositeOrderItem.configure(config, backend_class)
+        backend_instance = CompositeOrderItem.__backend__
+        self._track_backend(backend_instance, self._active_backends)
+        self._set_schema(CompositeOrderItem, _dataset_of(config))
+        self._reset_table(backend_instance, _dataset_of(config), "order_items",
+                          ddl=create_composite_order_items_table(_dataset_of(config)))
+        return CompositeOrderItem
 
     def cleanup_after_test(self, scenario_name: str):
         for backend_instance in self._active_backends:
@@ -248,13 +257,14 @@ class QueryAsyncProvider(QueryProviderBase, IQueryAsyncProvider):
 
         await backend.execute(sql, options=ExecutionOptions(stmt_type=StatementType.DDL))
 
-    async def _reset_table_async(self, backend, dataset: Optional[str], table_name: str) -> None:
+    async def _reset_table_async(self, backend, dataset: Optional[str], table_name: str,
+                                 ddl: Optional[str] = None) -> None:
         qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
         try:
             await self._execute_ddl_async(backend, f"DROP TABLE IF EXISTS {qualified}")
         except Exception:
             pass
-        await self._execute_ddl_async(backend, self._table_ddl(dataset, table_name))
+        await self._execute_ddl_async(backend, ddl or self._table_ddl(dataset, table_name))
         self._created_tables.add(table_name)
 
     def _configure_async_model(
@@ -395,7 +405,14 @@ class QueryAsyncProvider(QueryProviderBase, IQueryAsyncProvider):
         from rhosocial.activerecord.testsuite.feature.basic.fixtures.models import (
             AsyncOrderItem as AsyncCompositeOrderItem,
         )
-        return await self._setup_async_model(AsyncCompositeOrderItem, scenario_name, "order_items")
+        from .fixtures.query import create_composite_order_items_table
+        _, config = get_scenario(scenario_name)
+        backend = self._configure_async_model(AsyncCompositeOrderItem, config)
+        self._track_backend(backend, self._active_async_backends)
+        await backend.connect()
+        await self._reset_table_async(backend, _dataset_of(config), "order_items",
+                                      ddl=create_composite_order_items_table(_dataset_of(config)))
+        return AsyncCompositeOrderItem
 
     async def cleanup_after_test(self, scenario_name: str):
         for backend_instance in self._active_async_backends:
