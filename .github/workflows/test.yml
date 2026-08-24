@@ -92,7 +92,13 @@ jobs:
               echo "=== $suite/$name (fresh emulator) ==="
               restart_emulator
               set +e
-              pytest "$d" --tb=short -q -o asyncio_mode=auto --confcutdir="$TESTSUITE_DIR/$suite"
+              extra_args=""
+              # The goccy/bigquery-emulator does not support ROLLBACK; these
+              # cases require real BigQuery multi-statement transactions.
+              if [ "$suite/$name" = "basic/crud" ]; then
+                extra_args="-k not test_transaction_crud"
+              fi
+              pytest "$d" --tb=short -q -o asyncio_mode=auto --confcutdir="$TESTSUITE_DIR/$suite" $extra_args
               rc=$?
               set -e
               if [ $rc -eq 5 ]; then
