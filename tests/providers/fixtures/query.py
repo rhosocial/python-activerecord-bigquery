@@ -23,7 +23,7 @@ def _qualify(dataset: str, table_name: str) -> str:
 
 def create_users_table(dataset: str, table_name: str = "users") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     username STRING,
     email STRING,
@@ -38,7 +38,7 @@ CREATE TABLE {_qualify(dataset, table_name)} (
 
 def create_posts_table(dataset: str, table_name: str = "posts") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     user_id INT64,
     title STRING,
@@ -52,7 +52,7 @@ CREATE TABLE {_qualify(dataset, table_name)} (
 
 def create_comments_table(dataset: str, table_name: str = "comments") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     user_id INT64,
     post_id INT64,
@@ -66,7 +66,7 @@ CREATE TABLE {_qualify(dataset, table_name)} (
 
 def create_orders_table(dataset: str, table_name: str = "orders") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     user_id INT64,
     order_number STRING,
@@ -80,7 +80,7 @@ CREATE TABLE {_qualify(dataset, table_name)} (
 
 def create_order_items_table(dataset: str, table_name: str = "order_items") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     order_id INT64,
     product_name STRING,
@@ -95,7 +95,7 @@ CREATE TABLE {_qualify(dataset, table_name)} (
 
 def create_json_users_table(dataset: str, table_name: str = "json_users") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     username STRING,
     email STRING,
@@ -115,7 +115,7 @@ CREATE TABLE {_qualify(dataset, table_name)} (
 
 def create_nodes_table(dataset: str, table_name: str = "nodes") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     name STRING,
     parent_id INT64,
@@ -128,7 +128,7 @@ CREATE TABLE {_qualify(dataset, table_name)} (
 
 def create_extended_orders_table(dataset: str, table_name: str = "extended_orders") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     user_id INT64,
     order_number STRING,
@@ -149,7 +149,7 @@ CREATE TABLE {_qualify(dataset, table_name)} (
 
 def create_extended_order_items_table(dataset: str, table_name: str = "extended_order_items") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     order_id INT64,
     product_name STRING,
@@ -165,7 +165,7 @@ CREATE TABLE {_qualify(dataset, table_name)} (
 
 def create_profiles_table(dataset: str, table_name: str = "profiles") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     user_id INT64,
     bio STRING,
@@ -178,7 +178,7 @@ CREATE TABLE {_qualify(dataset, table_name)} (
 
 def create_searchable_items_table(dataset: str, table_name: str = "searchable_items") -> str:
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     name STRING,
     tags STRING,
@@ -211,7 +211,7 @@ def create_composite_order_items_table(dataset: str, table_name: str = "order_it
     feature/basic) requires a (order_id, product_id) primary key.
     """
     return f"""
-CREATE TABLE {_qualify(dataset, table_name)} (
+CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
     order_id INT64 NOT NULL,
     product_id INT64 NOT NULL,
     quantity INT64,
