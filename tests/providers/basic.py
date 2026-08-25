@@ -168,22 +168,20 @@ class BasicSyncProvider(BasicProviderBase, IBasicSyncProvider):
     def _reset_table_sync(self, model_class: Type[ActiveRecord], table_name: str) -> None:
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
-        from rhosocial.activerecord.backend.expression import DropTableExpression, TableExpression
 
         options = ExecutionOptions(stmt_type=StatementType.DDL)
         backend = model_class.__backend__
         dataset = _dataset_of(backend.config)
+        qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
+        # goccy/bigquery-emulator: avoid DROP+CREATE-per-test (degrades to
+        # multi-second per-statement latency as DDL metadata accumulates).
+        ddl = self._table_ddl(dataset, table_name).replace(
+            "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
+        backend.execute(ddl, options=options)
         try:
-            drop_expr = DropTableExpression(
-                dialect=backend.dialect,
-                table=TableExpression(backend.dialect, table_name, schema_name=dataset),
-                if_exists=True,
-            )
-            backend.execute(*drop_expr.to_sql(), options=options)
+            backend.execute(f"DELETE FROM {qualified}", options=options)
         except Exception:
-            qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
-            backend.execute(f"DROP TABLE IF EXISTS {qualified}", options=options)
-        backend.execute(self._table_ddl(dataset, table_name), options=options)
+            pass
 
     def _initialize_model_schema(self, model_class: Type[ActiveRecord], table_name: str) -> None:
         self._reset_table_sync(model_class, table_name)
@@ -320,22 +318,20 @@ class BasicAsyncProvider(BasicProviderBase, IBasicAsyncProvider):
     async def _reset_table_async(self, model_class: Type[ActiveRecord], table_name: str) -> None:
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
-        from rhosocial.activerecord.backend.expression import DropTableExpression, TableExpression
 
         options = ExecutionOptions(stmt_type=StatementType.DDL)
         backend = model_class.__backend__
         dataset = _dataset_of(backend.config)
+        qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
+        # goccy/bigquery-emulator: avoid DROP+CREATE-per-test (degrades to
+        # multi-second per-statement latency as DDL metadata accumulates).
+        ddl = self._table_ddl(dataset, table_name).replace(
+            "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
+        await backend.execute(ddl, options=options)
         try:
-            drop_expr = DropTableExpression(
-                dialect=backend.dialect,
-                table=TableExpression(backend.dialect, table_name, schema_name=dataset),
-                if_exists=True,
-            )
-            await backend.execute(*drop_expr.to_sql(), options=options)
+            await backend.execute(f"DELETE FROM {qualified}", options=options)
         except Exception:
-            qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
-            await backend.execute(f"DROP TABLE IF EXISTS {qualified}", options=options)
-        await backend.execute(self._table_ddl(dataset, table_name), options=options)
+            pass
 
     async def _initialize_async_model_schema(self, model_class: Type[ActiveRecord], table_name: str):
         await self._reset_table_async(model_class, table_name)

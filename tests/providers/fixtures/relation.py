@@ -20,7 +20,7 @@ def _qualify(dataset: str, table_name: str) -> str:
 
 def create_employees_table(dataset: str, table_name: str = "employees") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     username STRING,
     department_id INT64,
@@ -30,7 +30,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_departments_table(dataset: str, table_name: str = "departments") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     name STRING,
     description STRING,
@@ -40,7 +40,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_authors_table(dataset: str, table_name: str = "authors") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     name STRING,
     PRIMARY KEY (id) NOT ENFORCED
@@ -49,7 +49,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_books_table(dataset: str, table_name: str = "books") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     title STRING,
     author_id INT64,
@@ -59,7 +59,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_chapters_table(dataset: str, table_name: str = "chapters") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     title STRING,
     book_id INT64,
@@ -69,7 +69,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_profiles_table(dataset: str, table_name: str = "profiles") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     bio STRING,
     author_id INT64,
@@ -79,7 +79,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_users_table(dataset: str, table_name: str = "users") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     name STRING,
     email STRING,
@@ -90,7 +90,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_posts_table(dataset: str, table_name: str = "posts") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     title STRING,
     body STRING,
@@ -103,7 +103,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_comments_table(dataset: str, table_name: str = "comments") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     body STRING,
     post_id INT64,
@@ -114,7 +114,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_relation_boundary_owners_table(dataset: str, table_name: str = "relation_boundary_owners") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     name STRING,
     PRIMARY KEY (id) NOT ENFORCED
@@ -123,7 +123,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_relation_boundary_profiles_table(dataset: str, table_name: str = "relation_boundary_profiles") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     bio STRING,
     owner_id INT64,
@@ -133,7 +133,7 @@ CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
 
 def create_relation_boundary_posts_table(dataset: str, table_name: str = "relation_boundary_posts") -> str:
     return f"""
-CREATE OR REPLACE TABLE {_qualify(dataset, table_name)} (
+CREATE TABLE {_qualify(dataset, table_name)} (
     id INT64 NOT NULL,
     title STRING,
     owner_id INT64,

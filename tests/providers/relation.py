@@ -96,11 +96,15 @@ class RelationSyncProvider(RelationProviderBase, IRelationSyncProvider):
         dataset = _dataset_of(backend.config)
         for table_name in table_names:
             qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
+            # goccy/bigquery-emulator: avoid DROP+CREATE-per-test which
+            # degrades per-query latency as DDL metadata accumulates.
+            ddl = self._table_ddl(dataset, table_name).replace(
+                "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
+            self._execute_ddl(backend, ddl)
             try:
-                self._execute_ddl(backend, f"DROP TABLE IF EXISTS {qualified}")
+                self._execute_ddl(backend, f"DELETE FROM {qualified}")
             except Exception:
                 pass
-            self._execute_ddl(backend, self._table_ddl(dataset, table_name))
             self._created_tables.add(table_name)
 
     def _configure_with_shared_backend(self, model_class, config, backend_class, backend, dataset):
@@ -269,11 +273,14 @@ class RelationAsyncProvider(RelationProviderBase, IRelationAsyncProvider):
         dataset = _dataset_of(backend.config)
         for table_name in table_names:
             qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
+            # goccy/bigquery-emulator: avoid DROP+CREATE-per-test (see sync).
+            ddl = self._table_ddl(dataset, table_name).replace(
+                "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
+            await self._execute_ddl_async(backend, ddl)
             try:
-                await self._execute_ddl_async(backend, f"DROP TABLE IF EXISTS {qualified}")
+                await self._execute_ddl_async(backend, f"DELETE FROM {qualified}")
             except Exception:
                 pass
-            await self._execute_ddl_async(backend, self._table_ddl(dataset, table_name))
             self._created_tables.add(table_name)
 
     def _configure_async_model(

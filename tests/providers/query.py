@@ -121,11 +121,19 @@ class QuerySyncProvider(QueryProviderBase, IQuerySyncProvider):
     def _reset_table(self, backend, dataset: Optional[str], table_name: str,
                      ddl: Optional[str] = None) -> None:
         qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
+        # goccy/bigquery-emulator accumulates per-DDL metadata in its backing
+        # sqlite store, so DROP+CREATE-per-test quickly degrades per-query
+        # latency from ~0.3s to several seconds. We instead ensure the table
+        # exists with CREATE TABLE IF NOT EXISTS and reset row contents with
+        # a DELETE, which scales much better while still giving each test a
+        # clean table.
+        ddl_sql = ddl or self._table_ddl(dataset, table_name)
+        safe_ddl = ddl_sql.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
+        self._execute_ddl(backend, safe_ddl)
         try:
-            self._execute_ddl(backend, f"DROP TABLE IF EXISTS {qualified}")
+            self._execute_ddl(backend, f"DELETE FROM {qualified}")
         except Exception:
             pass
-        self._execute_ddl(backend, ddl or self._table_ddl(dataset, table_name))
         self._created_tables.add(table_name)
 
     def _setup_model(
@@ -260,11 +268,15 @@ class QueryAsyncProvider(QueryProviderBase, IQueryAsyncProvider):
     async def _reset_table_async(self, backend, dataset: Optional[str], table_name: str,
                                  ddl: Optional[str] = None) -> None:
         qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
+        # See the sync _reset_table for rationale on avoiding DROP+CREATE per
+        # test against the goccy/bigquery-emulator.
+        ddl_sql = ddl or self._table_ddl(dataset, table_name)
+        safe_ddl = ddl_sql.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
+        await self._execute_ddl_async(backend, safe_ddl)
         try:
-            await self._execute_ddl_async(backend, f"DROP TABLE IF EXISTS {qualified}")
+            await self._execute_ddl_async(backend, f"DELETE FROM {qualified}")
         except Exception:
             pass
-        await self._execute_ddl_async(backend, ddl or self._table_ddl(dataset, table_name))
         self._created_tables.add(table_name)
 
     def _configure_async_model(
