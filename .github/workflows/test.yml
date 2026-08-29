@@ -67,14 +67,19 @@ jobs:
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
           TESTSUITE_PROVIDER_REGISTRY: providers.registry:provider_registry
 
-      - name: Run testsuite feature tests (level 1, sequential, fresh emulator per subdirectory)
+      - name: Run testsuite feature tests (sharded across parallel emulators)
         run: |
-          restart_emulator() {
-            docker rm -f bigquery-emulator >/dev/null 2>&1 || true
-            docker run -d --name bigquery-emulator -p 9050:9050 -p 9060:9060 \
+          # goccy/bigquery-emulator serializes all requests (single-threaded),
+          # so pytest-xdist gives no speedup. Instead we shard the testsuite
+          # subdirectories across SHARDS emulator containers on distinct ports,
+          # each shard being its own sequential pipeline with a fresh emulator
+          # per subdirectory (the emulator degrades as jobs/tables accumulate).
+          SHARDS=4
+          BASE_PORT=9050
+          for i in $(seq 0 $((SHARDS-1))); do
+            docker run -d --name bq-emulator-$i -p $((BASE_PORT+i)):9050 -p $((9060+i)):9060 \
               ghcr.io/goccy/bigquery-emulator:latest --project=test --dataset=test_dataset >/dev/null
-            sleep 4
-          }
+          done
           TESTSUITE_DIR=$(python - <<'PY'
           import pathlib
           import rhosocial.activerecord.testsuite as testsuite
@@ -82,38 +87,80 @@ jobs:
           print(pathlib.Path(testsuite.__file__).parent / "feature")
           PY
           )
-          # goccy/bigquery-emulator degrades as jobs/tables accumulate within a
-          # single container, so restart the emulator before each subdirectory.
+          SUBDIRS=()
           for suite in basic relation query; do
             for d in "$TESTSUITE_DIR/$suite"/*/; do
               [ -d "$d" ] || continue
               name="$(basename "$d")"
-              case "$name" in _*|.*) continue ;; esac
-              echo "=== $suite/$name (fresh emulator) ==="
-              restart_emulator
-              set +e
-              extra_args=()
-              # The goccy/bigquery-emulator does not support ROLLBACK; these
-              # cases require real BigQuery multi-statement transactions.
-              if [ "$suite/$name" = "basic/crud" ]; then
-                extra_args=(-k "not test_transaction_crud")
-              fi
-              # BigQuery does not enforce NOT NULL constraints at storage level.
-              if [ "$suite/$name" = "basic/type_adapter" ]; then
-                extra_args=(-k "not test_db_null_with_non_optional_field_raises_error")
-              fi
-              # Guard each subdirectory with a hard timeout (the emulator can
-              # be slow, but a subdirectory must never hang the whole job).
-              timeout 900 pytest "$d" --tb=short -q -o asyncio_mode=auto --confcutdir="$TESTSUITE_DIR/$suite" "${extra_args[@]}"
-              rc=$?
-              set -e
-              if [ $rc -eq 5 ]; then
-                echo "no tests collected in $suite/$name, skipping"
-              elif [ $rc -ne 0 ]; then
-                exit $rc
-              fi
+              case "$name" in _*|.*|fixtures) continue ;; esac
+              SUBDIRS+=("$suite/$name")
             done
           done
+          # Round-robin shard assignment (SHARD_GROUPS: `GROUPS` is a bash
+          # special array and must not be reused).
+          declare -a SHARD_GROUPS=()
+          for i in $(seq 0 $((SHARDS-1))); do SHARD_GROUPS[$i]=""; done
+          idx=0
+          for sub in "${SUBDIRS[@]}"; do
+            SHARD_GROUPS[$((idx % SHARDS))]="${SHARD_GROUPS[$((idx % SHARDS))]} $sub"
+            idx=$((idx + 1))
+          done
+          pids=()
+          for i in $(seq 0 $((SHARDS-1))); do
+            (
+              port=$((BASE_PORT+i))
+              export BIGQUERY_EMULATOR_PORT=$port
+              restart_emulator() {
+                docker rm -f bq-emulator-$i >/dev/null 2>&1 || true
+                docker run -d --name bq-emulator-$i -p $((BASE_PORT+i)):9050 -p $((9060+i)):9060 \
+                  ghcr.io/goccy/bigquery-emulator:latest --project=test --dataset=test_dataset >/dev/null
+                sleep 4
+              }
+              for sub in ${SHARD_GROUPS[$i]}; do
+                suite="${sub%%/*}"
+                name="${sub#*/}"
+                d="$TESTSUITE_DIR/$suite/$name"
+                echo "=== [shard $i] $sub (fresh emulator) ==="
+                restart_emulator
+                set +e
+                extra_args=()
+                # The goccy/bigquery-emulator does not support ROLLBACK; these
+                # cases require real BigQuery multi-statement transactions.
+                if [ "$sub" = "basic/crud" ]; then
+                  extra_args=(-k "not test_transaction_crud")
+                fi
+                # BigQuery does not enforce NOT NULL constraints at storage level.
+                if [ "$sub" = "basic/type_adapter" ]; then
+                  extra_args=(-k "not test_db_null_with_non_optional_field_raises_error")
+                fi
+                # Each subdirectory gets a hard timeout so it can never hang
+                # the whole job.
+                timeout 900 pytest "$d" --tb=short -q -o asyncio_mode=auto \
+                  --confcutdir="$TESTSUITE_DIR/$suite" "${extra_args[@]}"
+                rc=$?
+                set -e
+                if [ $rc -eq 5 ]; then
+                  echo "no tests collected in $sub, skipping"
+                elif [ $rc -ne 0 ]; then
+                  echo "FAILED shard $i: $sub (rc=$rc)"
+                  exit $rc
+                fi
+              done
+              echo "=== [shard $i] group done ==="
+            ) > /tmp/shard_$i.log 2>&1 &
+            pids+=($!)
+          done
+          failed=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || failed=$((failed+1))
+          done
+          if [ "$failed" -gt 0 ]; then
+            for i in $(seq 0 $((SHARDS-1))); do
+              echo "----- shard $i log tail -----"
+              tail -30 /tmp/shard_$i.log
+            done
+            exit 1
+          fi
         env:
           PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml

@@ -44,7 +44,30 @@ def _load_scenarios_from_config():
         data = yaml.safe_load(f)
     for scenario_name, config in data.get("scenarios", {}).items():
         register_scenario(scenario_name, config)
+    _apply_emulator_port_override()
     _apply_filter()
+
+
+def _apply_emulator_port_override():
+    """Point the emulator scenario at an alternate port (parallel CI shards).
+
+    When multiple emulator containers run on distinct host ports (one per
+    parallel testsuite shard), each pytest process overrides ``api_endpoint``
+    through ``BIGQUERY_EMULATOR_PORT`` so it talks to its own shard's
+    container. Port 9050 is the default used by the committed config.
+    """
+    port = os.getenv("BIGQUERY_EMULATOR_PORT")
+    if not port:
+        return
+    for config in SCENARIO_MAP.values():
+        endpoint = config.get("api_endpoint")
+        if not endpoint:
+            continue
+        from urllib.parse import urlparse, urlunparse
+        parts = urlparse(endpoint)
+        if parts.port is not None:
+            parts = parts._replace(netloc=f"{parts.hostname}:{port}")
+            config["api_endpoint"] = urlunparse(parts)
 
 
 def _apply_filter():
