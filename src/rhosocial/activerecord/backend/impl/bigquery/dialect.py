@@ -141,6 +141,21 @@ class BigQueryDialect(
     def supports_cte(self) -> bool:
         return True
 
+    def supports_basic_cte(self) -> bool:
+        # BigQuery Standard SQL supports WITH clauses (common table
+        # expressions). ``supports_cte`` is the protocol-name alias used by
+        # some code paths; the CTE mixin gates on this method.
+        return True
+
+    def supports_recursive_cte(self) -> bool:
+        # BigQuery supports ``WITH RECURSIVE``.
+        return True
+
+    def supports_materialized_cte(self) -> bool:
+        # BigQuery has no MATERIALIZED hint on CTEs (query caching is
+        # automatic), so this stays False.
+        return False
+
     def supports_window_functions(self) -> bool:
         return True
 
