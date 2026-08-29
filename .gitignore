@@ -72,3 +72,6 @@ coverage.xml
 .mypy_cache/
 .mypy_cache/
 .mypy_cache/
+
+# Claude Code temporary files (local only)
+.claude/plan/
