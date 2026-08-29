@@ -8,14 +8,14 @@ from rhosocial.activerecord.backend.dialect.protocols import (
     QualifyClauseSupport, UpsertSupport, LateralJoinSupport,
     JoinSupport, ViewSupport, SchemaSupport, IndexSupport,
     ConstraintSupport, IntrospectionSupport, TransactionControlSupport,
-    SQLFunctionSupport, JSONSupport,
+    SQLFunctionSupport, JSONSupport, TruncateSupport,
 )
 from rhosocial.activerecord.backend.dialect.mixins import (
     CTEMixin, FilterClauseMixin, WindowFunctionMixin, JSONMixin,
     AdvancedGroupingMixin, ArrayMixin, ExplainMixin, MergeMixin,
     QualifyClauseMixin, UpsertMixin, LateralJoinMixin, JoinMixin,
     ViewMixin, SchemaMixin, IndexMixin, TableMixin, ConstraintMixin,
-    IntrospectionMixin,
+    IntrospectionMixin, TruncateMixin,
     # Core generic mixins (backend-agnostic implementations)
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
     SetOperationMixin, IdentifierMixin, DateTimeMixin,
@@ -38,7 +38,7 @@ class BigQueryDialect(
     AdvancedGroupingMixin, ArrayMixin, ExplainMixin, MergeMixin,
     QualifyClauseMixin, UpsertMixin, LateralJoinMixin, JoinMixin,
     ViewMixin, SchemaMixin, IndexMixin, TableMixin, ConstraintMixin,
-    IntrospectionMixin,
+    IntrospectionMixin, TruncateMixin,
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
     SetOperationMixin, IdentifierMixin, DateTimeMixin,
     DDLColumnMixin, DDLTypeMixin, TransactionControlMixin,
@@ -50,7 +50,7 @@ class BigQueryDialect(
     QualifyClauseSupport, UpsertSupport, LateralJoinSupport,
     JoinSupport, ViewSupport, SchemaSupport, IndexSupport,
     ConstraintSupport, IntrospectionSupport, TransactionControlSupport,
-    SQLFunctionSupport, JSONSupport,
+    SQLFunctionSupport, JSONSupport, TruncateSupport,
     BigQueryStructSupport, BigQueryArraySupport,
     BigQueryJSONSupport, BigQueryGeographySupport,
 ):
@@ -177,6 +177,16 @@ class BigQueryDialect(
         return True
 
     def supports_views(self) -> bool:
+        return True
+
+    def supports_truncate(self) -> bool:
+        # BigQuery supports ``TRUNCATE TABLE`` for fast all-row deletion.
+        # Used by the test providers' per-test table reset instead of a bare
+        # ``DELETE FROM`` (BigQuery Standard SQL requires a WHERE clause on
+        # every DELETE, so ``DELETE FROM t`` is a syntax error here).
+        return True
+
+    def supports_truncate_table_keyword(self) -> bool:
         return True
 
     def supports_introspection(self) -> bool:

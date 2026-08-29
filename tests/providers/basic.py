@@ -108,6 +108,7 @@ from rhosocial.activerecord.testsuite.feature.basic.interfaces import (  # noqa:
 
 from .scenarios import get_enabled_scenarios, get_scenario  # noqa: E402
 from .fixtures.basic import TABLE_EXPRESSIONS  # noqa: E402
+from ._reset import clear_table_candidates, ensure_table_created, ensure_table_created_async  # noqa: E402
 
 
 def _dataset_of(config) -> Optional[str]:
@@ -172,16 +173,25 @@ class BasicSyncProvider(BasicProviderBase, IBasicSyncProvider):
         options = ExecutionOptions(stmt_type=StatementType.DDL)
         backend = model_class.__backend__
         dataset = _dataset_of(backend.config)
-        qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
-        # goccy/bigquery-emulator: avoid DROP+CREATE-per-test (degrades to
-        # multi-second per-statement latency as DDL metadata accumulates).
-        ddl = self._table_ddl(dataset, table_name).replace(
-            "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
-        backend.execute(ddl, options=options)
-        try:
-            backend.execute(f"DELETE FROM {qualified}", options=options)
-        except Exception:
-            pass
+        ddl = self._table_ddl(dataset, table_name)
+        qualified = ensure_table_created(
+            lambda sql: backend.execute(sql, options=options),
+            dataset, table_name, ddl,
+        )
+        cleared = False
+        for sql in clear_table_candidates(backend.dialect, qualified):
+            try:
+                backend.execute(sql, options=options)
+                cleared = True
+                break
+            except Exception:
+                continue
+        if not cleared:
+            try:
+                backend.execute(f"DROP TABLE IF EXISTS {qualified}", options=options)
+            except Exception:
+                pass
+            backend.execute(ddl, options=options)
 
     def _initialize_model_schema(self, model_class: Type[ActiveRecord], table_name: str) -> None:
         self._reset_table_sync(model_class, table_name)
@@ -272,18 +282,11 @@ class BasicSyncProvider(BasicProviderBase, IBasicSyncProvider):
         return self._setup_model(ProductWithColumnAndAdapterModel, scenario_name, "product")
 
     def cleanup_after_test(self, scenario_name: str):
-        from rhosocial.activerecord.backend.options import ExecutionOptions
-        from rhosocial.activerecord.backend.schema import StatementType
-
-        options = ExecutionOptions(stmt_type=StatementType.DDL)
+        # Tables are NOT dropped here: the goccy/bigquery-emulator degrades as
+        # DDL metadata accumulates, so tables are created once per pytest
+        # process and only cleared (TRUNCATE) between tests by
+        # _reset_table_sync. Disconnecting releases the client only.
         for backend_instance in self._active_backends:
-            dataset = _dataset_of(backend_instance.config)
-            for table_name in list(self._created_tables):
-                qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
-                try:
-                    backend_instance.execute(f"DROP TABLE IF EXISTS {qualified}", options=options)
-                except Exception:
-                    pass
             try:
                 backend_instance.disconnect()
             except Exception:
@@ -322,16 +325,28 @@ class BasicAsyncProvider(BasicProviderBase, IBasicAsyncProvider):
         options = ExecutionOptions(stmt_type=StatementType.DDL)
         backend = model_class.__backend__
         dataset = _dataset_of(backend.config)
-        qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
-        # goccy/bigquery-emulator: avoid DROP+CREATE-per-test (degrades to
-        # multi-second per-statement latency as DDL metadata accumulates).
-        ddl = self._table_ddl(dataset, table_name).replace(
-            "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
-        await backend.execute(ddl, options=options)
-        try:
-            await backend.execute(f"DELETE FROM {qualified}", options=options)
-        except Exception:
-            pass
+        ddl = self._table_ddl(dataset, table_name)
+        qualified = await ensure_table_created_async(
+            lambda sql: backend.execute(sql, options=options),
+            dataset, table_name, ddl,
+        )
+        # Clear rows: BigQuery DELETE mandates a WHERE clause, so prefer
+        # TRUNCATE TABLE, fall back to DELETE ... WHERE TRUE; final resort
+        # is DROP+CREATE (see _reset_table_sync for full rationale).
+        cleared = False
+        for sql in clear_table_candidates(backend.dialect, qualified):
+            try:
+                await backend.execute(sql, options=options)
+                cleared = True
+                break
+            except Exception:
+                continue
+        if not cleared:
+            try:
+                await backend.execute(f"DROP TABLE IF EXISTS {qualified}", options=options)
+            except Exception:
+                pass
+            await backend.execute(ddl, options=options)
 
     async def _initialize_async_model_schema(self, model_class: Type[ActiveRecord], table_name: str):
         await self._reset_table_async(model_class, table_name)
@@ -419,18 +434,9 @@ class BasicAsyncProvider(BasicProviderBase, IBasicAsyncProvider):
         return await self._setup_async_model(AsyncProductWithColumnAndAdapterModel, scenario_name, "product")
 
     async def cleanup_after_test(self, scenario_name: str):
-        from rhosocial.activerecord.backend.options import ExecutionOptions
-        from rhosocial.activerecord.backend.schema import StatementType
-
-        options = ExecutionOptions(stmt_type=StatementType.DDL)
+        # Tables are NOT dropped here (see sync cleanup_after_test for the
+        # rationale against per-test DDL against goccy/bigquery-emulator).
         for backend_instance in self._active_async_backends:
-            dataset = _dataset_of(backend_instance.config)
-            for table_name in list(self._created_tables):
-                qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
-                try:
-                    await backend_instance.execute(f"DROP TABLE IF EXISTS {qualified}", options=options)
-                except Exception:
-                    pass
             try:
                 await backend_instance.disconnect()
             except Exception:

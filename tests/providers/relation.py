@@ -50,6 +50,7 @@ from rhosocial.activerecord.testsuite.feature.relation.fixtures.models import (
 
 from .scenarios import get_enabled_scenarios, get_scenario
 from .fixtures.relation import TABLE_EXPRESSIONS
+from ._reset import clear_table_candidates, ensure_table_created, ensure_table_created_async
 
 
 def _dataset_of(config) -> str:
@@ -95,16 +96,28 @@ class RelationSyncProvider(RelationProviderBase, IRelationSyncProvider):
     def _reset_tables(self, backend, table_names):
         dataset = _dataset_of(backend.config)
         for table_name in table_names:
-            qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
-            # goccy/bigquery-emulator: avoid DROP+CREATE-per-test which
-            # degrades per-query latency as DDL metadata accumulates.
-            ddl = self._table_ddl(dataset, table_name).replace(
-                "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
-            self._execute_ddl(backend, ddl)
-            try:
-                self._execute_ddl(backend, f"DELETE FROM {qualified}")
-            except Exception:
-                pass
+            ddl = self._table_ddl(dataset, table_name)
+            qualified = ensure_table_created(
+                lambda sql: self._execute_ddl(backend, sql),
+                dataset, table_name, ddl,
+            )
+            # Clear rows: BigQuery DELETE mandates a WHERE clause, so prefer
+            # TRUNCATE TABLE, fall back to DELETE ... WHERE TRUE; final
+            # resort is DROP+CREATE (recreated from the bare DDL below).
+            cleared = False
+            for sql in clear_table_candidates(backend.dialect, qualified):
+                try:
+                    self._execute_ddl(backend, sql)
+                    cleared = True
+                    break
+                except Exception:
+                    continue
+            if not cleared:
+                try:
+                    self._execute_ddl(backend, f"DROP TABLE IF EXISTS {qualified}")
+                except Exception:
+                    pass
+                self._execute_ddl(backend, ddl)
             self._created_tables.add(table_name)
 
     def _configure_with_shared_backend(self, model_class, config, backend_class, backend, dataset):
@@ -239,18 +252,14 @@ class RelationSyncProvider(RelationProviderBase, IRelationSyncProvider):
         self._sync_relation_boundary_setup = False
 
     def cleanup_after_test(self, scenario_name: str) -> None:
+        # Tables are NOT dropped here: goccy/bigquery-emulator degrades as DDL
+        # metadata accumulates, so tables are created once per pytest process
+        # and only cleared (TRUNCATE) between tests by _reset_tables.
         for backend in self._active_backends:
             try:
-                for table in list(self._created_tables):
-                    try:
-                        self._execute_ddl(backend, f"DROP TABLE IF EXISTS `{_dataset_of(backend.config)}`.`{table}`")
-                    except Exception:
-                        pass
-            finally:
-                try:
-                    backend.disconnect()
-                except Exception:
-                    pass
+                backend.disconnect()
+            except Exception:
+                pass
         self._active_backends.clear()
         self._created_tables.clear()
         self._reset_sync_setup_state()
@@ -272,15 +281,28 @@ class RelationAsyncProvider(RelationProviderBase, IRelationAsyncProvider):
     async def _reset_tables_async(self, backend, table_names):
         dataset = _dataset_of(backend.config)
         for table_name in table_names:
-            qualified = f"`{dataset}`.`{table_name}`" if dataset else f"`{table_name}`"
-            # goccy/bigquery-emulator: avoid DROP+CREATE-per-test (see sync).
-            ddl = self._table_ddl(dataset, table_name).replace(
-                "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
-            await self._execute_ddl_async(backend, ddl)
-            try:
-                await self._execute_ddl_async(backend, f"DELETE FROM {qualified}")
-            except Exception:
-                pass
+            ddl = self._table_ddl(dataset, table_name)
+            qualified = await ensure_table_created_async(
+                lambda sql: self._execute_ddl_async(backend, sql),
+                dataset, table_name, ddl,
+            )
+            # Clear rows: BigQuery DELETE mandates a WHERE clause, so prefer
+            # TRUNCATE TABLE, fall back to DELETE ... WHERE TRUE; final
+            # resort is DROP+CREATE (see _reset_tables for full rationale).
+            cleared = False
+            for sql in clear_table_candidates(backend.dialect, qualified):
+                try:
+                    await self._execute_ddl_async(backend, sql)
+                    cleared = True
+                    break
+                except Exception:
+                    continue
+            if not cleared:
+                try:
+                    await self._execute_ddl_async(backend, f"DROP TABLE IF EXISTS {qualified}")
+                except Exception:
+                    pass
+                await self._execute_ddl_async(backend, ddl)
             self._created_tables.add(table_name)
 
     def _configure_async_model(
@@ -420,20 +442,13 @@ class RelationAsyncProvider(RelationProviderBase, IRelationAsyncProvider):
         self._async_relation_boundary_setup = False
 
     async def cleanup_after_test(self, scenario_name: str):
+        # Tables are NOT dropped here (see sync cleanup_after_test for the
+        # rationale against per-test DDL against goccy/bigquery-emulator).
         for backend in self._active_async_backends:
             try:
-                for table in list(self._created_tables):
-                    try:
-                        await self._execute_ddl_async(
-                            backend, f"DROP TABLE IF EXISTS `{_dataset_of(backend.config)}`.`{table}`"
-                        )
-                    except Exception:
-                        pass
-            finally:
-                try:
-                    await backend.disconnect()
-                except Exception:
-                    pass
+                await backend.disconnect()
+            except Exception:
+                pass
         self._active_async_backends.clear()
         self._created_tables.clear()
         self._reset_async_setup_state()

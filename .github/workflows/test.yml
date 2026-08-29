@@ -55,7 +55,7 @@ jobs:
         run: |
           docker run -d --name bigquery-emulator -p 9050:9050 -p 9060:9060 \
             ghcr.io/goccy/bigquery-emulator:latest --project=test --dataset=test_dataset
-          sleep 8
+          sleep 4
           docker ps
 
       - name: Run backend tests
@@ -73,7 +73,7 @@ jobs:
             docker rm -f bigquery-emulator >/dev/null 2>&1 || true
             docker run -d --name bigquery-emulator -p 9050:9050 -p 9060:9060 \
               ghcr.io/goccy/bigquery-emulator:latest --project=test --dataset=test_dataset >/dev/null
-            sleep 8
+            sleep 4
           }
           TESTSUITE_DIR=$(python - <<'PY'
           import pathlib
@@ -102,7 +102,9 @@ jobs:
               if [ "$suite/$name" = "basic/type_adapter" ]; then
                 extra_args=(-k "not test_db_null_with_non_optional_field_raises_error")
               fi
-              pytest "$d" --tb=short -q -o asyncio_mode=auto --confcutdir="$TESTSUITE_DIR/$suite" "${extra_args[@]}"
+              # Guard each subdirectory with a hard timeout (the emulator can
+              # be slow, but a subdirectory must never hang the whole job).
+              timeout 900 pytest "$d" --tb=short -q -o asyncio_mode=auto --confcutdir="$TESTSUITE_DIR/$suite" "${extra_args[@]}"
               rc=$?
               set -e
               if [ $rc -eq 5 ]; then
@@ -117,3 +119,4 @@ jobs:
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
           TESTSUITE_PROVIDER_REGISTRY: providers.registry:provider_registry
+        timeout-minutes: 60
