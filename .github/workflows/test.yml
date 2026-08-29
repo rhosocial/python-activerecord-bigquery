@@ -91,7 +91,7 @@ jobs:
           # goccy/bigquery-emulator is unreliable for these query
           # subdirectories: individual queries stall past the per-test timeout
           # or error out, so they are excluded from CI coverage.
-          SKIP_SUBDIRS=" query/error_handling query/eager_loading query/optimization query/joins query/range_queries query/samples query/set_operations query/window_functions "
+          SKIP_SUBDIRS=" query/error_handling query/eager_loading query/optimization query/range_queries "
           for suite in basic relation query; do
             for d in "$TESTSUITE_DIR/$suite"/*/; do
               [ -d "$d" ] || continue
@@ -141,6 +141,11 @@ jobs:
                 # BigQuery does not enforce NOT NULL constraints at storage level.
                 if [ "$sub" = "basic/type_adapter" ]; then
                   extra_args=(-k "not test_db_null_with_non_optional_field_raises_error")
+                fi
+                # goccy/bigquery-emulator returns 0 for SUM() OVER on NUMERIC
+                # columns (works for INT64/FLOAT64); the dialect itself is fine.
+                if [ "$sub" = "query/window_functions" ]; then
+                  extra_args=(-k "not test_aggregate_window_functions and not test_unbounded_window_frames")
                 fi
                 # Each subdirectory gets a hard timeout so it can never hang
                 # the whole job.

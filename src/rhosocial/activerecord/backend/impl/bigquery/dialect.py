@@ -144,6 +144,11 @@ class BigQueryDialect(
     def supports_window_functions(self) -> bool:
         return True
 
+    def supports_window_frame_clause(self) -> bool:
+        # BigQuery supports ``ROWS BETWEEN`` / ``RANGE BETWEEN`` (the window
+        # frame clause is part of the OVER clause in standard BigQuery SQL).
+        return True
+
     def supports_json_operations(self) -> bool:
         return True
 
@@ -188,6 +193,53 @@ class BigQueryDialect(
 
     def supports_truncate_table_keyword(self) -> bool:
         return True
+
+    # -- Set operations -----------------------------------------------------
+    # BigQuery Standard SQL supports UNION/INTERSECT/EXCEPT, but each operator
+    # must be followed by ALL or DISTINCT (a bare ``UNION`` is a syntax
+    # error). The generic SetOperationMixin emits a bare ``UNION`` for the
+    # ``all_=False`` case, so the formatter is overridden here.
+
+    def supports_union(self) -> bool:
+        return True
+
+    def supports_union_all(self) -> bool:
+        return True
+
+    def supports_intersect(self) -> bool:
+        return True
+
+    def supports_except(self) -> bool:
+        return True
+
+    def format_set_operation_expression(
+        self, left, right, operation, alias, all_,
+        order_by_clause=None, limit_offset_clause=None, for_update_clause=None,
+    ) -> Tuple[str, tuple]:
+        from rhosocial.activerecord.backend.expression.query_sources import SetOperationExpression
+
+        def _render(expr) -> Tuple[str, list]:
+            sql, params = expr.to_sql()
+            # BigQuery requires chained/mixed set operations to be grouped with
+            # parentheses, e.g. ``(A UNION DISTINCT B) UNION DISTINCT C``.
+            if isinstance(expr, SetOperationExpression):
+                sql = f"({sql})"
+            return sql, list(params)
+
+        left_sql, left_params = _render(left)
+        right_sql, right_params = _render(right)
+        qualifier = " ALL" if all_ else " DISTINCT"
+        base_sql = f"{left_sql} {operation}{qualifier} {right_sql}"
+        all_params = left_params + right_params
+        sql_parts = [base_sql]
+        if alias:
+            sql_parts.append(f"AS {self.format_identifier(alias)}")
+        for clause in (order_by_clause, limit_offset_clause, for_update_clause):
+            if clause:
+                clause_sql, clause_params = clause.to_sql()
+                sql_parts.append(clause_sql)
+                all_params.extend(clause_params)
+        return " ".join(sql_parts), tuple(all_params)
 
     def supports_introspection(self) -> bool:
         return True
