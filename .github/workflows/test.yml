@@ -92,6 +92,10 @@ jobs:
           # subdirectories: individual queries stall past the per-test timeout
           # or error out, so they are excluded from CI coverage.
           SKIP_SUBDIRS=" query/error_handling query/eager_loading query/optimization query/range_queries "
+          # The "Start BigQuery emulator" step above binds host port 9050 via
+          # its own container; drop it so the shard containers can own the
+          # 9050-9053 ports.
+          docker rm -f bigquery-emulator >/dev/null 2>&1 || true
           for suite in basic relation query; do
             for d in "$TESTSUITE_DIR/$suite"/*/; do
               [ -d "$d" ] || continue
