@@ -1,5 +1,5 @@
 """BigQuery SQL dialect implementation."""
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Optional, Tuple
 
 from rhosocial.activerecord.backend.dialect.base import SQLDialectBase
 from rhosocial.activerecord.backend.dialect.protocols import (
@@ -320,3 +320,118 @@ class BigQueryDialect(
             "DATE": "DATE",
             "DECIMAL": "BIGNUMERIC",
         }
+
+    # -- Schema DDL -----------------------------------------------------------
+    # BigQuery qualifies tables with dataset namespaces, but the runtime DDL
+    # surface has no ``CREATE SCHEMA``/``DROP SCHEMA`` statement: datasets are
+    # created via the management API (bq mk / datasets.insert), not SQL. The
+    # renderers below therefore keep only the statement shapes the emulator and
+    # service actually accept and reject the rest.
+
+    def supports_schema_if_not_exists(self) -> bool:
+        # ``CREATE SCHEMA IF NOT EXISTS`` is not BigQuery SQL; the management
+        # API is the only way to create a dataset (idempotently or not).
+        return False
+
+    def supports_schema_if_exists(self) -> bool:
+        return False
+
+    def supports_schema_cascade(self) -> bool:
+        return False
+
+    def supports_schema_authorization(self) -> bool:
+        return False
+
+    def format_create_schema_statement(self, expr: Any) -> Tuple[str, tuple]:
+        if expr.if_not_exists or expr.authorization:
+            raise ValueError(
+                "BigQuery CREATE SCHEMA supports neither IF NOT EXISTS nor "
+                f"AUTHORIZATION (dataset {expr.schema_name!r}); datasets are "
+                "created via the management API."
+            )
+        return f"CREATE SCHEMA {self.format_identifier(expr.schema_name)}", ()
+
+    def format_drop_schema_statement(self, expr: Any) -> Tuple[str, tuple]:
+        if expr.if_exists or expr.cascade:
+            raise ValueError(
+                "BigQuery DROP SCHEMA supports neither IF EXISTS nor CASCADE "
+                f"(dataset {expr.schema_name!r}); datasets are deleted via "
+                "the management API."
+            )
+        return f"DROP SCHEMA {self.format_identifier(expr.schema_name)}", ()
+
+    # -- CREATE TABLE diff (CreateTableExpressionDiffSupport hooks) -----------
+    # The generic ``CreateTableExpressionDiffMixin`` (composed via
+    # ``SQLDialectBase``) provides the diff implementation; the hooks below
+    # adapt the diff to BigQuery's ALTER TABLE vocabulary.
+    #
+    # BigQuery ALTER TABLE facts pinned here:
+    # - ``ALTER TABLE ADD COLUMN`` / ``DROP COLUMN`` / ``RENAME COLUMN`` exist,
+    #   so add/drop column changes stay on the in-place path.
+    # - Column type changes have no ALTER action: ``ALTER COLUMN TYPE`` is not
+    #   BigQuery DDL and even the underlying column type/mode is immutable —
+    #   changing it requires recreating the table. The generic default
+    #   (``_supports_alter_column_type() → False``) is kept.
+    # - ``ALTER COLUMN SET DEFAULT`` is not part of BigQuery's ALTER TABLE
+    #   vocabulary (BigQuery has no column DEFAULT), and nullability can only
+    #   be relaxed (``ALTER COLUMN ... DROP NOT NULL``), never tightened
+    #   (``SET NOT NULL``). The generic mixin emits all four property
+    #   operations or none, so property changes must route to a rebuild plan.
+    # - There are no traditional indexes (only ``CREATE/DROP SEARCH INDEX``),
+    #   so index changes route to a rebuild plan and the ADD/DROP INDEX
+    #   renderers are rejected outright.
+
+    def _supports_alter_column_type(self) -> bool:
+        """BigQuery cannot change a column type in place — type changes
+        rebuild (generic mixin default, kept for self-documentation)."""
+        return False
+
+    def _supports_alter_column_properties(self) -> bool:
+        """No ``ALTER COLUMN SET DEFAULT`` in BigQuery and nullability can
+        only be dropped, never set — property changes rebuild."""
+        return False
+
+    def _supports_alter_table_index_actions(self) -> bool:
+        """BigQuery has no ``ALTER TABLE ADD/DROP INDEX`` (only SEARCH
+        INDEX DDL) — index changes rebuild, carrying the new index set."""
+        return False
+
+    def alter_column_type_action(self, old_col: Any, new_col: Any) -> Any:
+        """Never reachable while ``_supports_alter_column_type()`` is False;
+        kept raising so an accidental flag flip cannot emit BigQuery-invalid
+        type-change DDL."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support in-place column type "
+            f"changes; rebuild the table instead (see RebuildPlan)."
+        )
+
+    def format_add_index_action(self, action: Any) -> Tuple[str, tuple]:
+        """BigQuery has no ``ALTER TABLE ADD INDEX``.
+
+        Raises UnsupportedFeatureError — use ``CREATE SEARCH INDEX`` instead.
+        """
+        from rhosocial.activerecord.backend.dialect.exceptions import (
+            UnsupportedFeatureError,
+        )
+
+        raise UnsupportedFeatureError(
+            self.name,
+            "ALTER TABLE ADD INDEX",
+            suggestion="Use CREATE SEARCH INDEX to create a search index on the table.",
+        )
+
+    def format_drop_index_action(self, action: Any) -> Tuple[str, tuple]:
+        """BigQuery has no ``ALTER TABLE DROP INDEX``.
+
+        Raises UnsupportedFeatureError — use ``DROP SEARCH INDEX ... ON <table>``
+        instead.
+        """
+        from rhosocial.activerecord.backend.dialect.exceptions import (
+            UnsupportedFeatureError,
+        )
+
+        raise UnsupportedFeatureError(
+            self.name,
+            "ALTER TABLE DROP INDEX",
+            suggestion="Use DROP SEARCH INDEX ... ON <table> to remove a search index.",
+        )

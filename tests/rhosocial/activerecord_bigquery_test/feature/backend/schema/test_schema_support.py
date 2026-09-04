@@ -1,4 +1,4 @@
-# tests/rhosocial/activerecord_bigquery_test/feature/backend/test_schema_support.py
+# tests/rhosocial/activerecord_bigquery_test/feature/backend/schema/test_schema_support.py
 """Tests for the SchemaSupport capability declared on the BigQuery dialect.
 
 BigQuery qualifies tables with datasets, so ``supports_schema()`` is True.

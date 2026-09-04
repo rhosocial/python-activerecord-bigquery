@@ -1,4 +1,5 @@
-"""Async backend feature tests."""
+# tests/rhosocial/activerecord_bigquery_test/feature/backend/backend/test_backend_async.py
+"""Async backend feature tests (twin of test_backend.py)."""
 
 
 def test_async_backend_init():

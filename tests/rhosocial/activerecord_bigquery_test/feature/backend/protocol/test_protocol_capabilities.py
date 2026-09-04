@@ -1,4 +1,5 @@
-"""BigQuery backend feature tests - protocol conformance."""
+# tests/rhosocial/activerecord_bigquery_test/feature/backend/protocol/test_protocol_capabilities.py
+"""BigQuery capability protocol tests (complement to test_protocol_conformance.py)."""
 import pytest
 
 from rhosocial.activerecord.backend.impl.bigquery import (

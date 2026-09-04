@@ -1,4 +1,5 @@
-"""Integration tests using BigQuery emulator."""
+# tests/rhosocial/activerecord_bigquery_test/feature/backend/backend/test_integration_scenarios.py
+"""Emulator scenario config loading tests."""
 import pytest
 import os
 

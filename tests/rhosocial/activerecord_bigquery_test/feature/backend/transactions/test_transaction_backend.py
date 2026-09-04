@@ -1,4 +1,5 @@
-"""Transaction feature tests."""
+# tests/rhosocial/activerecord_bigquery_test/feature/backend/transactions/test_transaction_backend.py
+"""Transaction backend tests."""
 
 
 def test_transaction_manager_exists():
