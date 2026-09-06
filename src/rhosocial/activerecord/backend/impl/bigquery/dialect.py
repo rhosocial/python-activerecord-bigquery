@@ -171,7 +171,9 @@ class BigQueryDialect(
         return True
 
     def supports_qualify_clause(self) -> bool:
-        return False
+        # BigQuery natively supports the QUALIFY clause to filter on the
+        # results of window functions.
+        return True
 
     def supports_upsert(self) -> bool:
         return True

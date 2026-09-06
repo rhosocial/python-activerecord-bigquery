@@ -2,10 +2,7 @@
 """BigQuery capability protocol tests (complement to test_protocol_conformance.py)."""
 import pytest
 
-from rhosocial.activerecord.backend.impl.bigquery import (
-    BigQueryBackend, BigQueryConnectionConfig,
-    BigQueryDialect,
-)
+from rhosocial.activerecord.backend.impl.bigquery import BigQueryDialect
 
 
 @pytest.mark.requires_protocol
@@ -34,6 +31,14 @@ class TestBigQueryGeographyProtocol:
     def test_supports_geography_true(self):
         dialect = BigQueryDialect()
         assert dialect.supports_geography() is True
+
+
+@pytest.mark.requires_protocol
+class TestBigQueryQualifyClauseProtocol:
+    def test_supports_qualify_clause_true(self):
+        """BigQuery natively supports the QUALIFY clause."""
+        dialect = BigQueryDialect()
+        assert dialect.supports_qualify_clause() is True
 
 
 @pytest.mark.requires_protocol
