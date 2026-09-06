@@ -34,6 +34,9 @@ dependencies = [
     "google-cloud-bigquery>=3.20.0",
 ]
 
+[project.scripts]
+rhosocial-activerecord-bigquery = "rhosocial.activerecord.backend.impl.bigquery.__main__:main"
+
 [project.optional-dependencies]
 test = [
     "pytest>=7.0.0",
