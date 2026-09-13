@@ -1,5 +1,5 @@
 """BigQuery SQL dialect implementation."""
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from rhosocial.activerecord.backend.dialect.base import SQLDialectBase
 from rhosocial.activerecord.backend.dialect.protocols import (
@@ -59,77 +59,167 @@ class BigQueryDialect(
         self.version = version
 
     # -- DataType formatting -------------------------------------------------
-    # Registry entries driving ``format_data_type()`` (see DDLTypeMixin),
-    # mapping the generic expression-layer types onto BigQuery Standard SQL
-    # column types.
+    # Naming-convention formatters driving ``format_data_type()`` (see
+    # ``DDLTypeMixin``), mapping the generic expression-layer types onto
+    # BigQuery Standard SQL column types.
 
-    from rhosocial.activerecord.backend.dialect.mixins.ddl_type import DDLTypeMixin as _DDLT
-    from rhosocial.activerecord.backend.expression.types import (
-        BigIntType, BlobType, BooleanType, CharType, DateTimeType, DateType,
-        DecimalType, DoubleType, FloatType, IntegerType, JsonBType, JsonType,
-        RealType, SmallIntType, TextType, TimeType, TimeTzType, TimestampType,
-        TimestampTzType, TinyIntType, VarCharType,
-    )
+    def supports_data_type_tinyint(self) -> bool:
+        return True
 
-    @_DDLT.handles(TinyIntType, SmallIntType, IntegerType, BigIntType)
-    def _fmt_int64(self, data_type) -> Tuple[str, tuple]:
+    def format_data_type_tinyint(self, data_type) -> Tuple[str, tuple]:
         return "INT64", ()
 
-    @_DDLT.handles(RealType, FloatType, DoubleType)
-    def _fmt_float64(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_smallint(self) -> bool:
+        return True
+
+    def format_data_type_smallint(self, data_type) -> Tuple[str, tuple]:
+        return "INT64", ()
+
+    def supports_data_type_integer(self) -> bool:
+        return True
+
+    def format_data_type_integer(self, data_type) -> Tuple[str, tuple]:
+        return "INT64", ()
+
+    def supports_data_type_bigint(self) -> bool:
+        return True
+
+    def format_data_type_bigint(self, data_type) -> Tuple[str, tuple]:
+        return "INT64", ()
+
+    def supports_data_type_real(self) -> bool:
+        return True
+
+    def format_data_type_real(self, data_type) -> Tuple[str, tuple]:
         return "FLOAT64", ()
 
-    @_DDLT.handles(DecimalType)
-    def _fmt_numeric(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_float(self) -> bool:
+        return True
+
+    def format_data_type_float(self, data_type) -> Tuple[str, tuple]:
+        return "FLOAT64", ()
+
+    def supports_data_type_double(self) -> bool:
+        return True
+
+    def format_data_type_double(self, data_type) -> Tuple[str, tuple]:
+        return "FLOAT64", ()
+
+    def supports_data_type_decimal(self) -> bool:
+        return True
+
+    def format_data_type_decimal(self, data_type) -> Tuple[str, tuple]:
         if getattr(data_type, "precision", None) is not None:
             scale = getattr(data_type, "scale", 0) or 0
             return f"NUMERIC({data_type.precision}, {scale})", ()
         return "NUMERIC", ()
 
-    @_DDLT.handles(BooleanType)
-    def _fmt_bool(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_boolean(self) -> bool:
+        return True
+
+    def format_data_type_boolean(self, data_type) -> Tuple[str, tuple]:
         return "BOOL", ()
 
-    @_DDLT.handles(CharType)
-    def _fmt_char(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_char(self) -> bool:
+        return True
+
+    def format_data_type_char(self, data_type) -> Tuple[str, tuple]:
         length = getattr(data_type, "length", None)
         return (f"STRING({length})", ()) if length else ("STRING", ())
 
-    @_DDLT.handles(VarCharType)
-    def _fmt_varchar(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_varchar(self) -> bool:
+        return True
+
+    def format_data_type_varchar(self, data_type) -> Tuple[str, tuple]:
         length = getattr(data_type, "length", None)
         return (f"STRING({length})", ()) if length else ("STRING", ())
 
-    @_DDLT.handles(TextType)
-    def _fmt_string(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_text(self) -> bool:
+        return True
+
+    def format_data_type_text(self, data_type) -> Tuple[str, tuple]:
         return "STRING", ()
 
-    @_DDLT.handles(DateType)
-    def _fmt_date(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_date(self) -> bool:
+        return True
+
+    def format_data_type_date(self, data_type) -> Tuple[str, tuple]:
         return "DATE", ()
 
-    @_DDLT.handles(TimeType, TimeTzType)
-    def _fmt_time(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_time(self) -> bool:
+        return True
+
+    def format_data_type_time(self, data_type) -> Tuple[str, tuple]:
         return "TIME", ()
 
-    @_DDLT.handles(DateTimeType)
-    def _fmt_datetime(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_timetz(self) -> bool:
+        return True
+
+    def format_data_type_timetz(self, data_type) -> Tuple[str, tuple]:
+        return "TIME", ()
+
+    def supports_data_type_datetime(self) -> bool:
+        return True
+
+    def format_data_type_datetime(self, data_type) -> Tuple[str, tuple]:
         return "DATETIME", ()
 
-    @_DDLT.handles(TimestampType, TimestampTzType)
-    def _fmt_timestamp(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_timestamp(self) -> bool:
+        return True
+
+    def format_data_type_timestamp(self, data_type) -> Tuple[str, tuple]:
         return "TIMESTAMP", ()
 
-    @_DDLT.handles(BlobType)
-    def _fmt_bytes(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_timestamptz(self) -> bool:
+        return True
+
+    def format_data_type_timestamptz(self, data_type) -> Tuple[str, tuple]:
+        return "TIMESTAMP", ()
+
+    def supports_data_type_blob(self) -> bool:
+        return True
+
+    def format_data_type_blob(self, data_type) -> Tuple[str, tuple]:
         return "BYTES", ()
 
-    @_DDLT.handles(JsonType, JsonBType)
-    def _fmt_json(self, data_type) -> Tuple[str, tuple]:
+    def supports_data_type_json(self) -> bool:
+        return True
+
+    def format_data_type_json(self, data_type) -> Tuple[str, tuple]:
         return "JSON", ()
 
-    def format_identifier(self, identifier: str) -> str:
-        return f"`{identifier}`"
+    def supports_data_type_jsonb(self) -> bool:
+        return True
+
+    def format_data_type_jsonb(self, data_type) -> Tuple[str, tuple]:
+        return "JSON", ()
+
+    def format_identifier(self, identifier: str, need_quote: bool = True) -> str:
+        """Format a BigQuery identifier using backtick quoting.
+
+        Args:
+            identifier: Raw identifier string.
+            need_quote: Whether the identifier needs quoting. When False the
+                identifier is returned unchanged (with a warning if it is a
+                reserved word).
+        """
+        if not need_quote:
+            if self.is_reserved_word(identifier):
+                import warnings
+
+                from rhosocial.activerecord.backend.warnings import (
+                    IdentifierQuotingWarning,
+                )
+
+                warnings.warn(
+                    f"Identifier '{identifier}' is a reserved word in {self.name} "
+                    f"and may cause SQL errors without quoting.",
+                    IdentifierQuotingWarning,
+                    stacklevel=2,
+                )
+            return identifier
+        escaped = identifier.replace("`", "``")
+        return f"`{escaped}`"
 
     def get_parameter_placeholder(self, index: int = 0) -> str:
         # BigQuery supports positional `?` parameters. The expression system
@@ -229,29 +319,26 @@ class BigQueryDialect(
     def supports_except(self) -> bool:
         return True
 
-    def format_set_operation_expression(
-        self, left, right, operation, alias, all_,
-        order_by_clause=None, limit_offset_clause=None, for_update_clause=None,
-    ) -> Tuple[str, tuple]:
+    def format_set_operation_expression(self, expr) -> Tuple[str, tuple]:
         from rhosocial.activerecord.backend.expression.query_sources import SetOperationExpression
 
-        def _render(expr) -> Tuple[str, list]:
-            sql, params = expr.to_sql()
+        def _render(node) -> Tuple[str, list]:
+            sql, params = node.to_sql()
             # BigQuery requires chained/mixed set operations to be grouped with
             # parentheses, e.g. ``(A UNION DISTINCT B) UNION DISTINCT C``.
-            if isinstance(expr, SetOperationExpression):
+            if isinstance(node, SetOperationExpression):
                 sql = f"({sql})"
             return sql, list(params)
 
-        left_sql, left_params = _render(left)
-        right_sql, right_params = _render(right)
-        qualifier = " ALL" if all_ else " DISTINCT"
-        base_sql = f"{left_sql} {operation}{qualifier} {right_sql}"
+        left_sql, left_params = _render(expr.left)
+        right_sql, right_params = _render(expr.right)
+        qualifier = " ALL" if expr.all_ else " DISTINCT"
+        base_sql = f"{left_sql} {expr.operation}{qualifier} {right_sql}"
         all_params = left_params + right_params
         sql_parts = [base_sql]
-        if alias:
-            sql_parts.append(f"AS {self.format_identifier(alias)}")
-        for clause in (order_by_clause, limit_offset_clause, for_update_clause):
+        if expr.alias:
+            sql_parts.append(f"AS {self.format_identifier(expr.alias)}")
+        for clause in (expr.order_by_clause, expr.limit_offset_clause, expr.for_update_clause):
             if clause:
                 clause_sql, clause_params = clause.to_sql()
                 sql_parts.append(clause_sql)
@@ -264,7 +351,7 @@ class BigQueryDialect(
     def supports_returning_clause(self) -> bool:
         return False
 
-    def format_column(self, name, table=None, alias=None, schema_name=None):
+    def format_column(self, expr) -> Tuple[str, tuple]:
         """Column references are never schema-qualified in BigQuery.
 
         BigQuery resolves columns as ``table.column`` (or bare ``column``);
@@ -274,21 +361,22 @@ class BigQueryDialect(
         here. Table references themselves remain schema-qualified via
         :meth:`format_table`.
         """
-        if table:
-            col_sql = f"{self.format_identifier(table)}.{self.format_identifier(name)}"
+        if expr.table:
+            col_sql = (
+                f"{self.format_identifier(expr.table, expr.table_need_quote)}."
+                f"{self.format_identifier(expr.name, expr.name_need_quote)}"
+            )
         else:
-            col_sql = self.format_identifier(name)
-        if alias:
-            return f"{col_sql} AS {self.format_identifier(alias)}", ()
+            col_sql = self.format_identifier(expr.name, expr.name_need_quote)
+        if expr.alias:
+            col_sql = f"{col_sql} AS {self.format_identifier(expr.alias, expr.alias_need_quote)}"
         return col_sql, ()
 
-    def format_wildcard(self, table=None, schema_name=None):
+    def format_wildcard(self, expr) -> Tuple[str, tuple]:
         """Wildcard references in BigQuery use the (2-part) table name only."""
-        if table:
-            wildcard_sql = f"{self.format_identifier(table)}.*"
-        else:
-            wildcard_sql = "*"
-        return wildcard_sql, ()
+        if expr.table:
+            return f"{self.format_identifier(expr.table, expr.table_need_quote)}.*", ()
+        return "*", ()
 
     def supports_returning_insert(self) -> bool:
         # BigQuery has no RETURNING clause on INSERT/UPDATE/DELETE.
@@ -304,13 +392,6 @@ class BigQueryDialect(
         # BigQuery tables have no server-side AUTO_INCREMENT/IDENTITY key
         # generation; the backend fills missing primary keys client-side.
         return False
-
-    def format_limit_offset(self, sql: str, limit: Optional[int] = None, offset: Optional[int] = None) -> str:
-        if limit is not None:
-            sql += f" LIMIT {limit}"
-        if offset is not None:
-            sql += f" OFFSET {offset}"
-        return sql
 
     def get_type_mappings(self) -> Dict[str, Any]:
         return {
