@@ -19,9 +19,9 @@ permissions:
 
 env:
   # rhosocial-activerecord and rhosocial-activerecord-testsuite dev releases are
-  # not published to PyPI; install them from the feature/parallel-testing branch.
-  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/active-record-ddl"
-  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@release/v1.0.0.dev17"
+  # not published to PyPI; install them from the feature/parameter-inline branch.
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/parameter-inline"
+  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/activerecord-derived-ddl"
 
 jobs:
   test:
