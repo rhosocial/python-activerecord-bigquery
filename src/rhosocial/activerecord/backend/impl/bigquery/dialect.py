@@ -18,7 +18,7 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     IntrospectionMixin, TruncateMixin,
     # Core generic mixins (backend-agnostic implementations)
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
-    SetOperationMixin, IdentifierMixin, DateTimeMixin,
+    SetOperationMixin, DateTimeMixin,
     DDLColumnMixin, DDLTypeMixin, TransactionControlMixin,
     CollationMixin,
 )
@@ -40,7 +40,7 @@ class BigQueryDialect(
     ViewMixin, SchemaMixin, IndexMixin, TableMixin, ConstraintMixin,
     IntrospectionMixin, TruncateMixin,
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
-    SetOperationMixin, IdentifierMixin, DateTimeMixin,
+    SetOperationMixin, DateTimeMixin,
     DDLColumnMixin, DDLTypeMixin, TransactionControlMixin,
     CollationMixin,
     BigQueryStructMixin, BigQueryArrayMixin,
