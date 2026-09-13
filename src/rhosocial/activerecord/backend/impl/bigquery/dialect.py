@@ -221,12 +221,6 @@ class BigQueryDialect(
         escaped = identifier.replace("`", "``")
         return f"`{escaped}`"
 
-    def get_parameter_placeholder(self, index: int = 0) -> str:
-        # BigQuery supports positional `?` parameters. The expression system
-        # always emits placeholders with the default index, so named
-        # `@param_N` placeholders would collide; positional is the only
-        # safe choice here.
-        return "?"
 
     def supports_cte(self) -> bool:
         return True
@@ -241,10 +235,6 @@ class BigQueryDialect(
         # BigQuery supports ``WITH RECURSIVE``.
         return True
 
-    def supports_materialized_cte(self) -> bool:
-        # BigQuery has no MATERIALIZED hint on CTEs (query caching is
-        # automatic), so this stays False.
-        return False
 
     def supports_window_functions(self) -> bool:
         return True
@@ -268,8 +258,6 @@ class BigQueryDialect(
     def supports_upsert(self) -> bool:
         return True
 
-    def supports_lateral_join(self) -> bool:
-        return False
 
     def supports_explain(self) -> bool:
         # BigQuery has no EXPLAIN statement; query plans are obtained via
@@ -291,12 +279,6 @@ class BigQueryDialect(
     def supports_views(self) -> bool:
         return True
 
-    def supports_truncate(self) -> bool:
-        # BigQuery supports ``TRUNCATE TABLE`` for fast all-row deletion.
-        # Used by the test providers' per-test table reset instead of a bare
-        # ``DELETE FROM`` (BigQuery Standard SQL requires a WHERE clause on
-        # every DELETE, so ``DELETE FROM t`` is a syntax error here).
-        return True
 
     def supports_truncate_table_keyword(self) -> bool:
         return True
@@ -348,8 +330,6 @@ class BigQueryDialect(
     def supports_introspection(self) -> bool:
         return True
 
-    def supports_returning_clause(self) -> bool:
-        return False
 
     def format_column(self, expr) -> Tuple[str, tuple]:
         """Column references are never schema-qualified in BigQuery.
@@ -378,15 +358,8 @@ class BigQueryDialect(
             return f"{self.format_identifier(expr.table, expr.table_need_quote)}.*", ()
         return "*", ()
 
-    def supports_returning_insert(self) -> bool:
-        # BigQuery has no RETURNING clause on INSERT/UPDATE/DELETE.
-        return False
 
-    def supports_returning_update(self) -> bool:
-        return False
 
-    def supports_returning_delete(self) -> bool:
-        return False
 
     def supports_auto_increment(self) -> bool:
         # BigQuery tables have no server-side AUTO_INCREMENT/IDENTITY key
@@ -411,19 +384,9 @@ class BigQueryDialect(
     # renderers below therefore keep only the statement shapes the emulator and
     # service actually accept and reject the rest.
 
-    def supports_schema_if_not_exists(self) -> bool:
-        # ``CREATE SCHEMA IF NOT EXISTS`` is not BigQuery SQL; the management
-        # API is the only way to create a dataset (idempotently or not).
-        return False
 
-    def supports_schema_if_exists(self) -> bool:
-        return False
 
-    def supports_schema_cascade(self) -> bool:
-        return False
 
-    def supports_schema_authorization(self) -> bool:
-        return False
 
     def format_create_schema_statement(self, expr: Any) -> Tuple[str, tuple]:
         if expr.if_not_exists or expr.authorization:
