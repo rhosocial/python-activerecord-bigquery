@@ -73,6 +73,10 @@ class BigQueryDialect(
         super().__init__(**kwargs)
         self.version = version
 
+    def get_parameter_placeholder(self, position: int = 0) -> str:
+        """BigQuery Standard SQL uses ``?`` positional bind markers."""
+        return "?"
+
     def get_type_mappings(self) -> Dict[str, Any]:
         return {
             "INTEGER": "INT64",
