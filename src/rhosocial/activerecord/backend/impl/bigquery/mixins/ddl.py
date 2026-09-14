@@ -1,8 +1,13 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/ddl.py
 """BigQuery DDL column/index mixin."""
-from typing import Any, Tuple
+from __future__ import annotations
+
+from typing import Any, Tuple, TYPE_CHECKING
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+
+if TYPE_CHECKING:
+    from rhosocial.activerecord.backend.expression.statements.ddl_alter import AddIndex, DropIndex
 
 
 class BigQueryDDLColumnMixin:
@@ -12,7 +17,7 @@ class BigQueryDDLColumnMixin:
     via ALTER TABLE.
     """
 
-    def format_add_index_action(self, action: Any) -> Tuple[str, tuple]:
+    def format_add_index_action(self, action: AddIndex) -> Tuple[str, tuple]:
         """BigQuery has no ALTER TABLE ADD INDEX."""
         raise UnsupportedFeatureError(
             self.name,
@@ -20,7 +25,7 @@ class BigQueryDDLColumnMixin:
             suggestion="Use CREATE SEARCH INDEX to create a search index on the table.",
         )
 
-    def format_drop_index_action(self, action: Any) -> Tuple[str, tuple]:
+    def format_drop_index_action(self, action: DropIndex) -> Tuple[str, tuple]:
         """BigQuery has no ALTER TABLE DROP INDEX."""
         raise UnsupportedFeatureError(
             self.name,

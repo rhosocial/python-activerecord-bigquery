@@ -1,6 +1,14 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/schema.py
 """BigQuery schema (dataset) DDL mixin."""
-from typing import Any, Tuple
+from __future__ import annotations
+
+from typing import Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rhosocial.activerecord.backend.expression.statements.ddl_schema import (
+        CreateSchemaExpression,
+        DropSchemaExpression,
+    )
 
 
 class BigQuerySchemaMixin:
@@ -20,7 +28,7 @@ class BigQuerySchemaMixin:
     def supports_schema_if_exists(self) -> bool:
         return False
 
-    def format_create_schema_statement(self, expr: Any) -> Tuple[str, tuple]:
+    def format_create_schema_statement(self, expr: CreateSchemaExpression) -> Tuple[str, tuple]:
         if expr.if_not_exists or expr.authorization:
             raise ValueError(
                 "BigQuery CREATE SCHEMA supports neither IF NOT EXISTS nor "
@@ -29,7 +37,7 @@ class BigQuerySchemaMixin:
             )
         return f"CREATE SCHEMA {self.format_identifier(expr.schema_name)}", ()
 
-    def format_drop_schema_statement(self, expr: Any) -> Tuple[str, tuple]:
+    def format_drop_schema_statement(self, expr: DropSchemaExpression) -> Tuple[str, tuple]:
         if expr.if_exists or expr.cascade:
             raise ValueError(
                 "BigQuery DROP SCHEMA supports neither IF EXISTS nor CASCADE "

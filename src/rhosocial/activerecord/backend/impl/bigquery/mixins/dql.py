@@ -1,14 +1,19 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/dql.py
 """BigQuery DQL (Data Query Language) mixin."""
+from __future__ import annotations
+
 from typing import Tuple, TYPE_CHECKING
 
 from rhosocial.activerecord.backend.expression.query_sources import SetOperationExpression
+
+if TYPE_CHECKING:
+    from rhosocial.activerecord.backend.expression.core import Column, WildcardExpression
 
 
 class BigQueryDQLMixin:
     """BigQuery DQL formatting overrides."""
 
-    def format_set_operation_expression(self, expr) -> Tuple[str, tuple]:
+    def format_set_operation_expression(self, expr: SetOperationExpression) -> Tuple[str, tuple]:
         def _render(node) -> Tuple[str, list]:
             sql, params = node.to_sql()
             if isinstance(node, SetOperationExpression):
@@ -30,7 +35,7 @@ class BigQueryDQLMixin:
                 all_params.extend(clause_params)
         return " ".join(sql_parts), tuple(all_params)
 
-    def format_column(self, expr) -> Tuple[str, tuple]:
+    def format_column(self, expr: Column) -> Tuple[str, tuple]:
         """Column references are never schema-qualified in BigQuery."""
         if expr.table:
             col_sql = (
@@ -43,7 +48,7 @@ class BigQueryDQLMixin:
             col_sql = f"{col_sql} AS {self.format_identifier(expr.alias, expr.alias_need_quote)}"
         return col_sql, ()
 
-    def format_wildcard(self, expr) -> Tuple[str, tuple]:
+    def format_wildcard(self, expr: WildcardExpression) -> Tuple[str, tuple]:
         """Wildcard references in BigQuery use the (2-part) table name only."""
         if expr.table:
             return f"{self.format_identifier(expr.table, expr.table_need_quote)}.*", ()
