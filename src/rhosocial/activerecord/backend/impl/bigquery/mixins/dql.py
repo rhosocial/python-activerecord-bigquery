@@ -28,12 +28,28 @@ class BigQueryDQLMixin:
         sql_parts = [base_sql]
         if expr.alias:
             sql_parts.append(f"AS {self.format_identifier(expr.alias)}")
-        for clause in (expr.order_by_clause, expr.limit_offset_clause, expr.for_update_clause):
+        if expr.for_update_clause:
+            from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+
+            raise UnsupportedFeatureError(
+                self.name,
+                "FOR UPDATE in set operations",
+                "BigQuery does not support FOR UPDATE in a set operation.",
+            )
+        for clause in (expr.order_by_clause, expr.limit_offset_clause):
             if clause:
                 clause_sql, clause_params = clause.to_sql()
                 sql_parts.append(clause_sql)
                 all_params.extend(clause_params)
         return " ".join(sql_parts), tuple(all_params)
+
+    def supports_fetch_with_ties(self) -> bool:
+        """BigQuery does not support FETCH ... WITH TIES."""
+        return False
+
+    def supports_nulls_first_last(self) -> bool:
+        """BigQuery does not support explicit NULLS FIRST/LAST ordering."""
+        return False
 
     def format_column(self, expr: Column) -> Tuple[str, tuple]:
         """Column references are never schema-qualified in BigQuery."""
