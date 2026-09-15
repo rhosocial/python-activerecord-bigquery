@@ -90,14 +90,14 @@ class BigQueryDialect(
 
     # -- CREATE TABLE diff (CreateTableExpressionDiffSupport hooks) -----------
 
-    def _supports_alter_column_type(self) -> bool:
+    def supports_alter_column_type(self) -> bool:
         """BigQuery cannot change a column type in place."""
         return False
 
-    def _supports_alter_column_properties(self) -> bool:
+    def supports_alter_column_properties(self) -> bool:
         """No ALTER COLUMN SET DEFAULT in BigQuery."""
         return False
 
-    def _supports_alter_table_index_actions(self) -> bool:
+    def supports_alter_table_index_actions(self) -> bool:
         """BigQuery has no ALTER TABLE ADD/DROP INDEX."""
         return False

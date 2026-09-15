@@ -34,7 +34,7 @@ class BigQueryDDLColumnMixin:
         )
 
     def alter_column_type_action(self, old_col: Any, new_col: Any) -> Any:
-        """Never reachable while _supports_alter_column_type() is False."""
+        """Never reachable while supports_alter_column_type() is False."""
         raise NotImplementedError(
             f"{type(self).__name__} does not support in-place column type "
             f"changes; rebuild the table instead (see RebuildPlan)."
