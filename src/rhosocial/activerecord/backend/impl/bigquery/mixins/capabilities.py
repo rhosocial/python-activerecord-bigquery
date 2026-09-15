@@ -50,6 +50,14 @@ class BigQueryCapabilityMixin:
     def supports_views(self) -> bool:
         return True
 
+    def supports_create_or_replace_view(self) -> bool:
+        """BigQuery supports CREATE OR REPLACE VIEW."""
+        return True
+
+    def supports_if_not_exists_view(self) -> bool:
+        """BigQuery does not support IF NOT EXISTS for views."""
+        return False
+
     def supports_truncate_table_keyword(self) -> bool:
         return True
 
