@@ -13,7 +13,7 @@ from rhosocial.activerecord.backend.dialect.protocols import (
 from rhosocial.activerecord.backend.dialect.mixins import (
     CTEMixin, FilterClauseMixin, WindowFunctionMixin, JSONMixin,
     AdvancedGroupingMixin, ArrayMixin, ExplainMixin, MergeMixin,
-    QualifyClauseMixin, UpsertMixin, ReturningMixin, LateralJoinMixin, JoinMixin,
+    QualifyClauseMixin, UpsertMixin, LateralJoinMixin, JoinMixin,
     ViewMixin, SchemaMixin, IndexMixin, TableMixin, ConstraintMixin,
     IntrospectionMixin, TruncateMixin,
     # Core generic mixins (backend-agnostic implementations)
@@ -51,7 +51,7 @@ class BigQueryDialect(
     # Generic mixins
     CTEMixin, FilterClauseMixin, WindowFunctionMixin, JSONMixin,
     AdvancedGroupingMixin, ArrayMixin, ExplainMixin, MergeMixin,
-    QualifyClauseMixin, UpsertMixin, ReturningMixin, LateralJoinMixin, JoinMixin,
+    QualifyClauseMixin, UpsertMixin, LateralJoinMixin, JoinMixin,
     ViewMixin, SchemaMixin, IndexMixin, TableMixin, ConstraintMixin,
     IntrospectionMixin, TruncateMixin,
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
