@@ -71,5 +71,13 @@ class BigQueryCapabilityMixin:
     def supports_auto_increment(self) -> bool:
         return False
 
+    def supports_create_table_like(self) -> bool:
+        """BigQuery supports CREATE TABLE ... LIKE (metadata copy)."""
+        return True
+
+    def supports_create_table_clone(self) -> bool:
+        """BigQuery supports CREATE TABLE ... CLONE / COPY."""
+        return True
+
 
 __all__ = ['BigQueryCapabilityMixin']
