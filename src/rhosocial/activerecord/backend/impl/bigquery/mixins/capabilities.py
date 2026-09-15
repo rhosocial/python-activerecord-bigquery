@@ -83,5 +83,25 @@ class BigQueryCapabilityMixin:
         """BigQuery supports CREATE OR REPLACE TABLE."""
         return True
 
+    def supports_add_column_if_not_exists(self) -> bool:
+        """BigQuery supports ALTER TABLE ADD COLUMN IF NOT EXISTS."""
+        return True
+
+    def supports_drop_column_if_exists(self) -> bool:
+        """BigQuery supports ALTER TABLE DROP COLUMN IF EXISTS."""
+        return True
+
+    def supports_if_exists_table(self) -> bool:
+        """BigQuery supports DROP TABLE IF EXISTS."""
+        return True
+
+    def supports_drop_table_cascade(self) -> bool:
+        """BigQuery does not support CASCADE for DROP TABLE."""
+        return False
+
+    def supports_drop_table_restrict(self) -> bool:
+        """BigQuery does not support RESTRICT for DROP TABLE."""
+        return False
+
 
 __all__ = ['BigQueryCapabilityMixin']
