@@ -32,21 +32,36 @@ class TestBigQueryViewCapabilityGating:
         dialect = BigQueryDialect()
         assert dialect.supports_if_exists_view() is False
 
-    def test_materialized_view_supported(self):
-        """BigQuery supports materialized views."""
+    def test_materialized_view_not_supported(self):
+        """BigQuery does not support materialized views via CREATE MATERIALIZED VIEW."""
         dialect = BigQueryDialect()
-        assert dialect.supports_materialized_view() is True
+        assert dialect.supports_materialized_view() is False
 
 
 class TestBigQuerySchemaCapabilityGating:
     """Tests for BigQuery SCHEMA DDL capability gating."""
 
-    def test_create_schema_not_supported(self):
-        """BigQuery does not support CREATE SCHEMA (uses datasets)."""
+    def test_create_schema_supported(self):
+        """BigQuery supports CREATE SCHEMA (CREATE DATASET)."""
         dialect = BigQueryDialect()
-        assert dialect.supports_create_schema() is False
+        assert dialect.supports_create_schema() is True
 
-    def test_drop_schema_not_supported(self):
-        """BigQuery does not support DROP SCHEMA."""
+    def test_drop_schema_supported(self):
+        """BigQuery supports DROP SCHEMA (DROP DATASET)."""
         dialect = BigQueryDialect()
-        assert dialect.supports_drop_schema() is False
+        assert dialect.supports_drop_schema() is True
+
+    def test_schema_if_not_exists_supported(self):
+        """BigQuery supports CREATE SCHEMA IF NOT EXISTS."""
+        dialect = BigQueryDialect()
+        assert dialect.supports_schema_if_not_exists() is True
+
+    def test_schema_if_exists_supported(self):
+        """BigQuery supports DROP SCHEMA IF EXISTS."""
+        dialect = BigQueryDialect()
+        assert dialect.supports_schema_if_exists() is True
+
+    def test_schema_cascade_not_supported(self):
+        """BigQuery does not support DROP SCHEMA CASCADE."""
+        dialect = BigQueryDialect()
+        assert dialect.supports_schema_cascade() is False

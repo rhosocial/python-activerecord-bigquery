@@ -20,8 +20,8 @@ class TestSchemaCapability:
     def test_implements_schema_support_protocol(self):
         assert isinstance(self._dialect(), SchemaSupport)
 
-    def test_granular_ddl_flags_currently_false(self):
-        """Documents current state until CREATE/DROP SCHEMA DDL is wired up."""
+    def test_granular_ddl_flags_currently_true(self):
+        """BigQuery supports CREATE/DROP SCHEMA (dataset DDL)."""
         d = self._dialect()
-        assert d.supports_create_schema() is False
-        assert d.supports_drop_schema() is False
+        assert d.supports_create_schema() is True
+        assert d.supports_drop_schema() is True
