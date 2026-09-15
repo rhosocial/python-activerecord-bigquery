@@ -12,6 +12,8 @@ from rhosocial.activerecord.backend.expression import (
     CreateTableLikeExpression,
     CreateTableCloneExpression,
     CreateTableCloneMode,
+    CreateTableOptions,
+    CreateTableExpression,
 )
 
 
@@ -43,3 +45,13 @@ class TestBigQueryCreateTableFamily:
         ).to_sql()
         assert sql == "CREATE TABLE `copy_t` COPY `src`"
         assert params == ()
+
+    def test_create_or_replace(self, dialect):
+        expr = CreateTableExpression(
+            dialect,
+            table="t",
+            columns=[],
+            table_options=CreateTableOptions(dialect, or_replace=True),
+        )
+        sql, _ = expr.to_sql()
+        assert sql.startswith("CREATE OR REPLACE TABLE")

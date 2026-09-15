@@ -79,5 +79,9 @@ class BigQueryCapabilityMixin:
         """BigQuery supports CREATE TABLE ... CLONE / COPY."""
         return True
 
+    def supports_create_or_replace_table(self) -> bool:
+        """BigQuery supports CREATE OR REPLACE TABLE."""
+        return True
+
 
 __all__ = ['BigQueryCapabilityMixin']
