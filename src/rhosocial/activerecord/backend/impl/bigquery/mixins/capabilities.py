@@ -79,6 +79,18 @@ class BigQueryCapabilityMixin:
     def supports_auto_increment(self) -> bool:
         return False
 
+    def supports_generated_columns(self) -> bool:
+        """BigQuery supports GENERATED ALWAYS AS columns."""
+        return True
+
+    def supports_stored_generated_columns(self) -> bool:
+        """BigQuery generated columns are always stored."""
+        return True
+
+    def supports_virtual_generated_columns(self) -> bool:
+        """BigQuery does not support VIRTUAL generated columns."""
+        return False
+
     def supports_create_table_like(self) -> bool:
         """BigQuery supports CREATE TABLE ... LIKE (metadata copy)."""
         return True
