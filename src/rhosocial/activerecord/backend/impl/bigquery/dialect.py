@@ -11,9 +11,9 @@ from rhosocial.activerecord.backend.dialect.protocols import (
     SQLFunctionSupport, JSONSupport, TruncateSupport,
 )
 from rhosocial.activerecord.backend.dialect.mixins import (
-    CTEMixin, FilterClauseMixin, WindowFunctionMixin, JSONMixin,
-    AdvancedGroupingMixin, ArrayMixin, ExplainMixin, MergeMixin,
-    QualifyClauseMixin, UpsertMixin, LateralJoinMixin, JoinMixin,
+    CTEMixin, WindowFunctionMixin, JSONMixin,
+    ArrayMixin, ExplainMixin, MergeMixin,
+    UpsertMixin, LateralJoinMixin, JoinMixin,
     ViewMixin, SchemaMixin, IndexMixin, TableMixin, ConstraintMixin,
     IntrospectionMixin, TruncateMixin,
     # Core generic mixins (backend-agnostic implementations)
@@ -49,9 +49,9 @@ class BigQueryDialect(
     BigQueryIdentifierMixin,
     SQLDialectBase,
     # Generic mixins
-    CTEMixin, FilterClauseMixin, WindowFunctionMixin, JSONMixin,
-    AdvancedGroupingMixin, ArrayMixin, ExplainMixin, MergeMixin,
-    QualifyClauseMixin, UpsertMixin, LateralJoinMixin, JoinMixin,
+    CTEMixin, WindowFunctionMixin, JSONMixin,
+    ArrayMixin, ExplainMixin, MergeMixin,
+    UpsertMixin, LateralJoinMixin, JoinMixin,
     ViewMixin, SchemaMixin, IndexMixin, TableMixin, ConstraintMixin,
     IntrospectionMixin, TruncateMixin,
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
