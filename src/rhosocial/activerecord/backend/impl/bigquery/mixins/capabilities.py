@@ -77,7 +77,8 @@ class BigQueryCapabilityMixin:
         return True
 
     def supports_auto_increment(self) -> bool:
-        return False
+        """BigQuery supports ``GENERATED ... AS IDENTITY`` columns."""
+        return True
 
     def supports_generated_columns(self) -> bool:
         """BigQuery supports GENERATED ALWAYS AS columns."""
