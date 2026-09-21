@@ -17,6 +17,19 @@ class BigQueryDDLColumnMixin:
     via ALTER TABLE.
     """
 
+    def format_column_attribute(self, attr: Any) -> Tuple[str, tuple]:
+        """Render a column attribute with BigQuery syntax.
+
+        BigQuery requires the collation specification to be a quoted STRING
+        literal (``STRING COLLATE 'und:ci'``), not a bare identifier.
+        """
+        from rhosocial.activerecord.base.ddl.attributes import CollationAttribute
+
+        if isinstance(attr, CollationAttribute):
+            escaped = attr.name.replace("'", "''")
+            return f" COLLATE '{escaped}'", ()
+        return super().format_column_attribute(attr)
+
     def format_add_index_action(self, action: AddIndex) -> Tuple[str, tuple]:
         """BigQuery has no ALTER TABLE ADD INDEX."""
         raise UnsupportedFeatureError(
