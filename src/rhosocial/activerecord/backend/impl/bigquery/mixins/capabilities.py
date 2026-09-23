@@ -1,12 +1,31 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/capabilities.py
 """BigQuery capability detection mixin."""
 
+from typing import Tuple
+
 
 class BigQueryCapabilityMixin:
     """BigQuery capability detection.
 
     Aggregated capability checks for BigQuery features.
     """
+
+    def supports_table_comment(self) -> bool:
+        """Whether an inline table comment is supported.
+
+        BigQuery has no ``COMMENT`` keyword; a table comment is carried by the
+        table's ``OPTIONS(description='...')`` clause.
+        """
+        return True
+
+    def format_table_comment(self, comment: str) -> Tuple[str, tuple]:
+        """Render a table comment as ``OPTIONS(description='...')``.
+
+        The generic ``TableMixin.format_table_comment_clause`` adds the leading
+        space and appends the fragment after the column list.
+        """
+        escaped = self._escape_sql_string(comment)
+        return f"OPTIONS(description='{escaped}')", ()
 
     def supports_cte(self) -> bool:
         return True

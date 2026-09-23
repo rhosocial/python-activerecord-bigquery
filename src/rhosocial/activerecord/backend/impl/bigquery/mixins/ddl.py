@@ -17,6 +17,23 @@ class BigQueryDDLColumnMixin:
     via ALTER TABLE.
     """
 
+    def supports_column_comment(self) -> bool:
+        """Whether an inline column comment is supported.
+
+        BigQuery has no ``COMMENT`` keyword; a column comment is carried by
+        the column's ``OPTIONS(description='...')`` clause.
+        """
+        return True
+
+    def format_column_comment_clause(self, clause: Any) -> Tuple[str, tuple]:
+        """Render a column comment as ``OPTIONS(description='...')``.
+
+        Returns the fragment with a leading space so it composes directly
+        after the column definition.
+        """
+        escaped = self._escape_sql_string(clause.comment)
+        return f" OPTIONS(description='{escaped}')", ()
+
     def format_column_attribute(self, attr: Any) -> Tuple[str, tuple]:
         """Render a column attribute with BigQuery syntax.
 
