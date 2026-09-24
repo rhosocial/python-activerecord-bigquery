@@ -1,12 +1,23 @@
 """Protocol conformance tests for BigQuery backend."""
-import pytest
 
+from rhosocial.activerecord.backend.dialect import (
+    DomainSupport,
+    UserDefinedTypeSupport,
+)
 from rhosocial.activerecord.backend.impl.bigquery import (
     BigQueryStructSupport,
     BigQueryArraySupport,
     BigQueryJSONSupport,
     BigQueryGeographySupport,
 )
+from rhosocial.activerecord.backend.impl.bigquery import protocols as bigquery_protocols
+
+
+def test_bigquery_protocol_exports_match_protocol_definitions() -> None:
+    assert BigQueryStructSupport is bigquery_protocols.BigQueryStructSupport
+    assert BigQueryArraySupport is bigquery_protocols.BigQueryArraySupport
+    assert BigQueryJSONSupport is bigquery_protocols.BigQueryJSONSupport
+    assert BigQueryGeographySupport is bigquery_protocols.BigQueryGeographySupport
 
 
 class TestBigQueryStructSupport:
@@ -45,3 +56,9 @@ class TestBigQueryDialectProtocols:
         assert dialect.supports_array() is True
         assert dialect.supports_json() is True
         assert dialect.supports_geography() is True
+
+    def test_dialect_has_type_and_domain_protocols(self):
+        from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
+        dialect = BigQueryDialect()
+        assert isinstance(dialect, UserDefinedTypeSupport)
+        assert isinstance(dialect, DomainSupport)
