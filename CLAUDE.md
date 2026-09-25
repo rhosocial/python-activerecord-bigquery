@@ -64,3 +64,9 @@ The backend config supports `api_endpoint` and `use_anonymous_credentials` for e
 - **Service account authentication**: Key file or application default credentials
 - **Query jobs**: All queries run as jobs; results fetched asynchronously
 - **Local Testing**: Uses `goccy/bigquery-emulator` (Docker) for CI/integration tests; no real GCP account needed
+
+## Search Scope
+
+- Use `rg` for repository searches; never use `grep`.
+- Limit searches to this `python-activerecord` repository and its related testsuite/backend directories.
+- Exclude `.git/`, `.venv*/`, `__pycache__/`, `build/`, `dist/`, and other cache directories.
