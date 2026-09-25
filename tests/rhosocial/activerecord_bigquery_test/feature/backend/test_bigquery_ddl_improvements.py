@@ -1,19 +1,12 @@
 # tests/rhosocial/activerecord_bigquery_test/feature/backend/test_bigquery_ddl_improvements.py
 """Tests for BigQuery DDL improvements: capability gating, UnsupportedFeatureError."""
 import pytest
-from unittest.mock import patch, PropertyMock
 
-from rhosocial.activerecord.base.ddl import TableDDLDeriver
-from rhosocial.activerecord.model import ActiveRecord
-from rhosocial.activerecord.backend.expression import (
-    Column,
-    TableExpression,
-    QueryExpression,
-    CreateViewExpression,
-    DropViewExpression,
-)
-from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.expression import CreateTableExpression
+from rhosocial.activerecord.backend.expression.statements import ColumnDefinition
+from rhosocial.activerecord.backend.expression.types import IntegerType
+from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 
 
 class TestBigQueryViewCapabilityGating:
@@ -69,41 +62,30 @@ class TestBigQuerySchemaCapabilityGating:
         assert dialect.supports_schema_cascade() is False
 
 
-class InheritedTable(ActiveRecord):
-    __table_name__ = "inherited"
-
-    id: int
-
-    @classmethod
-    def table_inherits(cls):
-        return ["parent_a", "parent_b"]
-
-
-class TablespacedTable(ActiveRecord):
-    __table_name__ = "tablespaced"
-
-    id: int
-
-    @classmethod
-    def table_tablespace(cls):
-        return "ts_data"
-
-
 class TestBigQueryTableDeclarationGating:
     def test_table_declaration_defaults_are_absent(self):
-        class Plain(ActiveRecord):
-            __table_name__ = "plain_table_defaults"
-
-            id: int
-
-        expression = TableDDLDeriver(Plain, BigQueryDialect()).create_table()
+        dialect = BigQueryDialect()
+        expression = CreateTableExpression(
+            dialect,
+            "plain_table_defaults",
+            [ColumnDefinition(dialect, "id", IntegerType(dialect))],
+        )
+        sql, params = expression.to_sql()
         assert expression.inherits == []
         assert expression.tablespace is None
+        assert "plain_table_defaults" in sql.lower()
+        assert "id" in sql.lower()
+        assert params == ()
 
     def test_table_inherits_is_propagated_and_rejected(self):
         dialect = BigQueryDialect()
         assert dialect.supports_table_inheritance() is False
-        expression = TableDDLDeriver(InheritedTable, dialect).create_table()
+        expression = CreateTableExpression(
+            dialect,
+            "inherited",
+            [ColumnDefinition(dialect, "id", IntegerType(dialect))],
+            inherits=["parent_a", "parent_b"],
+        )
         assert expression.inherits == ["parent_a", "parent_b"]
         with pytest.raises(UnsupportedFeatureError, match="INHERITS"):
             expression.to_sql()
@@ -111,7 +93,12 @@ class TestBigQueryTableDeclarationGating:
     def test_table_tablespace_is_propagated_and_rejected(self):
         dialect = BigQueryDialect()
         assert dialect.supports_table_tablespace() is False
-        expression = TableDDLDeriver(TablespacedTable, dialect).create_table()
+        expression = CreateTableExpression(
+            dialect,
+            "tablespaced",
+            [ColumnDefinition(dialect, "id", IntegerType(dialect))],
+            tablespace="ts_data",
+        )
         assert expression.tablespace == "ts_data"
         with pytest.raises(UnsupportedFeatureError, match="TABLESPACE"):
             expression.to_sql()

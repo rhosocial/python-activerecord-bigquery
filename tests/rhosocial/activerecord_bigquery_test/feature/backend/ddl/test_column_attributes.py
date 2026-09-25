@@ -3,13 +3,13 @@
 
 from rhosocial.activerecord.backend.expression.statements import ColumnDefinition
 from rhosocial.activerecord.backend.expression.types import IntegerType
-from rhosocial.activerecord.base.ddl.attributes import CollationAttribute, IdentityAttribute
+from rhosocial.activerecord.base import CollationAttribute, IdentityAttribute
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 
 
 def _column(dialect, attrs):
     col = ColumnDefinition(dialect, "id", IntegerType(dialect))
-    col.attributes = dialect.select_column_attributes(attrs)
+    col.attributes = attrs
     return col
 
 
