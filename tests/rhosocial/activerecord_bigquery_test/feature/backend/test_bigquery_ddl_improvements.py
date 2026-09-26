@@ -27,10 +27,16 @@ class TestBigQueryViewCapabilityGating:
         dialect = BigQueryDialect()
         assert dialect.supports_if_exists_view() is False
 
-    def test_materialized_view_not_supported(self):
-        """BigQuery does not support materialized views via CREATE MATERIALIZED VIEW."""
+    def test_materialized_view_supported(self):
+        """BigQuery has native materialized views.
+
+        Refresh is option-driven (``OPTIONS(enable_refresh=…,
+        refresh_interval_minutes=…)``) because BigQuery has no
+        ``REFRESH MATERIALIZED VIEW`` statement.
+        """
         dialect = BigQueryDialect()
-        assert dialect.supports_materialized_view() is False
+        assert dialect.supports_materialized_view() is True
+        assert dialect.supports_refresh_materialized_view() is False
 
 
 class TestBigQuerySchemaCapabilityGating:
