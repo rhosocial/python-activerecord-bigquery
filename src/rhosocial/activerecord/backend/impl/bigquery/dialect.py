@@ -26,6 +26,7 @@ from rhosocial.activerecord.backend.dialect.mixins import (
 from .protocols import (
     BigQueryStructSupport, BigQueryArraySupport,
     BigQueryJSONSupport, BigQueryGeographySupport,
+    BigQueryMaterializedViewSupport,
 )
 from .mixins import (
     BigQueryStructMixin, BigQueryArrayMixin,
@@ -37,6 +38,7 @@ from .mixins import (
     BigQueryDDLColumnMixin,
     BigQueryCapabilityMixin,
     BigQueryIdentifierMixin,
+    BigQueryMaterializedViewMixin,
 )
 
 
@@ -50,6 +52,7 @@ class BigQueryDialect(
     BigQuerySchemaMixin,
     BigQueryDDLColumnMixin,
     BigQueryIdentifierMixin,
+    BigQueryMaterializedViewMixin,  # Before ViewMixin to override materialized view DDL
     SQLDialectBase,
     # Generic mixins
     CTEMixin, WindowFunctionMixin, JSONMixin,
@@ -71,6 +74,7 @@ class BigQueryDialect(
     SQLFunctionSupport, JSONSupport, TruncateSupport,
     BigQueryStructSupport, BigQueryArraySupport,
     BigQueryJSONSupport, BigQueryGeographySupport,
+    BigQueryMaterializedViewSupport,
     UserDefinedTypeSupport, DomainSupport,
 ):
     def __init__(self, version: Tuple[int, ...] = (3, 0, 0), **kwargs):

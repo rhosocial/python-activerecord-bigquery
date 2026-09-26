@@ -22,6 +22,16 @@ from .config import BigQueryConnectionConfig
 from .dialect import BigQueryDialect
 from .transaction import BigQueryTransactionManager
 from .async_transaction import AsyncBigQueryTransactionManager
+from .materialized_view_options import (  # noqa: F401
+    BigQueryMaterializedViewOption,
+    BigQueryMaterializedViewOptionValueType,
+)
+from .expression.materialized_view import (
+    BigQueryAlterMaterializedViewSetOptionsExpression,
+    BigQueryCreateMaterializedViewExpression,
+    BigQueryCreateMaterializedViewReplicaExpression,
+    BigQueryDropMaterializedViewExpression,
+)
 from .types import BigQueryStruct, BigQueryArray, BigQueryJSON
 from .adapters import (
     BigQueryStructAdapter,
@@ -35,6 +45,7 @@ from .protocols import (
     BigQueryArraySupport,
     BigQueryJSONSupport,
     BigQueryGeographySupport,
+    BigQueryMaterializedViewSupport,
 )
 from .mixins import (
     BigQueryStructMixin,
@@ -50,6 +61,13 @@ __all__ = [
     "BigQueryDialect",
     "BigQueryTransactionManager",
     "AsyncBigQueryTransactionManager",
+    # Materialized views
+    "BigQueryMaterializedViewOption",
+    "BigQueryMaterializedViewOptionValueType",
+    "BigQueryCreateMaterializedViewExpression",
+    "BigQueryDropMaterializedViewExpression",
+    "BigQueryAlterMaterializedViewSetOptionsExpression",
+    "BigQueryCreateMaterializedViewReplicaExpression",
     "BigQueryStruct",
     "BigQueryArray",
     "BigQueryJSON",
@@ -62,6 +80,7 @@ __all__ = [
     "BigQueryArraySupport",
     "BigQueryJSONSupport",
     "BigQueryGeographySupport",
+    "BigQueryMaterializedViewSupport",
     "BigQueryStructMixin",
     "BigQueryArrayMixin",
     "BigQueryJSONMixin",
