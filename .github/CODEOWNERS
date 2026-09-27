@@ -1,0 +1,4 @@
+# .github/CODEOWNERS
+# Required reviewers for the "main" and "release" rulesets
+# (require_code_owner_review is a no-op without this file).
+* @vistart
