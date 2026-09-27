@@ -19,7 +19,7 @@ permissions:
 
 env:
   # rhosocial-activerecord and rhosocial-activerecord-testsuite dev releases are
-  # not published to PyPI; install them from the feature/parameter-inline branch.
+  # not published to PyPI; install them from the release branches.
   CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@release/v1.0.0.dev30"
   TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@release/v1.0.0.dev17"
 
@@ -185,3 +185,54 @@ jobs:
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
           TESTSUITE_PROVIDER_REGISTRY: providers.registry:provider_registry
         timeout-minutes: 60
+
+  # Coverage is collected on a single Python version to keep the emulator
+  # cost bounded; the matrix above is the real compatibility gate.
+  test-with-coverage:
+    name: Python 3.12 with coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install "$CORE_PKG" "$TESTSUITE_PKG"
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+
+      - name: Install package
+        run: |
+          pip install -e . --no-deps
+
+      - name: Start BigQuery emulator
+        run: |
+          docker run -d --name bigquery-emulator -p 9050:9050 -p 9060:9060 \
+            ghcr.io/goccy/bigquery-emulator:latest --project=test --dataset=test_dataset
+          sleep 4
+          docker ps
+
+      - name: Run backend tests with coverage
+        run: |
+          coverage run --source=src -m pytest tests/ --tb=short -q -o asyncio_mode=auto
+          coverage xml
+          coverage report
+        env:
+          PYTHONPATH: tests
+          BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
+          BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
+          TESTSUITE_PROVIDER_REGISTRY: providers.registry:provider_registry
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: unittests,python-3.12
+          name: codecov-bigquery-3.12
+          fail_ci_if_error: false
