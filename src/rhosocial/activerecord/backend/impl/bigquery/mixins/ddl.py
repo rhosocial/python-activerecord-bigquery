@@ -40,7 +40,7 @@ class BigQueryDDLColumnMixin:
         BigQuery requires the collation specification to be a quoted STRING
         literal (``STRING COLLATE 'und:ci'``), not a bare identifier.
         """
-        from rhosocial.activerecord.base.ddl.attributes import CollationAttribute
+        from rhosocial.activerecord.base import CollationAttribute
 
         if isinstance(attr, CollationAttribute):
             escaped = attr.name.replace("'", "''")

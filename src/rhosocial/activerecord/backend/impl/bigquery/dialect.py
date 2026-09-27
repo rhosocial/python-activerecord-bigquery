@@ -9,6 +9,7 @@ from rhosocial.activerecord.backend.dialect.protocols import (
     JoinSupport, ViewSupport, SchemaSupport, IndexSupport,
     ConstraintSupport, IntrospectionSupport, TransactionControlSupport,
     SQLFunctionSupport, JSONSupport, TruncateSupport,
+    UserDefinedTypeSupport, DomainSupport,
 )
 from rhosocial.activerecord.backend.dialect.mixins import (
     CTEMixin, WindowFunctionMixin, JSONMixin,
@@ -19,12 +20,13 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     # Core generic mixins (backend-agnostic implementations)
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
     SetOperationMixin, DateTimeMixin,
-    DDLColumnMixin, DDLTypeMixin, TransactionControlMixin,
-    CollationMixin,
+    DDLColumnMixin, DDLTypeMixin, UserDefinedTypeMixin, DomainMixin,
+    TransactionControlMixin, CollationMixin,
 )
 from .protocols import (
     BigQueryStructSupport, BigQueryArraySupport,
     BigQueryJSONSupport, BigQueryGeographySupport,
+    BigQueryMaterializedViewSupport,
 )
 from .mixins import (
     BigQueryStructMixin, BigQueryArrayMixin,
@@ -36,6 +38,7 @@ from .mixins import (
     BigQueryDDLColumnMixin,
     BigQueryCapabilityMixin,
     BigQueryIdentifierMixin,
+    BigQueryMaterializedViewMixin,
 )
 
 
@@ -43,10 +46,13 @@ class BigQueryDialect(
     # New BigQuery-specific mixins (BEFORE SQLDialectBase and generic mixins they override)
     BigQueryCapabilityMixin,
     BigQueryTypeSupportMixin,
+    UserDefinedTypeMixin,
+    DomainMixin,
     BigQueryDQLMixin,
     BigQuerySchemaMixin,
     BigQueryDDLColumnMixin,
     BigQueryIdentifierMixin,
+    BigQueryMaterializedViewMixin,  # Before ViewMixin to override materialized view DDL
     SQLDialectBase,
     # Generic mixins
     CTEMixin, WindowFunctionMixin, JSONMixin,
@@ -68,6 +74,8 @@ class BigQueryDialect(
     SQLFunctionSupport, JSONSupport, TruncateSupport,
     BigQueryStructSupport, BigQueryArraySupport,
     BigQueryJSONSupport, BigQueryGeographySupport,
+    BigQueryMaterializedViewSupport,
+    UserDefinedTypeSupport, DomainSupport,
 ):
     def __init__(self, version: Tuple[int, ...] = (3, 0, 0), **kwargs):
         super().__init__(**kwargs)
