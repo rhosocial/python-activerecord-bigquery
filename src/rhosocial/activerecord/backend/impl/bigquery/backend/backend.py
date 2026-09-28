@@ -713,7 +713,7 @@ class BigQueryBackend(StorageBackend):
         return suggestions
 
     def _register_bigquery_adapters(self):
-        from .adapters import (
+        from ..adapters import (
             BigQueryStructAdapter, BigQueryArrayAdapter,
             BigQueryJSONAdapter, BigQueryDecimalAdapter,
             BigQueryTimestampAdapter,
