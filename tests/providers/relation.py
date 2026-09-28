@@ -308,7 +308,7 @@ class RelationAsyncProvider(RelationProviderBase, IRelationAsyncProvider):
     def _configure_async_model(
         self, model_class, config, shared_backend=None
     ):
-        from rhosocial.activerecord.backend.impl.bigquery.async_backend import AsyncBigQueryBackend
+        from rhosocial.activerecord.backend.impl.bigquery.backend.async_backend import AsyncBigQueryBackend
 
         backend = shared_backend
         if backend is None:

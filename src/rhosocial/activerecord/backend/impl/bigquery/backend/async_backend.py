@@ -5,9 +5,9 @@ from rhosocial.activerecord.backend.base import AsyncStorageBackend
 from rhosocial.activerecord.backend.errors import ConnectionError, DatabaseError
 from rhosocial.activerecord.backend.result import QueryResult
 
-from .config import BigQueryConnectionConfig
-from .dialect import BigQueryDialect
-from .async_transaction import AsyncBigQueryTransactionManager
+from ..config import BigQueryConnectionConfig
+from ..dialect import BigQueryDialect
+from ..async_transaction import AsyncBigQueryTransactionManager
 
 
 class AsyncBigQueryBackend(AsyncStorageBackend):

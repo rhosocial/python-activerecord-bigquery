@@ -8,9 +8,9 @@ from rhosocial.activerecord.backend.errors import (
 )
 from rhosocial.activerecord.backend.result import QueryResult
 
-from .config import BigQueryConnectionConfig
-from .dialect import BigQueryDialect
-from .transaction import BigQueryTransactionManager
+from ..config import BigQueryConnectionConfig
+from ..dialect import BigQueryDialect
+from ..transaction import BigQueryTransactionManager
 
 
 class BigQueryBackend(StorageBackend):
