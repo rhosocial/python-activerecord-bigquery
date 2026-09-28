@@ -3,6 +3,6 @@
 
 
 def test_backend_init_with_project():
-    from rhosocial.activerecord.backend.impl.bigquery import BigQueryBackend
+    from rhosocial.activerecord.backend.impl.bigquery.backend import BigQueryBackend
     backend = BigQueryBackend(project="test", dataset="test")
     assert backend.config.project == "test"

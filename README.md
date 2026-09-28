@@ -13,7 +13,7 @@ pip install rhosocial-activerecord-bigquery
 ### Real BigQuery
 
 ```python
-from rhosocial.activerecord.backend.impl.bigquery import BigQueryBackend
+from rhosocial.activerecord.backend.impl.bigquery.backend import BigQueryBackend
 from rhosocial.activerecord.backend.impl.bigquery.config import BigQueryConnectionConfig
 
 config = BigQueryConnectionConfig(

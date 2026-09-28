@@ -17,15 +17,17 @@ from rhosocial.activerecord.backend.expression.statements.ddl_view import (
     DropMaterializedViewExpression,
     RefreshMaterializedViewExpression,
 )
-from rhosocial.activerecord.backend.impl.bigquery import (
+from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryAlterMaterializedViewSetOptionsExpression,
     BigQueryCreateMaterializedViewExpression,
     BigQueryCreateMaterializedViewReplicaExpression,
     BigQueryDropMaterializedViewExpression,
+)
+from rhosocial.activerecord.backend.impl.bigquery.materialized_view_options import (
     BigQueryMaterializedViewOption,
     BigQueryMaterializedViewOptionValueType,
-    BigQueryMaterializedViewSupport,
 )
+from rhosocial.activerecord.backend.impl.bigquery.protocols import BigQueryMaterializedViewSupport
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.materialized_view_options import (
     resolve_materialized_view_option,

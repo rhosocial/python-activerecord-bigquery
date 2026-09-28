@@ -1,5 +1,6 @@
 """Example named connection for BigQuery backend."""
-from rhosocial.activerecord.backend.impl.bigquery import BigQueryBackend, BigQueryConnectionConfig
+from rhosocial.activerecord.backend.impl.bigquery.backend import BigQueryBackend
+from rhosocial.activerecord.backend.impl.bigquery.config import BigQueryConnectionConfig
 
 
 if __name__ == "__main__":

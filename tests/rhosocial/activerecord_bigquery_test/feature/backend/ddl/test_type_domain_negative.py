@@ -36,7 +36,7 @@ from rhosocial.activerecord.backend.expression.types import (
     IntegerType,
     JsonType,
 )
-from rhosocial.activerecord.backend.impl.bigquery import (
+from rhosocial.activerecord.backend.impl.bigquery.types import (
     BigQueryArray,
     BigQueryJSON,
     BigQueryStruct,

@@ -4,7 +4,7 @@ from rhosocial.activerecord.backend.dialect import (
     DomainSupport,
     UserDefinedTypeSupport,
 )
-from rhosocial.activerecord.backend.impl.bigquery import (
+from rhosocial.activerecord.backend.impl.bigquery.protocols import (
     BigQueryStructSupport,
     BigQueryArraySupport,
     BigQueryJSONSupport,

@@ -2,7 +2,7 @@
 """BigQuery capability protocol tests (complement to test_protocol_conformance.py)."""
 import pytest
 
-from rhosocial.activerecord.backend.impl.bigquery import BigQueryDialect
+from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 
 
 @pytest.mark.requires_protocol

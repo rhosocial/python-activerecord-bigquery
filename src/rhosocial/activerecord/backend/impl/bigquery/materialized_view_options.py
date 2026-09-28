@@ -39,7 +39,7 @@ class BigQueryMaterializedViewOption(str, Enum):
     The string value is the exact BigQuery option name.
 
     Example:
-        >>> from rhosocial.activerecord.backend.impl.bigquery import (
+        >>> from rhosocial.activerecord.backend.impl.bigquery.materialized_view_options import (
         ...     BigQueryMaterializedViewOption as O,
         ... )
         >>> O.ENABLE_REFRESH.value

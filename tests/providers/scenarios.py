@@ -3,7 +3,7 @@
 import os
 from typing import Dict, Any, Tuple, Type
 
-from rhosocial.activerecord.backend.impl.bigquery import BigQueryBackend
+from rhosocial.activerecord.backend.impl.bigquery.backend import BigQueryBackend
 from rhosocial.activerecord.backend.impl.bigquery.config import BigQueryConnectionConfig
 
 SCENARIO_MAP: Dict[str, Dict[str, Any]] = {}
