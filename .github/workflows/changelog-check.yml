@@ -1,0 +1,218 @@
+# .github/workflows/changelog-check.yml
+#
+# Enforces the rhosocial changelog fragment rules.
+#
+#   feature/* or fix/*  ->  release/* | maint/*|  main
+#     - the PR must add at least one changelog.d/<number>.<type>.md fragment
+#     - every added fragment's <number> must equal the PR number
+#     - fragments already present in changelog.d/ from previously merged
+#       branches are ignored; only files ADDED by this PR are considered
+#
+#   release/*  ->  main
+#     - CHANGELOG.md must have changed (content is not inspected)
+#     - changelog.d/ must contain no fragments at the merge commit
+#
+# Escape hatches (all three retained): a [trivial] marker in the PR title,
+# the skip-changelog label, or a "docs: update CHANGELOG" title. An escape
+# hatch waives the "at least one fragment" requirement only -- the
+# number-must-match-PR rule is always enforced on fragments that were added.
+name: Changelog Fragment Check
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release/v**'
+      - 'maint/**'
+  push:
+    branches:
+      - main
+      - 'release/v**'
+      - 'maint/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-fragment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate changelog fragments
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref || '' }}
+          BASE_REF: ${{ github.base_ref || '' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_TITLE: ${{ github.event.pull_request.title || '' }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -uo pipefail
+
+          # Towncrier fragment types. Advisory only: a project may legitimately
+          # configure a different set in pyproject.toml [tool.towncrier.type].
+          KNOWN_TYPES="added changed deprecated removed fixed performance security docs internal"
+
+          # Files that live in changelog.d/ but are not fragments.
+          is_boilerplate() {
+            case "${1##*/}" in
+              README.md|template.md|.gitkeep) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          # Validate <path> against <expected_number> (empty = don't care).
+          # Prints the fragment type on success.
+          validate_fragment() {
+            local path="$1" expected="$2"
+            local base num type
+
+            base="${path##*/}"
+
+            if [[ ! "$base" =~ ^([0-9]+)\.([a-zA-Z]+)\.md$ ]]; then
+              echo "::error file=$path::fragment must be named <number>.<type>.md, got '$base'"
+              return 1
+            fi
+            num="${BASH_REMATCH[1]}"
+            type="${BASH_REMATCH[2]}"
+
+            if [[ -n "$expected" && "$num" != "$expected" ]]; then
+              echo "::error file=$path::fragment number '$num' does not match PR #$expected"
+              echo "   Rename it to changelog.d/$expected.$type.md, or open a PR for #$num."
+              return 1
+            fi
+
+            if [[ " $KNOWN_TYPES " != *" $type "* ]]; then
+              echo "::warning file=$path::'$type' is not a standard towncrier type" >&2
+            fi
+
+            echo "$type"
+            return 0
+          }
+
+          is_exempt() {
+            [[ "$PR_TITLE" == *"[trivial]"* ]] && return 0
+            [[ ",$PR_LABELS," == *",skip-changelog,"* ]] && return 0
+            [[ "$PR_TITLE" == "docs: update CHANGELOG"* ]] && return 0
+            return 1
+          }
+
+          # ------------------------------------------------------------------
+          # release/* -> main : CHANGELOG must change, changelog.d/ must be empty
+          # ------------------------------------------------------------------
+          check_release_merge() {
+            local scope="$1" changed remaining failed=0
+
+            changed=$(git diff --name-only "origin/main...HEAD" -- CHANGELOG.md)
+            if [[ -z "$changed" ]]; then
+              echo "::error::CHANGELOG.md was not updated by this $scope."
+              echo "   A release merge must regenerate the changelog (e.g. \`towncrier build --yes --keep\`)"
+              echo "   before the fragments under changelog.d/ are discarded."
+              failed=1
+            else
+              echo "OK: CHANGELOG.md updated"
+            fi
+
+            # Checked against the merge result, not the diff: leftover fragments
+            # from earlier in the release cycle must be gone by this point.
+            remaining=$(git ls-tree --name-only HEAD changelog.d/ \
+                        | while read -r f; do
+                            if ! is_boilerplate "$f" \
+                               && [[ "${f##*/}" =~ ^[0-9]+\.[a-zA-Z]+\.md$ ]]; then
+                              echo "$f"
+                            fi
+                          done)
+            if [[ -n "$remaining" ]]; then
+              echo "::error::changelog.d/ still contains fragments after the release merge:"
+              echo "$remaining" | while read -r f; do echo "   - $f"; done
+              echo "   Delete them; their content is already folded into CHANGELOG.md."
+              failed=1
+            else
+              echo "OK: changelog.d/ is clear of fragments"
+            fi
+
+            return $failed
+          }
+
+          # ------------------------------------------------------------------
+          # push event: no PR number available, so only structural checks
+          # ------------------------------------------------------------------
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            if [[ "$GITHUB_REF_NAME" == "main" ]]; then
+              touched=$(git diff-tree --no-commit-id --name-only -r HEAD)
+              if ! echo "$touched" | grep -qE '^(CHANGELOG\.md|changelog\.d/|src/)'; then
+                echo "OK: no changelog-relevant changes in this push"
+                exit 0
+              fi
+              check_release_merge "push to main" || exit 1
+              exit $?
+            fi
+            echo "OK: push to $GITHUB_REF_NAME (fragment numbering is validated on the PR)"
+            exit 0
+          fi
+
+          # ------------------------------------------------------------------
+          # pull_request
+          # ------------------------------------------------------------------
+          echo "head=$HEAD_REF base=$BASE_REF pr=#$PR_NUMBER"
+
+          if [[ "$HEAD_REF" == release/* && "$BASE_REF" == "main" ]]; then
+            git fetch origin main --quiet
+            echo "== release merge into main =="
+            check_release_merge "release merge" || exit 1
+            exit 0
+          fi
+
+          git fetch origin "$BASE_REF" --quiet
+
+          # Fragments ADDED by this PR. Fragments that were already in
+          # changelog.d/ (carried in by previously merged branches) are not in
+          # this list and are therefore ignored.
+          added=$(git diff --name-only --diff-filter=A "origin/$BASE_REF...HEAD" -- 'changelog.d/*.md')
+
+          failed=0
+          types=""
+          if [[ -n "$added" ]]; then
+            while read -r f; do
+              [[ -z "$f" ]] && continue
+              is_boilerplate "$f" && continue
+              t=$(validate_fragment "$f" "$PR_NUMBER") || failed=1
+              [[ -n "$t" ]] && types="$types $t"
+            done <<< "$added"
+          fi
+
+          # The number-must-match rule is enforced even for exempt PRs; only
+          # the presence requirement is waived.
+          if [[ "$failed" -ne 0 ]]; then
+            echo ""
+            echo "✗ Fragment numbering does not match PR #$PR_NUMBER"
+            exit 1
+          fi
+
+          if [[ -z "$added" ]]; then
+            if is_exempt; then
+              echo "OK: no fragment required (exempt)"
+              exit 0
+            fi
+            if git diff --name-only "origin/$BASE_REF...HEAD" \
+                 | grep -qE '^(tests/|docs/|\.github/)' \
+               && ! git diff --name-only "origin/$BASE_REF...HEAD" | grep -qE '^src/'; then
+              echo "OK: internal-only change, no fragment required"
+              exit 0
+            fi
+            echo "::error::No changelog fragment added by this PR."
+            echo "   Add at least one changelog.d/$PR_NUMBER.<type>.md"
+            echo ""
+            echo "Types: added | changed | deprecated | removed | fixed |"
+            echo "       performance | security | docs | internal"
+            echo ""
+            echo "Or waive it: add [trivial] to the PR title, apply the"
+            echo "skip-changelog label, or title the PR 'docs: update CHANGELOG'."
+            exit 1
+          fi
+
+          echo "OK: fragment(s) added for PR #$PR_NUMBER ->$types"
