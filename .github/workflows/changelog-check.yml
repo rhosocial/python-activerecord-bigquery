@@ -3,6 +3,7 @@
 # Enforces the rhosocial changelog fragment rules.
 #
 #   feature/* or fix/*  ->  release/* | maint/*|  main
+#     - a feature/fix branch must not target main directly
 #     - the PR must add at least one changelog.d/<number>.<type>.md fragment
 #     - every added fragment's <number> must equal the PR number
 #     - fragments already present in changelog.d/ from previously merged
@@ -165,6 +166,28 @@ jobs:
             echo "== release merge into main =="
             check_release_merge "release merge" || exit 1
             exit 0
+          fi
+
+          # A feature/fix branch never merges straight into main; it targets a
+          # release or maintenance branch. Opening a second PR at main from the
+          # same branch is a duplicate, and it also invalidates the fragment
+          # numbering, which is bound to a single PR number.
+          if [[ ("$HEAD_REF" == feature/* || "$HEAD_REF" == fix/* || "$HEAD_REF" == bugfix/* \
+                || "$HEAD_REF" == test/* || "$HEAD_REF" == docs/* || "$HEAD_REF" == chore/*) \
+                && "$BASE_REF" == "main" ]]; then
+            echo "::error::'$HEAD_REF' must not target \`main\` directly."
+            echo ""
+            echo "Per the rhosocial merge rules:"
+            echo "  feature/* fix/* bugfix/* test/* docs/* chore/*  ->  release/* | maint/*"
+            echo "  release/*                                            ->  main"
+            echo ""
+            echo "Retarget this PR at the active release branch, or close it if"
+            echo "another PR from '$HEAD_REF' already targets the release branch."
+            echo "The changelog fragment is numbered for one PR only, so a duplicate"
+            echo "PR at main would also fail the fragment numbering check."
+            echo ""
+            git branch -r --list "origin/release/*" | sed 's#.*origin/##' | sed 's/^/    /'
+            exit 1
           fi
 
           git fetch origin "$BASE_REF" --quiet
