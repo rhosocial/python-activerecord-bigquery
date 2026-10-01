@@ -1,7 +1,7 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/capabilities.py
 """BigQuery capability detection mixin."""
 
-from typing import Tuple
+from typing import Dict, Tuple
 
 
 class BigQueryCapabilityMixin:
@@ -161,6 +161,34 @@ class BigQueryCapabilityMixin:
     #: "no foreign syntax" contract can tell a function this dialect has from
     #: one it inherited, and BigQuery has no supports_json_function otherwise.
     _JSON_FUNCTION_NAMES = ("JSON_QUERY", "JSON_VALUE")
+
+    def supports_functions(self) -> Dict[str, bool]:
+        """Return supported SQL functions as function_name -> bool mapping.
+
+        BigQuery has no functions module of its own: it renders with the core
+        factories and spells them its own way. So the honest answer is the core
+        set, less the ones BigQuery spells differently and plus the JSON
+        functions declared above.
+
+        The method existed only as a Protocol, so calling it returned None and
+        a test asking whether a function was supported raised AttributeError on
+        the result rather than skipping the test. An empty mapping would be a
+        lie in the other direction — it would skip tests BigQuery passes.
+        """
+        from ....expression.functions import __all__ as core_functions
+
+        #: Core factories that exist but that BigQuery has no formatter for.
+        #: Checked against the core list so a name that is not there does not
+        #: masquerade as a decision: naming a function that does not exist
+        #: reads as coverage while changing nothing.
+        not_available = {
+            "json_extract",   # MySQL/MariaDB spelling; BigQuery uses JSON_QUERY
+            "xmltable",      # BigQuery has no XMLTABLE
+        }
+        result = {name: name not in not_available for name in core_functions}
+        for name in self._JSON_FUNCTION_NAMES:
+            result[name.lower()] = True
+        return result
 
     def supports_json_function(self, function_name: str) -> bool:
         """Whether a named JSON function is available on this server."""
