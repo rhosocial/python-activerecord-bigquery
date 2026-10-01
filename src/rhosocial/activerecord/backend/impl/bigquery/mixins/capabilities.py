@@ -148,5 +148,49 @@ class BigQueryCapabilityMixin:
         """BigQuery does not support RESTRICT for DROP TABLE."""
         return False
 
+    def supports_json_type(self) -> bool:
+        """BigQuery has a JSON type and the functions that read it.
+
+        Declared here rather than in BigQueryJSONMixin: that mixin is not on
+        the dialect's MRO at all, and this one sits well before the core
+        JSONMixin, so a probe written later would never be reached.
+        """
+        return True
+
+    def format_json_function_expression(self, expr) -> Tuple[str, tuple]:
+        """Render a JSON path with JSON_QUERY / JSON_VALUE.
+
+        The core default emits JSON_EXTRACT and JSON_UNQUOTE, and BigQuery has
+        neither — it spells them JSON_QUERY and JSON_VALUE. `->` asks for a
+        document and `->>` for text, which is the same distinction those two
+        functions draw.
+        """
+        from ....expression import bases
+
+        if isinstance(expr.column, bases.BaseExpression):
+            col_sql, col_params = expr.column.to_sql()
+        else:
+            col_sql, col_params = self.format_identifier(str(expr.column)), ()
+
+        path = _jsonpath_literal(self, expr.path)
+        if expr.operation == "->>":
+            sql = f"JSON_VALUE({col_sql}, {path})"
+        else:
+            sql = f"JSON_QUERY({col_sql}, {path})"
+
+        if expr.alias:
+            sql = f"{sql} AS {self.format_identifier(expr.alias)}"
+        return sql, col_params
+
+
+
+def _jsonpath_literal(dialect, path: str) -> str:
+    """Render a jsonpath as a bound-parameter-free SQL string literal.
+
+    BigQuery's JSON functions take the path as a literal, and the shared form
+    already is one: ``$.a.b`` needs no rewriting, only quoting and escaping,
+    which format_literal is there to do.
+    """
+    return dialect.format_literal(str(path or "").strip() or "$")
 
 __all__ = ['BigQueryCapabilityMixin']
