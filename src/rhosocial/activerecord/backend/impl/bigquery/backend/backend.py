@@ -171,9 +171,14 @@ class BigQueryBackend(StorageBackend):
         connection config either -- that would be a guess about which of the
         configured datasets is meant.
         """
-        from ..expression.schema import current_schema_unsupported
+        from ....expression.functions import current_schema_unsupported
 
-        return current_schema_unsupported(self.dialect)
+        return current_schema_unsupported(
+            self.dialect,
+            "A dataset is bound per query rather than tracked as session "
+            "state, so it cannot be read back from the server. Pass "
+            "schema_name explicitly instead.",
+        )
 
     def introspect_and_adapt(self) -> None:
         """Introspect the BigQuery server and adapt backend capabilities.
