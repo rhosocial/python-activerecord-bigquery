@@ -157,6 +157,15 @@ class BigQueryCapabilityMixin:
         """
         return True
 
+    #: The JSON path functions BigQuery spells this way. Declared so the
+    #: "no foreign syntax" contract can tell a function this dialect has from
+    #: one it inherited, and BigQuery has no supports_json_function otherwise.
+    _JSON_FUNCTION_NAMES = ("JSON_QUERY", "JSON_VALUE")
+
+    def supports_json_function(self, function_name: str) -> bool:
+        """Whether a named JSON function is available on this server."""
+        return function_name.upper() in self._JSON_FUNCTION_NAMES
+
     def format_json_function_expression(self, expr) -> Tuple[str, tuple]:
         """Render a JSON path with JSON_QUERY / JSON_VALUE.
 
