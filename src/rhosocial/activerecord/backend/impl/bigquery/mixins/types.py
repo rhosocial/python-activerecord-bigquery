@@ -2,7 +2,7 @@
 """BigQuery type support mixin."""
 from __future__ import annotations
 
-from typing import Tuple, TYPE_CHECKING
+from typing import Dict, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from rhosocial.activerecord.backend.expression.types import (
@@ -168,4 +168,16 @@ class BigQueryTypeSupportMixin:
         return "JSON", ()
 
 
+
+    def suggested_data_types(self) -> Dict[str, type]:
+        """Core types BigQuery stores some other way.
+
+        BigQuery has no enum type, so a model declaring one would be told the
+        type is unsupported with no route forward. The value is stored as
+        VARCHAR and constrained outside the type, so VARCHAR is what the
+        meaning becomes here.
+        """
+        from rhosocial.activerecord.backend.expression.types import VarCharType
+
+        return {"enum": VarCharType}
 __all__ = ['BigQueryTypeSupportMixin']
