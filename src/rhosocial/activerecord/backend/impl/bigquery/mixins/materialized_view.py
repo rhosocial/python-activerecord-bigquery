@@ -75,7 +75,7 @@ class BigQueryMaterializedViewMixin:
         parts.append("MATERIALIZED VIEW")
         if getattr(expr, "if_not_exists", False):
             parts.append("IF NOT EXISTS")
-        parts.append(self.format_identifier(expr.view_name))
+        parts.append(self._format_view_name(expr))
 
         partition_by = getattr(expr, "partition_by", None)
         if partition_by:
@@ -103,7 +103,7 @@ class BigQueryMaterializedViewMixin:
         parts = ["DROP MATERIALIZED VIEW"]
         if getattr(expr, "if_exists", False):
             parts.append("IF EXISTS")
-        parts.append(self.format_identifier(expr.view_name))
+        parts.append(self._format_view_name(expr))
         return " ".join(parts), ()
 
     def format_alter_materialized_view_set_options_statement(
@@ -113,7 +113,7 @@ class BigQueryMaterializedViewMixin:
         parts = ["ALTER MATERIALIZED VIEW"]
         if getattr(expr, "if_exists", False):
             parts.append("IF EXISTS")
-        parts.append(self.format_identifier(expr.view_name))
+        parts.append(self._format_view_name(expr))
         options = self._format_materialized_view_options(expr.options)
         parts.append(f"SET OPTIONS({options})")
         return " ".join(parts), ()
