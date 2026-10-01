@@ -365,6 +365,18 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
     def get_server_version(self) -> Tuple[int, ...]:
         return self._version
 
+    async def get_current_schema(self) -> Optional[str]:
+        """Raise: BigQuery does not expose a current schema.
+
+        A dataset is bound per query rather than tracked as session state, so
+        it cannot be read back from the server. No dataset is inferred from the
+        connection config either -- that would be a guess about which of the
+        configured datasets is meant.
+        """
+        from ..expression.schema import current_schema_unsupported
+
+        return current_schema_unsupported(self.dialect)
+
     async def introspect_and_adapt(self) -> None:
         """See :meth:`BigQueryBackend.introspect_and_adapt`."""
         if not getattr(self, '_client', None):
