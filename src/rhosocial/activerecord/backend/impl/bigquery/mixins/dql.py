@@ -53,6 +53,13 @@ class BigQueryDQLMixin:
 
     def format_column(self, expr: Column) -> Tuple[str, tuple]:
         """Column references are never schema-qualified in BigQuery."""
+        if expr.schema_name and not expr.table:
+            # A column reference cannot be qualified without a table. The core
+            # dialect raises here; BigQuery never schema-qualifies columns at
+            # all, so this is meaningless rather than dangerous. Warn instead
+            # of raising so one model definition can still target both
+            # PostgreSQL and BigQuery.
+            _warn_qualification_dropped(self.name, expr, "BigQuery")
         if expr.table:
             col_sql = (
                 f"{self.format_identifier(expr.table, expr.table_need_quote)}."
@@ -72,3 +79,16 @@ class BigQueryDQLMixin:
 
 
 __all__ = ['BigQueryDQLMixin']
+
+
+def _warn_qualification_dropped(dialect_name: str, expr, label: str) -> None:
+    """Warn that a supplied ``schema_name`` cannot be rendered on a bare column."""
+    import warnings
+
+    warnings.warn(
+        f"{label}: dropping schema_name={expr.schema_name!r} from column "
+        f"{expr.name!r} because no table was given; a column reference needs "
+        "a table to be qualified",
+        UserWarning,
+        stacklevel=3,
+    )
