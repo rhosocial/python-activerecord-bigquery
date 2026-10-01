@@ -20,7 +20,7 @@ permissions:
 env:
   # rhosocial-activerecord and rhosocial-activerecord-testsuite dev releases are
   # not published to PyPI; install them from the release branches.
-  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/expression-value-capability"
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/typed-columns"
   TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@test/typed-column-contracts"
 
 jobs:
