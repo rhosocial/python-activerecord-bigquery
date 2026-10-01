@@ -88,6 +88,7 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression)
         partition_by: Optional[str] = None,
         cluster_by: Optional[List[str]] = None,
         options: Optional[Dict[Any, Any]] = None,
+        schema_name: Optional[str] = None,
     ):
         _validate_name(view_name, "view_name")
         if or_replace and if_not_exists:
@@ -112,6 +113,7 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression)
             tablespace=None,
             with_data=True,
             storage_options=None,
+            schema_name=schema_name,
         )
         self.or_replace = or_replace
         self.if_not_exists = if_not_exists
@@ -137,11 +139,18 @@ class BigQueryDropMaterializedViewExpression(DropMaterializedViewExpression):
         view_name: str,
         if_exists: bool = False,
         cascade: bool = False,
+        schema_name: Optional[str] = None,
     ):
         _validate_name(view_name, "view_name")
         if cascade:
             raise ValueError("BigQuery DROP MATERIALIZED VIEW has no CASCADE clause")
-        super().__init__(dialect, view_name=view_name, if_exists=if_exists, cascade=False)
+        super().__init__(
+            dialect,
+            view_name=view_name,
+            if_exists=if_exists,
+            cascade=False,
+            schema_name=schema_name,
+        )
 
     @property
     def format_method(self) -> str:
