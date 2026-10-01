@@ -10,6 +10,11 @@ class BigQueryCapabilityMixin:
     Aggregated capability checks for BigQuery features.
     """
 
+    #: BigQuery does not accept ``||`` as concatenation at all; the function is
+    #: the only spelling.
+    STRING_CONCATENATION = "CONCAT"
+
+
     def supports_table_comment(self) -> bool:
         """Whether an inline table comment is supported.
 
