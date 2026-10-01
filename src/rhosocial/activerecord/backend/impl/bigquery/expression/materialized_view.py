@@ -1,3 +1,4 @@
+from rhosocial.activerecord.backend.expression.core import _validate_schema_name
 # src/rhosocial/activerecord/backend/impl/bigquery/expression/materialized_view.py
 """BigQuery materialized view DDL expressions.
 
@@ -161,6 +162,7 @@ class BigQueryAlterMaterializedViewSetOptionsExpression(BaseExpression):
         view_name: str,
         options: Dict[Any, Any],
         if_exists: bool = False,
+        schema_name: Optional[str] = None,
     ):
         super().__init__(dialect)
         _validate_name(view_name, "view_name")
@@ -168,6 +170,7 @@ class BigQueryAlterMaterializedViewSetOptionsExpression(BaseExpression):
             raise ValueError("options must be a non-empty dict")
         validate_materialized_view_options(options)
         self.view_name = view_name
+        self.schema_name = _validate_schema_name(schema_name, type(self).__name__)
         self.options = dict(options)
         self.if_exists = if_exists
 
@@ -191,6 +194,7 @@ class BigQueryCreateMaterializedViewReplicaExpression(BaseExpression):
         replica_name: str,
         source_view_name: str,
         replication_interval_seconds: Optional[int] = None,
+        schema_name: Optional[str] = None,
     ):
         super().__init__(dialect)
         _validate_name(replica_name, "replica_name")
@@ -206,6 +210,7 @@ class BigQueryCreateMaterializedViewReplicaExpression(BaseExpression):
                 f"{self.MAX_REPLICATION_INTERVAL_SECONDS} inclusive"
             )
         self.replica_name = replica_name
+        self.schema_name = _validate_schema_name(schema_name, type(self).__name__)
         self.source_view_name = source_view_name
         self.replication_interval_seconds = replication_interval_seconds
 
