@@ -171,7 +171,7 @@ class BigQueryBackend(StorageBackend):
         connection config either -- that would be a guess about which of the
         configured datasets is meant.
         """
-        from ....expression.functions import current_schema_unsupported
+        from rhosocial.activerecord.backend.expression.functions import current_schema_unsupported
 
         return current_schema_unsupported(
             self.dialect,
