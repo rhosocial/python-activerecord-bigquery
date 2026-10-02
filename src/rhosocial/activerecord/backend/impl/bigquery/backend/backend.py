@@ -7,6 +7,7 @@ from rhosocial.activerecord.backend.errors import (
     ConnectionError, DatabaseError, IntegrityError, QueryError,
 )
 from rhosocial.activerecord.backend.result import QueryResult
+from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
@@ -171,10 +172,10 @@ class BigQueryBackend(StorageBackend):
         connection config either -- that would be a guess about which of the
         configured datasets is meant.
         """
-        from rhosocial.activerecord.backend.expression.functions import current_schema_unsupported
 
-        return current_schema_unsupported(
-            self.dialect,
+        raise UnsupportedFeatureError(
+            self.dialect.name,
+            "reading the current schema",
             "A dataset is bound per query rather than tracked as session "
             "state, so it cannot be read back from the server. Pass "
             "schema_name explicitly instead.",
