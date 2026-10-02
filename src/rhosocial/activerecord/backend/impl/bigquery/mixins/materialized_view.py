@@ -123,13 +123,19 @@ class BigQueryMaterializedViewMixin:
         self, expr: "BigQueryCreateMaterializedViewReplicaExpression"
     ) -> Tuple[str, tuple]:
         """Format ``CREATE MATERIALIZED VIEW replica ... AS REPLICA OF source``."""
-        parts = ["CREATE MATERIALIZED VIEW", self.format_identifier(expr.replica_name)]
+        parts = [
+            "CREATE MATERIALIZED VIEW",
+            TableExpression(self, expr.replica_name, schema_name=expr.schema_name).to_sql()[0],
+        ]
         interval = getattr(expr, "replication_interval_seconds", None)
         if interval is not None:
             parts.append(
                 "OPTIONS(replication_interval_seconds = " f"{int(interval)})"
             )
-        parts.append(f"AS REPLICA OF {self.format_identifier(expr.source_view_name)}")
+        parts.append(
+            f"AS REPLICA OF "
+            f"{TableExpression(self, expr.source_view_name, schema_name=expr.schema_name).to_sql()[0]}"
+        )
         return " ".join(parts), ()
 
     # ------------------------------------------------------------------
