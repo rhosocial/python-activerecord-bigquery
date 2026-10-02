@@ -1,5 +1,5 @@
-from rhosocial.activerecord.backend.expression.core import _validate_schema_name
 # src/rhosocial/activerecord/backend/impl/bigquery/expression/materialized_view.py
+
 """BigQuery materialized view DDL expressions.
 
 GoogleSQL syntax (BigQuery Standard SQL DDL reference):
@@ -31,6 +31,7 @@ Divergence from the SQL-standard statement
   :class:`BigQueryAlterMaterializedViewSetOptionsExpression` to change it.
 * ``DROP`` has no ``CASCADE``.
 """
+from rhosocial.activerecord.backend.expression.core import _validate_schema_name
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from rhosocial.activerecord.backend.expression.bases import BaseExpression
@@ -90,6 +91,13 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression)
         options: Optional[Dict[Any, Any]] = None,
         schema_name: Optional[str] = None,
     ):
+        """
+        Args:
+            schema_name: Namespace to qualify the view with, e.g. ``app``.
+                None leaves the name unqualified. An empty string raises
+                ValueError, and a dialect with no namespace raises
+                UnsupportedFeatureError.
+        """
         _validate_name(view_name, "view_name")
         if or_replace and if_not_exists:
             raise ValueError(
@@ -141,6 +149,13 @@ class BigQueryDropMaterializedViewExpression(DropMaterializedViewExpression):
         cascade: bool = False,
         schema_name: Optional[str] = None,
     ):
+        """
+        Args:
+            schema_name: Namespace to qualify the view with, e.g. ``app``.
+                None leaves the name unqualified. An empty string raises
+                ValueError, and a dialect with no namespace raises
+                UnsupportedFeatureError.
+        """
         _validate_name(view_name, "view_name")
         if cascade:
             raise ValueError("BigQuery DROP MATERIALIZED VIEW has no CASCADE clause")
@@ -173,6 +188,13 @@ class BigQueryAlterMaterializedViewSetOptionsExpression(BaseExpression):
         if_exists: bool = False,
         schema_name: Optional[str] = None,
     ):
+        """
+        Args:
+            schema_name: Namespace to qualify the view with, e.g. ``app``.
+                None leaves the name unqualified. An empty string raises
+                ValueError, and a dialect with no namespace raises
+                UnsupportedFeatureError.
+        """
         super().__init__(dialect)
         _validate_name(view_name, "view_name")
         if not isinstance(options, dict) or not options:
@@ -205,6 +227,13 @@ class BigQueryCreateMaterializedViewReplicaExpression(BaseExpression):
         replication_interval_seconds: Optional[int] = None,
         schema_name: Optional[str] = None,
     ):
+        """
+        Args:
+            schema_name: Namespace to qualify the view with, e.g. ``app``.
+                None leaves the name unqualified. An empty string raises
+                ValueError, and a dialect with no namespace raises
+                UnsupportedFeatureError.
+        """
         super().__init__(dialect)
         _validate_name(replica_name, "replica_name")
         _validate_name(source_view_name, "source_view_name")
