@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from rhosocial.activerecord.backend.base import AsyncStorageBackend
 from rhosocial.activerecord.backend.errors import ConnectionError, DatabaseError
 from rhosocial.activerecord.backend.result import QueryResult
+from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
@@ -238,7 +239,6 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
             assignments[field_name] = CaseExpression(
                 self.dialect, cases=cases, else_result=Column(self.dialect, field_name),
             )
-
         pk_literals = Literal(self.dialect, options.pk_values)
         where_predicate = InPredicate(self.dialect, pk_col, pk_literals)
         update_expr = UpdateExpression(
@@ -373,10 +373,10 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
         connection config either -- that would be a guess about which of the
         configured datasets is meant.
         """
-        from rhosocial.activerecord.backend.expression.functions import current_schema_unsupported
 
-        return current_schema_unsupported(
-            self.dialect,
+        raise UnsupportedFeatureError(
+            self.dialect.name,
+            "reading the current schema",
             "A dataset is bound per query rather than tracked as session "
             "state, so it cannot be read back from the server. Pass "
             "schema_name explicitly instead.",
