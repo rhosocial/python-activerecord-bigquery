@@ -31,7 +31,6 @@ Divergence from the SQL-standard statement
   :class:`BigQueryAlterMaterializedViewSetOptionsExpression` to change it.
 * ``DROP`` has no ``CASCADE``.
 """
-from rhosocial.activerecord.backend.expression.core import _validate_schema_name
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from rhosocial.activerecord.backend.expression.bases import BaseExpression
@@ -201,7 +200,7 @@ class BigQueryAlterMaterializedViewSetOptionsExpression(BaseExpression):
             raise ValueError("options must be a non-empty dict")
         validate_materialized_view_options(options)
         self.view_name = view_name
-        self.schema_name = _validate_schema_name(schema_name, type(self).__name__)
+        self.schema_name = schema_name
         self.options = dict(options)
         self.if_exists = if_exists
 
@@ -248,7 +247,7 @@ class BigQueryCreateMaterializedViewReplicaExpression(BaseExpression):
                 f"{self.MAX_REPLICATION_INTERVAL_SECONDS} inclusive"
             )
         self.replica_name = replica_name
-        self.schema_name = _validate_schema_name(schema_name, type(self).__name__)
+        self.schema_name = schema_name
         self.source_view_name = source_view_name
         self.replication_interval_seconds = replication_interval_seconds
 

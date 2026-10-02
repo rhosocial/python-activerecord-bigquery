@@ -53,6 +53,11 @@ class BigQueryDQLMixin:
 
     def format_column(self, expr: Column) -> Tuple[str, tuple]:
         """Column references are never schema-qualified in BigQuery."""
+        from rhosocial.activerecord.backend.dialect.protocols import SchemaSupport
+
+        if isinstance(self, SchemaSupport):
+            self.validate_schema_name(expr)
+
         if expr.schema_name and not expr.table:
             # A column reference cannot be qualified without a table. The core
             # dialect raises here; BigQuery never schema-qualifies columns at
