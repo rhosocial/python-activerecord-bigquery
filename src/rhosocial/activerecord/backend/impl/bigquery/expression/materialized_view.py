@@ -34,6 +34,7 @@ Divergence from the SQL-standard statement
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from rhosocial.activerecord.backend.expression.bases import BaseExpression
+from rhosocial.activerecord.backend.expression.core import TableExpression
 from rhosocial.activerecord.backend.expression.statements.ddl_view import (
     CreateMaterializedViewExpression,
     DropMaterializedViewExpression,
@@ -221,21 +222,23 @@ class BigQueryCreateMaterializedViewReplicaExpression(BaseExpression):
     def __init__(
         self,
         dialect: "BigQueryDialect",
-        replica_name: str,
-        source_view_name: str,
+        replica: TableExpression,
+        source_view: TableExpression,
         replication_interval_seconds: Optional[int] = None,
-        schema_name: Optional[str] = None,
     ):
         """
         Args:
-            schema_name: Namespace to qualify the view with, e.g. ``app``.
-                None leaves the name unqualified. An empty string raises
-                ValueError, and a dialect with no namespace raises
-                UnsupportedFeatureError.
+            replica: The replica to create, carrying its own dataset.
+            source_view: The view being replicated, carrying its own dataset.
+                A replica usually lives in a different dataset from its
+                source, so the two namespaces are chosen independently.
         """
         super().__init__(dialect)
-        _validate_name(replica_name, "replica_name")
-        _validate_name(source_view_name, "source_view_name")
+        for label, ref in (("replica", replica), ("source_view", source_view)):
+            if not isinstance(ref, TableExpression):
+                raise TypeError(
+                    f"{label} must be a TableExpression, got {type(ref).__name__}"
+                )
         if replication_interval_seconds is not None and not (
             self.MIN_REPLICATION_INTERVAL_SECONDS
             <= replication_interval_seconds
@@ -246,9 +249,8 @@ class BigQueryCreateMaterializedViewReplicaExpression(BaseExpression):
                 f"{self.MIN_REPLICATION_INTERVAL_SECONDS} and "
                 f"{self.MAX_REPLICATION_INTERVAL_SECONDS} inclusive"
             )
-        self.replica_name = replica_name
-        self.schema_name = schema_name
-        self.source_view_name = source_view_name
+        self.replica = replica
+        self.source_view = source_view
         self.replication_interval_seconds = replication_interval_seconds
 
     @property

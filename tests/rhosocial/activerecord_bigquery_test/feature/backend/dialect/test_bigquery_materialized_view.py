@@ -265,15 +265,41 @@ class TestAlterMaterializedViewSetOptions:
 class TestMaterializedViewReplica:
     def test_basic(self, dialect):
         expr = BigQueryCreateMaterializedViewReplicaExpression(
-            dialect, "mv_replica", "mv_source"
+            dialect,
+            TableExpression(dialect, "mv_replica"),
+            TableExpression(dialect, "mv_source"),
         )
         assert expr.to_sql()[0] == (
             "CREATE MATERIALIZED VIEW `mv_replica` AS REPLICA OF `mv_source`"
         )
 
+    def test_replica_and_source_may_live_in_different_datasets(self, dialect):
+        """The two names carry their own dataset.
+
+        A replica normally sits in a different dataset from the view it
+        mirrors. Reusing one namespace for both made that inexpressible.
+        """
+        expr = BigQueryCreateMaterializedViewReplicaExpression(
+            dialect,
+            TableExpression(dialect, "mv_replica", schema_name="warehouse"),
+            TableExpression(dialect, "mv_source", schema_name="sales"),
+        )
+        assert expr.to_sql()[0] == (
+            "CREATE MATERIALIZED VIEW `warehouse`.`mv_replica` "
+            "AS REPLICA OF `sales`.`mv_source`"
+        )
+
+    def test_bare_names_are_refused(self, dialect):
+        with pytest.raises(TypeError, match="replica must be a TableExpression"):
+            BigQueryCreateMaterializedViewReplicaExpression(
+                dialect, "mv_replica", TableExpression(dialect, "mv_source")
+            )
+
     def test_with_interval(self, dialect):
         expr = BigQueryCreateMaterializedViewReplicaExpression(
-            dialect, "mv_replica", "mv_source", replication_interval_seconds=600
+            dialect,
+            TableExpression(dialect, "mv_replica"),
+            TableExpression(dialect, "mv_source"), replication_interval_seconds=600
         )
         assert "OPTIONS(replication_interval_seconds = 600)" in expr.to_sql()[0]
 
@@ -282,7 +308,9 @@ class TestMaterializedViewReplica:
         """Documented range is 60..3600 inclusive."""
         with pytest.raises(ValueError, match="replication_interval_seconds"):
             BigQueryCreateMaterializedViewReplicaExpression(
-                dialect, "mv_replica", "mv_source", replication_interval_seconds=seconds
+                dialect,
+                TableExpression(dialect, "mv_replica"),
+                TableExpression(dialect, "mv_source"), replication_interval_seconds=seconds
             )
 
     def test_documented_defaults(self):
