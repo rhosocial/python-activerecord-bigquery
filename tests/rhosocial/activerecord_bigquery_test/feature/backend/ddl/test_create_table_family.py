@@ -47,9 +47,10 @@ class TestBigQueryCreateTableFamily:
         assert params == ()
 
     def test_create_or_replace(self, dialect):
+        from rhosocial.activerecord.backend.expression.core import TableExpression
         expr = CreateTableExpression(
             dialect,
-            table="t",
+            table=TableExpression(dialect, "t"),
             columns=[],
             table_options=CreateTableOptions(dialect, or_replace=True),
         )
