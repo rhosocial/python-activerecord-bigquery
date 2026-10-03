@@ -71,9 +71,10 @@ class TestBigQuerySchemaCapabilityGating:
 class TestBigQueryTableDeclarationGating:
     def test_table_declaration_defaults_are_absent(self):
         dialect = BigQueryDialect()
+        from rhosocial.activerecord.backend.expression.core import TableExpression
         expression = CreateTableExpression(
             dialect,
-            "plain_table_defaults",
+            TableExpression(dialect, "plain_table_defaults"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
         )
         sql, params = expression.to_sql()
@@ -86,9 +87,10 @@ class TestBigQueryTableDeclarationGating:
     def test_table_inherits_is_propagated_and_rejected(self):
         dialect = BigQueryDialect()
         assert dialect.supports_table_inheritance() is False
+        from rhosocial.activerecord.backend.expression.core import TableExpression
         expression = CreateTableExpression(
             dialect,
-            "inherited",
+            TableExpression(dialect, "inherited"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
             inherits=["parent_a", "parent_b"],
         )
@@ -99,9 +101,10 @@ class TestBigQueryTableDeclarationGating:
     def test_table_tablespace_is_propagated_and_rejected(self):
         dialect = BigQueryDialect()
         assert dialect.supports_table_tablespace() is False
+        from rhosocial.activerecord.backend.expression.core import TableExpression
         expression = CreateTableExpression(
             dialect,
-            "tablespaced",
+            TableExpression(dialect, "tablespaced"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
             tablespace="ts_data",
         )

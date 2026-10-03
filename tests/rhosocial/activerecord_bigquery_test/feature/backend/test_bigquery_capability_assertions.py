@@ -49,7 +49,7 @@ def test_generated_stored_column_renders(dialect):
             storage_type=GeneratedColumnType.STORED,
         ),
     )
-    sql, _ = CreateTableExpression(dialect, "t", [column]).to_sql()
+    sql, _ = CreateTableExpression(dialect, TableExpression(dialect, "t"), [column]).to_sql()
     assert "GENERATED ALWAYS AS (`a` + `b`) STORED" in sql
 
 
@@ -65,7 +65,7 @@ def test_virtual_generated_column_rejected(dialect):
         ),
     )
     with pytest.raises(UnsupportedFeatureError, match="VIRTUAL"):
-        CreateTableExpression(dialect, "t", [column]).to_sql()
+        CreateTableExpression(dialect, TableExpression(dialect, "t"), [column]).to_sql()
 
 
 def test_truncate_and_drop_table(dialect):
@@ -74,7 +74,7 @@ def test_truncate_and_drop_table(dialect):
     assert TruncateExpression(
         dialect, table=TableExpression(dialect, "t")
     ).to_sql()[0] == "TRUNCATE TABLE `t`"
-    assert DropTableExpression(dialect, "t", if_exists=True).to_sql()[0] == (
+    assert DropTableExpression(dialect, TableExpression(dialect, "t"), if_exists=True).to_sql()[0] == (
         "DROP TABLE IF EXISTS `t`"
     )
 
