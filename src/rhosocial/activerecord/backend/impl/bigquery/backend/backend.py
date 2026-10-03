@@ -642,7 +642,7 @@ class BigQueryBackend(StorageBackend):
             dialect=self.dialect,
             table=TableExpression(self.dialect, options.table, schema_name=options.schema_name)
             if options.schema_name
-            else options.table,
+            else TableExpression(self.dialect, options.table),
             assignments=assignments,
             where=where_predicate,
         )
