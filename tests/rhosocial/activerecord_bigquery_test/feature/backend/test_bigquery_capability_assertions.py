@@ -71,7 +71,9 @@ def test_virtual_generated_column_rejected(dialect):
 def test_truncate_and_drop_table(dialect):
     assert dialect.supports_truncate_table_keyword() is True
     assert dialect.supports_if_exists_table() is True
-    assert TruncateExpression(dialect, "t").to_sql()[0] == "TRUNCATE TABLE `t`"
+    assert TruncateExpression(
+        dialect, table=TableExpression(dialect, "t")
+    ).to_sql()[0] == "TRUNCATE TABLE `t`"
     assert DropTableExpression(dialect, "t", if_exists=True).to_sql()[0] == (
         "DROP TABLE IF EXISTS `t`"
     )
