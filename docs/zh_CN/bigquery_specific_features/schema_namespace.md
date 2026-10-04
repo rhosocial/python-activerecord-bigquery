@@ -78,9 +78,7 @@ dataset 是查询用来指名对象时所在的容器。表在 dataset 里，dat
 | `TableExpression(d, "orders", schema_name="app")` | `` `app`.`orders` `` |
 | `TableExpression(d, "orders")` | `` `orders` `` |
 | `TableExpression(d, "orders", schema_name="app", alias="o")` | `` `app`.`orders` AS `o` `` |
-| `QualifiedIdentifierExpression(d, "app", "orders")` | `` `app`.`orders` `` |
 
-需要在 `FROM` 之外写一个两段式名字时，用的是 `QualifiedIdentifierExpression`。
 
 `format_identifier` 把值里自带的反引号写成两个，因此本该提前闭合引用的字符仍留在
 同一个标识符内部：
@@ -658,8 +656,8 @@ BigQuery 的全限定表名由三段组成，参考文档把段数写明了：
 **本库目前只带其中一级。** 说清楚：
 
 > **本后端的表、视图、列、索引表达式只接受 `schema_name`，不接受它上面的任何一级。
-> `TableExpression`、`Column`、`WildcardExpression`、
-> `QualifiedIdentifierExpression` 都没有 project 字段，也没有可以补上的方言钩子。
+> `TableExpression`、`Column`、`WildcardExpression` 都没有 project 字段，
+> 也没有可以补上的方言钩子。
 > dataset 一律渲染成恰好一个带引号的段加一个点号，因此写进去的点号会留在这一段
 > 内部。**（`Column` 与 `WildcardExpression` 会把这个值丢弃，见
 > [列引用永远不带 dataset](#列引用永远不带-dataset)。）
