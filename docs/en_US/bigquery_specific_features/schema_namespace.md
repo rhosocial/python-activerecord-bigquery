@@ -90,11 +90,6 @@ Identifiers are quoted with backticks, one quoted identifier per segment:
 | `TableExpression(d, "orders", schema_name="app")` | `` `app`.`orders` `` |
 | `TableExpression(d, "orders")` | `` `orders` `` |
 | `TableExpression(d, "orders", schema_name="app", alias="o")` | `` `app`.`orders` AS `o` `` |
-| `QualifiedIdentifierExpression(d, "app", "orders")` | `` `app`.`orders` `` |
-
-`QualifiedIdentifierExpression` is the expression to reach for when a two-part
-name is needed outside a `FROM`.
-
 `format_identifier` escapes an embedded backtick by doubling it, so a value that
 would otherwise close the reference stays inside one identifier:
 
@@ -711,7 +706,7 @@ count:
 
 > **The table, view, column and index expressions in this backend accept a
 > `schema_name` and nothing above it. `TableExpression`, `Column`,
-> `WildcardExpression` and `QualifiedIdentifierExpression` have no project field,
+> `WildcardExpression` has no project field,
 > and no dialect hook adds one. A dataset is always rendered as exactly one
 > quoted segment followed by one dot, so a dotted value stays inside that
 > segment.** (`Column` and `WildcardExpression` discard the value; see
