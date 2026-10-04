@@ -26,6 +26,14 @@ Every SQL fragment below was rendered by the expression layer with
 PYTHONPATH=src .venv3.14-ubuntu26.04/bin/python
 ```
 
+That recipe assumes the installed core is the one this page describes. Where it
+is not, both halves of the import have to be pinned to the same branch, backend
+first:
+
+```
+PYTHONPATH=<core-worktree>/src:src <venv>/bin/python
+```
+
 `BigQueryDialect` takes its version as a tuple; `(3, 0, 0)` is the default and
 what every example here uses. Model-level fragments were produced by configuring
 two models against a `BigQueryConnectionConfig(project="test", dataset="app")`
@@ -521,7 +529,8 @@ the core layer, so there is nothing to render or to qualify.
 
 ### Materialized views
 
-All four materialized view statements take `schema_name` and qualify the view:
+Three of the four materialized view statements take `schema_name` and qualify
+the view:
 
 ```python
 BigQueryCreateMaterializedViewExpression(d, "mv", query=inner, schema_name="app").to_sql()[0]
@@ -542,20 +551,25 @@ BigQuery has no `REFRESH MATERIALIZED VIEW` statement, so
 through `OPTIONS(enable_refresh=..., refresh_interval_minutes=...)` at creation
 and changed with `ALTER MATERIALIZED VIEW ... SET OPTIONS(...)`.
 
-**The replica statement qualifies both names with the same dataset.** That is the
-only `schema_name` it has:
+The fourth one, the replica statement, is the exception to how the other
+expressions here take a name plus a `schema_name`: it takes **two
+`TableExpression`s**, so the replica and its source choose their datasets
+independently. A bare string is refused for either.
 
 ```python
 BigQueryCreateMaterializedViewReplicaExpression(
-    d, "mv_replica", "mv_src", schema_name="app",
+    d,
+    TableExpression(d, "mv_replica", schema_name="app"),
+    TableExpression(d, "mv_src", schema_name="s3_dataset"),
     replication_interval_seconds=600,
 ).to_sql()[0]
 # CREATE MATERIALIZED VIEW `app`.`mv_replica`
-#   OPTIONS(replication_interval_seconds = 600) AS REPLICA OF `app`.`mv_src`
+#   OPTIONS(replication_interval_seconds = 600) AS REPLICA OF `s3_dataset`.`mv_src`
 ```
 
-BigQuery's documented example puts the replica and its source in different
-datasets and gives each its own fully qualified name:
+That matches what BigQuery's own documented example does — it puts the replica
+and its source in different datasets and gives each its own fully qualified
+name:
 
 > ```
 > CREATE MATERIALIZED VIEW `myproject.bq_dataset.mv_replica`
@@ -567,9 +581,9 @@ datasets and gives each its own fully qualified name:
 
 [ddl-create-mv]: https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_materialized_view_statement
 
-So a replica whose source lives in another dataset — the case that matters for
-cross-region replication — cannot be expressed through this expression. The
-statement has to be written by hand.
+Cross-region replication is therefore expressible; what it cannot add is the
+**project** level, because neither reference carries one — see
+[Only the dataset level is carried](#only-the-dataset-level-is-carried).
 
 ### Statements this dialect does not format
 
@@ -584,12 +598,25 @@ CreateSequenceExpression(d, "s_orders", schema_name="app").to_sql()
 
 `ALTER TABLE ... ADD/DROP INDEX` is refused at the capability level
 (`supports_alter_table_index_actions()` answers `False`), while `CREATE INDEX`
-and `DROP INDEX` do render and take a `schema_name` for both the index name and
-the table it is built on:
+and `DROP INDEX` do render. `schema_name` on them qualifies the **index name**;
+the table is qualified by its own `TableExpression`, and a bare string for that
+table is refused at construction:
 
 ```python
-CreateIndexExpression(d, "idx_orders_id", "orders", ["id"], schema_name="app").to_sql()[0]
+CreateIndexExpression(
+    d, "idx_orders_id", TableExpression(d, "orders", schema_name="app"), ["id"],
+    schema_name="app",
+).to_sql()[0]
 # CREATE INDEX `app`.`idx_orders_id` ON `app`.`orders` (`id`)
+
+CreateIndexExpression(
+    d, "idx_shared", TableExpression(d, "orders", schema_name="sales"), ["user_id"],
+    schema_name="app",
+).to_sql()[0]
+# CREATE INDEX `app`.`idx_shared` ON `sales`.`orders` (`user_id`)
+
+CreateIndexExpression(d, "idx_orders_id", "orders", ["id"], schema_name="app")
+# TypeError: table must be a TableExpression, got str
 
 DropIndexExpression(d, "idx_orders_id", schema_name="app").to_sql()[0]
 # DROP INDEX `app`.`idx_orders_id`
@@ -598,8 +625,10 @@ DropIndexExpression(d, "idx_orders_id", schema_name="app").to_sql()[0]
 BigQuery has no secondary indexes. Clustering and search indexes are separate
 resources that this library's expression layer does not model, and the flags say
 so: `supports_index_introspection()` and `supports_fulltext_index()` both answer
-`False`. `supports_create_index()` and `supports_drop_index()` still answer `True`,
-which is why the two statements above render rather than raise.
+`False`. `supports_create_index()` and `supports_drop_index()` still answer
+`True`, which is why the two statements above render rather than raise, and
+`supports_index_schema_qualification()` answers `True`, so the qualified index
+name is not refused at render time either.
 
 ## There is no session-level current dataset
 
@@ -705,12 +734,14 @@ count:
 **This library currently carries one of them.** Stated plainly:
 
 > **The table, view, column and index expressions in this backend accept a
-> `schema_name` and nothing above it. `TableExpression`, `Column`,
-> `WildcardExpression` has no project field,
+> `schema_name` and nothing above it. `TableExpression`, `Column` and
+> `WildcardExpression` have no project field,
 > and no dialect hook adds one. A dataset is always rendered as exactly one
 > quoted segment followed by one dot, so a dotted value stays inside that
 > segment.** (`Column` and `WildcardExpression` discard the value; see
-> [Columns never carry the dataset](#columns-never-carry-the-dataset).)
+> [Columns never carry the dataset](#columns-never-carry-the-dataset). On an index
+> statement `schema_name` covers the index name only — the table reference has its
+> own dataset.)
 
 ```python
 TableExpression(d, "orders", schema_name="myproj.app").to_sql()[0]
@@ -893,13 +924,16 @@ TableExpression(d, "orders", schema_name="myproj.app").to_sql()[0]
 `supports_schema_cascade()` answers `False`. See
 [`CREATE SCHEMA` and `DROP SCHEMA` create and delete datasets](#create-schema-and-drop-schema-create-and-delete-datasets).
 
-**Creating a replica of a view in another dataset.** The replica statement has one
-`schema_name` and applies it to both the replica and its source. See
-[Materialized views](#materialized-views).
+**Creating a replica of a view in another dataset.** That works: the replica
+statement takes a `TableExpression` for the replica and another for the source,
+so the two datasets are chosen separately. What it still cannot express is the
+project level. See [Materialized views](#materialized-views).
 
-**Expecting construction to raise.** Nothing rejects a bad `schema_name` until the
-statement renders. A model-level mistake therefore survives every step up to and
-including query building, and fails at the point the SQL is assembled.
+**Expecting construction to raise for a bad `schema_name`.** Nothing rejects it
+until the statement renders. A model-level mistake therefore survives every step
+up to and including query building, and fails at the point the SQL is assembled.
+A bare string handed to a statement that names a table *is* caught at
+construction, as a `TypeError`.
 
 **Looking for metadata introspection.** `supports_introspection()` answers `True`
 and every granular introspection flag answers `False`; the query formatters raise.
