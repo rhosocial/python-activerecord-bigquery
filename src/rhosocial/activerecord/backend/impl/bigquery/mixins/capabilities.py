@@ -95,9 +95,21 @@ class BigQueryCapabilityMixin:
     def supports_introspection(self) -> bool:
         return True
 
-    def supports_auto_increment(self) -> bool:
-        """BigQuery supports ``GENERATED ... AS IDENTITY`` columns."""
-        return True
+    def supports_auto_increment_column(self) -> bool:
+        """Whether BigQuery accepts a bare ``AUTO_INCREMENT`` column marker.
+
+        ``False``: ``AUTO_INCREMENT`` is not part of GoogleSQL. BigQuery's
+        server-generated column mechanism is the parameterised
+        ``GENERATED ... AS IDENTITY`` clause, which is a different node
+        (``IdentityClause``) with its own probes; see
+        :class:`~...mixins.identity_column.BigQueryIdentityColumnMixin`.
+
+        This replaces the old ``supports_auto_increment()`` probe, which
+        answered ``True`` for the standard clause without any renderer ever
+        consulting it. The two mechanisms are now declared separately, and
+        this one is declined explicitly.
+        """
+        return False
 
     def supports_generated_columns(self) -> bool:
         """BigQuery supports GENERATED ALWAYS AS columns."""

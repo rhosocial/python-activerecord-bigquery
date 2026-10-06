@@ -38,6 +38,34 @@ def test_generated_column_capabilities(dialect):
     assert dialect.supports_virtual_generated_columns() is False
 
 
+def test_identity_column_capabilities(dialect):
+    """BigQuery identity columns (Preview, 2026-08-31): documented option by option.
+
+    ``START WITH`` / ``INCREMENT BY`` are in the ``identity_column`` grammar;
+    ``MINVALUE`` / ``MAXVALUE`` / ``CYCLE`` are not, so those probes decline.
+    These are documentation answers, not execution results -- no BigQuery
+    instance is available.
+    """
+    assert dialect.supports_identity_column() is True
+    assert dialect.supports_identity_generation_always() is True
+    assert dialect.supports_identity_start() is True
+    assert dialect.supports_identity_increment() is True
+    assert dialect.supports_identity_minvalue() is False
+    assert dialect.supports_identity_maxvalue() is False
+    assert dialect.supports_identity_cycle() is False
+
+
+def test_auto_increment_column_capability(dialect):
+    """BigQuery has no ``AUTO_INCREMENT`` keyword; the marker is declined.
+
+    The old ``supports_auto_increment()`` answered ``True`` for the standard
+    clause without any renderer reading it; it is deleted from core and must
+    not linger here as dead code.
+    """
+    assert dialect.supports_auto_increment_column() is False
+    assert not hasattr(dialect, "supports_auto_increment")
+
+
 def test_generated_stored_column_renders(dialect):
     column = ColumnDefinition(
         dialect,

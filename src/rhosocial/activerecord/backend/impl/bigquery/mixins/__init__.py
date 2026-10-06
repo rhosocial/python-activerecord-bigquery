@@ -7,6 +7,7 @@ from .dql import BigQueryDQLMixin
 from .schema import BigQuerySchemaMixin
 from .ddl import BigQueryDDLColumnMixin
 from .capabilities import BigQueryCapabilityMixin
+from .identity_column import BigQueryIdentityColumnMixin
 from .identifier import BigQueryIdentifierMixin
 from .materialized_view import BigQueryMaterializedViewMixin
 
@@ -38,6 +39,7 @@ __all__ = [
     'BigQuerySchemaMixin',
     'BigQueryDDLColumnMixin',
     'BigQueryCapabilityMixin',
+    'BigQueryIdentityColumnMixin',
     'BigQueryIdentifierMixin',
     'BigQueryMaterializedViewMixin',
     'BigQueryStructMixin',
