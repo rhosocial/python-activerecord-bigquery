@@ -8,16 +8,20 @@ expressions carry that BigQuery cannot express is rejected with
 ``UnsupportedFeatureError`` instead of being silently dropped.
 """
 from typing import Any, Tuple, TYPE_CHECKING
-from rhosocial.activerecord.backend.expression.core import TableExpression
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.expression.objects import MaterializedView
 
 from ..materialized_view_options import resolve_materialized_view_option
 
 if TYPE_CHECKING:  # pragma: no cover
+    from rhosocial.activerecord.backend.expression.statements.ddl_view import (
+        CreateMaterializedViewExpression,
+        DropMaterializedViewExpression,
+    )
+
     from ..expression.materialized_view import (
         BigQueryAlterMaterializedViewSetOptionsExpression,
-        BigQueryCreateMaterializedViewExpression,
         BigQueryCreateMaterializedViewReplicaExpression,
     )
 
@@ -55,19 +59,24 @@ class BigQueryMaterializedViewMixin:
     # ------------------------------------------------------------------
 
     def format_create_materialized_view_statement(
-        self, expr: "BigQueryCreateMaterializedViewExpression"
+        self, expr: "CreateMaterializedViewExpression"
     ) -> Tuple[str, tuple]:
         """Format ``CREATE [OR REPLACE] MATERIALIZED VIEW [IF NOT EXISTS]``.
 
         Args:
-            expr: BigQuery (or generic) create expression.
+            expr: BigQuery or generic create expression, carrying the view it
+                acts on.
 
         Returns:
             Tuple of (SQL string, params tuple) from the defining query.
 
         Raises:
+            TypeError: ``expr.view`` is not a MaterializedView. Another object
+                kind would have had its own name rendered as the view's, and the
+                statement would still be well-formed SQL.
             UnsupportedFeatureError: for clauses BigQuery does not have.
         """
+        self._require_materialized_view(expr, "CreateMaterializedViewExpression")
         self._reject_unsupported_clauses(expr, "CREATE MATERIALIZED VIEW")
 
         parts = ["CREATE"]
@@ -76,7 +85,7 @@ class BigQueryMaterializedViewMixin:
         parts.append("MATERIALIZED VIEW")
         if getattr(expr, "if_not_exists", False):
             parts.append("IF NOT EXISTS")
-        parts.append(TableExpression(self, expr.view_name, schema_name=expr.schema_name).to_sql()[0])
+        parts.append(self._materialized_view_name_sql(expr))
 
         partition_by = getattr(expr, "partition_by", None)
         if partition_by:
@@ -95,8 +104,19 @@ class BigQueryMaterializedViewMixin:
         parts.append(f"AS {query_sql}")
         return " ".join(parts), query_params
 
-    def format_drop_materialized_view_statement(self, expr: Any) -> Tuple[str, tuple]:
-        """Format ``DROP MATERIALIZED VIEW [IF EXISTS]``."""
+    def format_drop_materialized_view_statement(
+        self, expr: "DropMaterializedViewExpression"
+    ) -> Tuple[str, tuple]:
+        """Format ``DROP MATERIALIZED VIEW [IF EXISTS]``.
+
+        Args:
+            expr: BigQuery or generic drop expression, carrying the view.
+
+        Raises:
+            TypeError: ``expr.view`` is not a MaterializedView.
+            UnsupportedFeatureError: BigQuery has no ``CASCADE`` here.
+        """
+        self._require_materialized_view(expr, "DropMaterializedViewExpression")
         if getattr(expr, "cascade", False):
             raise UnsupportedFeatureError(
                 self.name, "DROP MATERIALIZED VIEW CASCADE"
@@ -104,17 +124,24 @@ class BigQueryMaterializedViewMixin:
         parts = ["DROP MATERIALIZED VIEW"]
         if getattr(expr, "if_exists", False):
             parts.append("IF EXISTS")
-        parts.append(TableExpression(self, expr.view_name, schema_name=expr.schema_name).to_sql()[0])
+        parts.append(self._materialized_view_name_sql(expr))
         return " ".join(parts), ()
 
     def format_alter_materialized_view_set_options_statement(
         self, expr: "BigQueryAlterMaterializedViewSetOptionsExpression"
     ) -> Tuple[str, tuple]:
-        """Format ``ALTER MATERIALIZED VIEW [IF EXISTS] ... SET OPTIONS(...)``."""
+        """Format ``ALTER MATERIALIZED VIEW [IF EXISTS] ... SET OPTIONS(...)``.
+
+        Raises:
+            TypeError: ``expr.view`` is not a MaterializedView.
+        """
+        self._require_materialized_view(
+            expr, "BigQueryAlterMaterializedViewSetOptionsExpression"
+        )
         parts = ["ALTER MATERIALIZED VIEW"]
         if getattr(expr, "if_exists", False):
             parts.append("IF EXISTS")
-        parts.append(TableExpression(self, expr.view_name, schema_name=expr.schema_name).to_sql()[0])
+        parts.append(self._materialized_view_name_sql(expr))
         options = self._format_materialized_view_options(expr.options)
         parts.append(f"SET OPTIONS({options})")
         return " ".join(parts), ()
@@ -122,19 +149,72 @@ class BigQueryMaterializedViewMixin:
     def format_create_materialized_view_replica_statement(
         self, expr: "BigQueryCreateMaterializedViewReplicaExpression"
     ) -> Tuple[str, tuple]:
-        """Format ``CREATE MATERIALIZED VIEW replica ... AS REPLICA OF source``."""
-        parts = ["CREATE MATERIALIZED VIEW", expr.replica.to_sql()[0]]
+        """Format ``CREATE MATERIALIZED VIEW replica ... AS REPLICA OF source``.
+
+        Two objects, checked separately: a replica usually lives in a different
+        dataset from the view it mirrors, so the two are chosen independently
+        and either could be the wrong kind.
+
+        Raises:
+            TypeError: ``expr.replica`` or ``expr.source_view`` is not a
+                MaterializedView.
+        """
+        for label, candidate in (
+            ("replica", expr.replica),
+            ("source_view", expr.source_view),
+        ):
+            if not isinstance(candidate, MaterializedView):
+                raise TypeError(
+                    f"BigQueryCreateMaterializedViewReplicaExpression.{label} must "
+                    f"be a MaterializedView, got {type(candidate).__name__}"
+                )
+        replica_sql, _ = expr.replica.to_sql()
+        source_sql, _ = expr.source_view.to_sql()
+        parts = ["CREATE MATERIALIZED VIEW", replica_sql]
         interval = expr.replication_interval_seconds
         if interval is not None:
             parts.append(
                 "OPTIONS(replication_interval_seconds = " f"{int(interval)})"
             )
-        parts.append(f"AS REPLICA OF {expr.source_view.to_sql()[0]}")
+        parts.append(f"AS REPLICA OF {source_sql}")
         return " ".join(parts), ()
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _require_materialized_view(expr: Any, statement: str) -> None:
+        """Refuse a statement whose target is not a materialized view.
+
+        Every one of these four formatters is reached by name -- a view's
+        ``format_method`` says which formatter renders it -- so nothing about the
+        dispatch tells them whether the object they were handed is the kind the
+        statement acts on. Left unchecked, ``CreateMaterializedViewExpression``
+        given a ``Table`` renders ``CREATE MATERIALIZED VIEW`orders` ...``: the
+        object's own ``format_table_object`` produces valid SQL, so the result
+        is a well-formed statement about the wrong object and nothing says so.
+
+        The check lives here, where the four statements meet, rather than
+        repeated in each. The message names the statement, because which of the
+        four refused is what tells a caller where the wrong object came from.
+        """
+        if not isinstance(expr.view, MaterializedView):
+            raise TypeError(
+                f"{statement}.view must be a MaterializedView, "
+                f"got {type(expr.view).__name__}"
+            )
+
+    def _materialized_view_name_sql(self, expr: Any) -> str:
+        """The one place a materialized view's own name becomes SQL.
+
+        The statement holds the object, and the object renders itself through
+        ``format_materialized_view_object``. ``CREATE``, ``DROP`` and
+        ``ALTER ... SET OPTIONS`` all read that one object, so a qualified form
+        cannot reach one statement and miss the next.
+        """
+        name_sql, _params = expr.view.to_sql()
+        return name_sql
 
     def _reject_unsupported_clauses(self, expr: Any, feature: str) -> None:
         """Reject generic-expression clauses BigQuery cannot express."""

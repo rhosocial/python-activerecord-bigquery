@@ -22,6 +22,13 @@
 PYTHONPATH=src .venv3.14-ubuntu26.04/bin/python
 ```
 
+这条命令假定装好的 core 就是本文描述的那一份。若不是，两段 import 都要钉在同一分支上，
+且后端在前：
+
+```
+PYTHONPATH=<core-worktree>/src:src <venv>/bin/python
+```
+
 `BigQueryDialect` 以元组形式接收版本号，`(3, 0, 0)` 是默认值，本页所有示例用的
 都是它。模型层的示例是把两个模型配置到
 `BigQueryConnectionConfig(project="test", dataset="app")` 上之后读 `to_sql()` 得到的。
@@ -187,24 +194,33 @@ WildcardExpression(d, table="orders", schema_name="").to_sql()[0]
 
 覆盖带来的另外两点后果也需要讲清楚，因为它们与核心渲染器不同：
 
-- **列上带了 dataset 又带了 table 时，dataset 被丢弃且不给警告。** 这个值仍会
-  被校验——列上的空串照样抛异常——但一个合法的 dataset 不会出现在输出里：
+- **列上带了 dataset 又带了 table 时，dataset 不出现在输出里，而这是正确的。** 这个值
+  仍会被校验——列上的空串照样抛异常——但 dataset 是冗余而非丢失，因为 FROM 子句已经
+  指明了它所属的关系：
 
   ```python
   Column(d, "id", table="o", schema_name="app").to_sql()[0]
   # `o`.`id`
   ```
 
-- **列上带了 dataset 而没有 table 时，给出警告而不是抛异常**，因为 BigQuery 本来
-  就从不用 dataset 限定列，而同一份模型定义往往要同时服务 PostgreSQL 与
-  BigQuery：
+- **列上带了 dataset 而没有 table 时，报错而不是丢弃。** 此时没有任何关系可供这个
+  命名空间去限定，诚实的做法只有两个：渲染出来，或者拒绝。BigQuery 两者都做不到。
+  这种情况过去只发一条 `UserWarning`——测试照样全绿，dataset 却悄悄没了。现在改为
+  抛异常：
 
   ```python
   Column(d, "id", schema_name="app").to_sql()[0]
-  # `id`
-  # UserWarning: BigQuery: dropping schema_name='app' from column 'id' because
-  # no table was given; a column reference needs a table to be qualified
+  # UnsupportedFeatureError: 'bigquery' dialect does not support
+  # schema-qualified column references. Suggestion: column 'id' carries
+  # schema_name='app' but no table, and bigquery qualifies a column by its
+  # relation only; put the dataset on the FROM relation, or pass table=... as well
   ```
+
+  同一份模型定义同时服务 PostgreSQL 与 BigQuery 仍然做得到：把 dataset 声明在模型
+  上，让它落到 FROM 的关系上，而不是声明在单个列上。
+
+以上两条同源于一个声明出来的能力 `supports_column_namespace_qualification()`，
+它的返回值是 `False`：BigQuery 只通过关系来限定列，从不用命名空间限定列。
 
 列*别名*不受影响：别名属于输出列，不属于范围，因此和不加限定时一样渲染在列上。
 
@@ -415,8 +431,8 @@ DeleteExpression(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
 
 模拟器模式（设了 `api_endpoint`）下，`update()` 与 `delete()` 还需要 dataset 办
 另一件事：模拟器不返回受影响行数，后端会先数一遍匹配的行来补上，而这条
-`SELECT COUNT(*)` 用的正是 `options.schema_name` 来限定。在那里，不带 dataset 的
-DML 同样无从解析。
+`SELECT COUNT(*)` 用的正是 `options.schema_name`，并经由语句自身所用的同一个限定名
+渲染器输出。在那里，不带 dataset 的 DML 同样无从解析。
 
 有两条 DDL 是被拒绝而不是被限定，因为 BigQuery 没有对应的子句：
 
@@ -487,20 +503,41 @@ BigQuery 另外还有 `ALTER SCHEMA` 与 `UNDROP SCHEMA`。核心库里没有对
 
 ### 物化视图
 
-四条物化视图语句都接受 `schema_name` 并限定视图名：
+四条物化视图语句都把目标命名为一个 `MaterializedView` 对象：dataset 放在对象的
+`schema_name` 槽位里，project 放在 `catalog_name` 槽位里。
 
 ```python
-BigQueryCreateMaterializedViewExpression(d, "mv", query=inner, schema_name="app").to_sql()[0]
+BigQueryCreateMaterializedViewExpression(
+    d, MaterializedView("mv", schema_name="app"), query=inner,
+).to_sql()[0]
 # CREATE MATERIALIZED VIEW `app`.`mv` AS SELECT `orders`.`id` FROM `app`.`orders`
 
-BigQueryDropMaterializedViewExpression(d, "mv", schema_name="app", if_exists=True).to_sql()[0]
+BigQueryDropMaterializedViewExpression(
+    d, MaterializedView("mv", schema_name="app"), if_exists=True,
+).to_sql()[0]
 # DROP MATERIALIZED VIEW IF EXISTS `app`.`mv`
 
 BigQueryAlterMaterializedViewSetOptionsExpression(
-    d, "mv", schema_name="app",
+    d, MaterializedView("mv", schema_name="app"),
     options={"enable_refresh": True, "refresh_interval_minutes": 30},
 ).to_sql()[0]
 # ALTER MATERIALIZED VIEW `app`.`mv` SET OPTIONS(enable_refresh = true, refresh_interval_minutes = 30)
+
+BigQueryDropMaterializedViewExpression(
+    d, MaterializedView("mv", schema_name="app", catalog_name="myproject"),
+).to_sql()[0]
+# DROP MATERIALIZED VIEW `myproject`.`app`.`mv`
+```
+
+两个槽位各自渲染到该去的地方。只带 project 而没有 dataset 会被拒绝，因为
+`project.table` 不是 BigQuery 能解析的路径：
+
+```python
+BigQueryDropMaterializedViewExpression(
+    d, MaterializedView("mv", catalog_name="myproject"),
+).to_sql()
+# ValueError: BigQuery renders a project only together with a dataset;
+#             MaterializedView 'mv' carries catalog_name='myproject' but no schema_name
 ```
 
 BigQuery 没有 `REFRESH MATERIALIZED VIEW` 语句，因此
@@ -508,18 +545,21 @@ BigQuery 没有 `REFRESH MATERIALIZED VIEW` 语句，因此
 `OPTIONS(enable_refresh=..., refresh_interval_minutes=...)` 配置，之后用
 `ALTER MATERIALIZED VIEW ... SET OPTIONS(...)` 修改。
 
-**副本语句用同一个 dataset 限定两个名字**，因为它只有这一个 `schema_name`：
+副本语句收**两个 `MaterializedView`**，因此副本与源视图各自独立地挑自己的 dataset——
+副本通常与它所镜像的视图不在同一个 dataset 里。
 
 ```python
 BigQueryCreateMaterializedViewReplicaExpression(
-    d, "mv_replica", "mv_src", schema_name="app",
+    d,
+    MaterializedView("mv_replica", schema_name="app"),
+    MaterializedView("mv_src", schema_name="s3_dataset"),
     replication_interval_seconds=600,
 ).to_sql()[0]
 # CREATE MATERIALIZED VIEW `app`.`mv_replica`
-#   OPTIONS(replication_interval_seconds = 600) AS REPLICA OF `app`.`mv_src`
+#   OPTIONS(replication_interval_seconds = 600) AS REPLICA OF `s3_dataset`.`mv_src`
 ```
 
-BigQuery 文档里的示例把副本与它的源放在不同的 dataset，并给各自一个全限定名：
+BigQuery 文档里的示例正是这么写的——副本与源放在不同的 dataset，各自给一个全限定名：
 
 > ```
 > CREATE MATERIALIZED VIEW `myproject.bq_dataset.mv_replica`
@@ -531,8 +571,8 @@ BigQuery 文档里的示例把副本与它的源放在不同的 dataset，并给
 
 [ddl-create-mv]: https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_materialized_view_statement
 
-因此，源视图位于另一个 dataset 的副本——也就是跨区域复制真正用得上的那种情形——
-无法用这个表达式表达，只能手写语句。
+因此跨区域复制是表达得出来的；它仍然加不上的只有 **project** 这一级，因为两个引用都不带
+这一级，见[表达式层只带 dataset 一级](#表达式层只带-dataset-一级)。
 
 ### 本方言不渲染的语句
 
@@ -547,11 +587,24 @@ CreateSequenceExpression(d, "s_orders", schema_name="app").to_sql()
 
 `ALTER TABLE ... ADD/DROP INDEX` 在能力标志层面被拒绝
 （`supports_alter_table_index_actions()` 返回 `False`），而 `CREATE INDEX` 与
-`DROP INDEX` 会渲染，并接受一个 `schema_name` 同时覆盖索引名与它建在上面的表：
+`DROP INDEX` 会渲染。它们上面的 `schema_name` **只限定索引名**，表由它自己的
+`TableExpression` 限定，而给那个表传裸字符串会在构造期被拒绝：
 
 ```python
-CreateIndexExpression(d, "idx_orders_id", "orders", ["id"], schema_name="app").to_sql()[0]
+CreateIndexExpression(
+    d, "idx_orders_id", TableExpression(d, "orders", schema_name="app"), ["id"],
+    schema_name="app",
+).to_sql()[0]
 # CREATE INDEX `app`.`idx_orders_id` ON `app`.`orders` (`id`)
+
+CreateIndexExpression(
+    d, "idx_shared", TableExpression(d, "orders", schema_name="sales"), ["user_id"],
+    schema_name="app",
+).to_sql()[0]
+# CREATE INDEX `app`.`idx_shared` ON `sales`.`orders` (`user_id`)
+
+CreateIndexExpression(d, "idx_orders_id", "orders", ["id"], schema_name="app")
+# TypeError: table must be a TableExpression, got str
 
 DropIndexExpression(d, "idx_orders_id", schema_name="app").to_sql()[0]
 # DROP INDEX `app`.`idx_orders_id`
@@ -560,8 +613,9 @@ DropIndexExpression(d, "idx_orders_id", schema_name="app").to_sql()[0]
 BigQuery 没有二级索引；聚簇与搜索索引是另外两类资源，本库的表达式层没有建模，
 相关标志如实反映：`supports_index_introspection()` 与
 `supports_fulltext_index()` 都返回 `False`。`supports_create_index()` 与
-`supports_drop_index()` 仍然是 `True`，这正是上面两条语句渲染出来而不抛异常
-的原因。
+`supports_drop_index()` 仍然是 `True`，`supports_index_schema_qualification()`
+也是 `True`，这正是上面两条语句渲染出来而不抛异常、且带限定的索引名也不会在渲染
+阶段被拒的原因。
 
 ## 没有会话级的当前 dataset
 
@@ -660,7 +714,8 @@ BigQuery 的全限定表名由三段组成，参考文档把段数写明了：
 > 也没有可以补上的方言钩子。
 > dataset 一律渲染成恰好一个带引号的段加一个点号，因此写进去的点号会留在这一段
 > 内部。**（`Column` 与 `WildcardExpression` 会把这个值丢弃，见
-> [列引用永远不带 dataset](#列引用永远不带-dataset)。）
+> [列引用永远不带 dataset](#列引用永远不带-dataset)；索引语句上的 `schema_name`
+> 只管索引名，表引用自带自己的 dataset。）
 
 ```python
 TableExpression(d, "orders", schema_name="myproj.app").to_sql()[0]
@@ -825,11 +880,13 @@ TableExpression(d, "orders", schema_name="myproj.app").to_sql()[0]
 `False`。见
 [`CREATE SCHEMA` 与 `DROP SCHEMA` 建的是 dataset、删的是 dataset](#create-schema-与-drop-schema-建的是-dataset删的是-dataset)。
 
-**为另一个 dataset 里的视图建副本。** 副本语句只有一个 `schema_name`，并把它同时
-用在副本和源视图上。见 [物化视图](#物化视图)。
+**为另一个 dataset 里的视图建副本。** 这件事做得到：副本语句为副本收一个
+`TableExpression`、为源视图再收一个，两个 dataset 各自独立挑选。它仍然表达不了的只有
+project 这一级。见[物化视图](#物化视图)。
 
-**期待构造时就抛异常。** 在语句渲染之前，没有任何环节会拒绝不合法的
-`schema_name`。因此模型层的错误能一路活过构造查询的每一步，直到拼装 SQL 时才失败。
+**期待构造时就因为不合法的 `schema_name` 抛异常。** 在语句渲染之前，没有任何环节会拒绝
+它。因此模型层的错误能一路活过构造查询的每一步，直到拼装 SQL 时才失败。而给点名表的
+语句塞一个裸字符串确实会在构造期被拦下，只是那是 `TypeError`。
 
 **去找元数据内省功能。** `supports_introspection()` 返回 `True`，而各个分项内省
 标志都是 `False`，查询格式化方法一律抛异常。见 [本后端的内省](#本后端的内省)。

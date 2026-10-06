@@ -4,6 +4,12 @@ Directory layout follows the cross-backend test taxonomy
 (`.claude/plan/2026-09-03/cross-backend-test-taxonomy.md` §5.9):
 common subjects at the top level, vendor specifics under the subject tree.
 
+## Top level
+
+| File | Description |
+|------|-------------|
+| `test_expression_roundtrip_all.py` | Every expression class in core's package and in this backend's, round-tripped through dict/JSON/XML and classified by render outcome. Core's classes are in scope because BigQuery's SQL surface is the narrowest in the family, so which of them it refuses is worth pinning. |
+
 ## Subject matrix
 
 | subject | status | notes |

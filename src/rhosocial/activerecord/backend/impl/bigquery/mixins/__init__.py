@@ -2,6 +2,7 @@
 """BigQuery dialect-specific mixin implementations."""
 
 from .types import BigQueryTypeSupportMixin
+from .namespace import BigQueryNamespaceMixin
 from .dql import BigQueryDQLMixin
 from .schema import BigQuerySchemaMixin
 from .ddl import BigQueryDDLColumnMixin
@@ -32,6 +33,7 @@ class BigQueryGeographyMixin:
 
 __all__ = [
     'BigQueryTypeSupportMixin',
+    'BigQueryNamespaceMixin',
     'BigQueryDQLMixin',
     'BigQuerySchemaMixin',
     'BigQueryDDLColumnMixin',

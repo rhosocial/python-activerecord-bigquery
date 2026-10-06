@@ -26,6 +26,14 @@ Every SQL fragment below was rendered by the expression layer with
 PYTHONPATH=src .venv3.14-ubuntu26.04/bin/python
 ```
 
+That recipe assumes the installed core is the one this page describes. Where it
+is not, both halves of the import have to be pinned to the same branch, backend
+first:
+
+```
+PYTHONPATH=<core-worktree>/src:src <venv>/bin/python
+```
+
 `BigQueryDialect` takes its version as a tuple; `(3, 0, 0)` is the default and
 what every example here uses. Model-level fragments were produced by configuring
 two models against a `BigQueryConnectionConfig(project="test", dataset="app")`
@@ -201,27 +209,37 @@ with. The asymmetry is worth noting next to `format_column`, which does refuse a
 empty dataset.
 
 Two further consequences of the override are worth stating precisely, because
-they differ from the core renderer:
+they differ from the core renderer. Both follow from one declared capability,
+`supports_column_namespace_qualification()`, which answers `False`: BigQuery
+qualifies a column through its relation and never through a namespace.
 
-- **A dataset on a column that also has a table is discarded without a
-  warning.** The value is still validated — an empty string on a column raises —
-  but a valid dataset simply does not reach the output:
+- **A dataset on a column that also has a table is dropped, and that is
+  correct.** The value is still validated — an empty string on a column raises —
+  but the dataset is redundant rather than lost, because the FROM clause names
+  the relation the dataset belongs to:
 
   ```python
   Column(d, "id", table="o", schema_name="app").to_sql()[0]
   # `o`.`id`
   ```
 
-- **A dataset on a column with no table warns rather than raises**, because
-  BigQuery never qualifies a column and one model definition often has to serve
-  both PostgreSQL and BigQuery:
+- **A dataset on a column with no table is reported, not dropped.** There is no
+  relation for the namespace to qualify, so the two honest outcomes are to
+  render it or to refuse it, and BigQuery can do neither. This case used to emit
+  a `UserWarning` — which kept the tests green while the dataset quietly
+  vanished. It now raises:
 
   ```python
   Column(d, "id", schema_name="app").to_sql()[0]
-  # `id`
-  # UserWarning: BigQuery: dropping schema_name='app' from column 'id' because
-  # no table was given; a column reference needs a table to be qualified
+  # UnsupportedFeatureError: 'bigquery' dialect does not support
+  # schema-qualified column references. Suggestion: column 'id' carries
+  # schema_name='app' but no table, and bigquery qualifies a column by its
+  # relation only; put the dataset on the FROM relation, or pass table=... as well
   ```
+
+  One model definition serving both PostgreSQL and BigQuery is still possible:
+  declare the dataset on the model, so it reaches the FROM relation, rather than
+  on an individual column.
 
 A column *alias* is unaffected: the alias is a property of the output column, not
 of the range, so it renders on the unqualified column just as on any other
@@ -445,7 +463,8 @@ name, never the dataset — see
 In emulator mode (`api_endpoint` set) `update()` and `delete()` need the dataset for
 one more purpose: the emulator reports no affected-row count, so the backend
 recovers it by counting matching rows first, qualifying that `SELECT COUNT(*)`
-with `options.schema_name`. A DML statement issued without a dataset resolves
+with `options.schema_name` through the same qualified-name renderer the
+statements themselves use. A DML statement issued without a dataset resolves
 against nothing there either.
 
 Two DDL statements are refused rather than qualified, because BigQuery does not
@@ -521,20 +540,42 @@ the core layer, so there is nothing to render or to qualify.
 
 ### Materialized views
 
-All four materialized view statements take `schema_name` and qualify the view:
+All four materialized view statements name their target as a
+`MaterializedView` object, so the dataset lives in the object's `schema_name`
+slot and the project in its `catalog_name`:
 
 ```python
-BigQueryCreateMaterializedViewExpression(d, "mv", query=inner, schema_name="app").to_sql()[0]
+BigQueryCreateMaterializedViewExpression(
+    d, MaterializedView("mv", schema_name="app"), query=inner,
+).to_sql()[0]
 # CREATE MATERIALIZED VIEW `app`.`mv` AS SELECT `orders`.`id` FROM `app`.`orders`
 
-BigQueryDropMaterializedViewExpression(d, "mv", schema_name="app", if_exists=True).to_sql()[0]
+BigQueryDropMaterializedViewExpression(
+    d, MaterializedView("mv", schema_name="app"), if_exists=True,
+).to_sql()[0]
 # DROP MATERIALIZED VIEW IF EXISTS `app`.`mv`
 
 BigQueryAlterMaterializedViewSetOptionsExpression(
-    d, "mv", schema_name="app",
+    d, MaterializedView("mv", schema_name="app"),
     options={"enable_refresh": True, "refresh_interval_minutes": 30},
 ).to_sql()[0]
 # ALTER MATERIALIZED VIEW `app`.`mv` SET OPTIONS(enable_refresh = true, refresh_interval_minutes = 30)
+
+BigQueryDropMaterializedViewExpression(
+    d, MaterializedView("mv", schema_name="app", catalog_name="myproject"),
+).to_sql()[0]
+# DROP MATERIALIZED VIEW `myproject`.`app`.`mv`
+```
+
+Each slot is rendered where it belongs. A project with no dataset is refused,
+because `project.table` is not a path BigQuery can resolve:
+
+```python
+BigQueryDropMaterializedViewExpression(
+    d, MaterializedView("mv", catalog_name="myproject"),
+).to_sql()
+# ValueError: BigQuery renders a project only together with a dataset;
+#             MaterializedView 'mv' carries catalog_name='myproject' but no schema_name
 ```
 
 BigQuery has no `REFRESH MATERIALIZED VIEW` statement, so
@@ -542,20 +583,24 @@ BigQuery has no `REFRESH MATERIALIZED VIEW` statement, so
 through `OPTIONS(enable_refresh=..., refresh_interval_minutes=...)` at creation
 and changed with `ALTER MATERIALIZED VIEW ... SET OPTIONS(...)`.
 
-**The replica statement qualifies both names with the same dataset.** That is the
-only `schema_name` it has:
+The replica statement takes **two `MaterializedView`s**, so the replica and its
+source choose their datasets independently — a replica normally sits in a
+different dataset from the view it mirrors.
 
 ```python
 BigQueryCreateMaterializedViewReplicaExpression(
-    d, "mv_replica", "mv_src", schema_name="app",
+    d,
+    MaterializedView("mv_replica", schema_name="app"),
+    MaterializedView("mv_src", schema_name="s3_dataset"),
     replication_interval_seconds=600,
 ).to_sql()[0]
 # CREATE MATERIALIZED VIEW `app`.`mv_replica`
-#   OPTIONS(replication_interval_seconds = 600) AS REPLICA OF `app`.`mv_src`
+#   OPTIONS(replication_interval_seconds = 600) AS REPLICA OF `s3_dataset`.`mv_src`
 ```
 
-BigQuery's documented example puts the replica and its source in different
-datasets and gives each its own fully qualified name:
+That matches what BigQuery's own documented example does — it puts the replica
+and its source in different datasets and gives each its own fully qualified
+name:
 
 > ```
 > CREATE MATERIALIZED VIEW `myproject.bq_dataset.mv_replica`
@@ -567,9 +612,9 @@ datasets and gives each its own fully qualified name:
 
 [ddl-create-mv]: https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_materialized_view_statement
 
-So a replica whose source lives in another dataset — the case that matters for
-cross-region replication — cannot be expressed through this expression. The
-statement has to be written by hand.
+Cross-region replication is therefore expressible; what it cannot add is the
+**project** level, because neither reference carries one — see
+[Only the dataset level is carried](#only-the-dataset-level-is-carried).
 
 ### Statements this dialect does not format
 
@@ -584,12 +629,25 @@ CreateSequenceExpression(d, "s_orders", schema_name="app").to_sql()
 
 `ALTER TABLE ... ADD/DROP INDEX` is refused at the capability level
 (`supports_alter_table_index_actions()` answers `False`), while `CREATE INDEX`
-and `DROP INDEX` do render and take a `schema_name` for both the index name and
-the table it is built on:
+and `DROP INDEX` do render. `schema_name` on them qualifies the **index name**;
+the table is qualified by its own `TableExpression`, and a bare string for that
+table is refused at construction:
 
 ```python
-CreateIndexExpression(d, "idx_orders_id", "orders", ["id"], schema_name="app").to_sql()[0]
+CreateIndexExpression(
+    d, "idx_orders_id", TableExpression(d, "orders", schema_name="app"), ["id"],
+    schema_name="app",
+).to_sql()[0]
 # CREATE INDEX `app`.`idx_orders_id` ON `app`.`orders` (`id`)
+
+CreateIndexExpression(
+    d, "idx_shared", TableExpression(d, "orders", schema_name="sales"), ["user_id"],
+    schema_name="app",
+).to_sql()[0]
+# CREATE INDEX `app`.`idx_shared` ON `sales`.`orders` (`user_id`)
+
+CreateIndexExpression(d, "idx_orders_id", "orders", ["id"], schema_name="app")
+# TypeError: table must be a TableExpression, got str
 
 DropIndexExpression(d, "idx_orders_id", schema_name="app").to_sql()[0]
 # DROP INDEX `app`.`idx_orders_id`
@@ -598,8 +656,10 @@ DropIndexExpression(d, "idx_orders_id", schema_name="app").to_sql()[0]
 BigQuery has no secondary indexes. Clustering and search indexes are separate
 resources that this library's expression layer does not model, and the flags say
 so: `supports_index_introspection()` and `supports_fulltext_index()` both answer
-`False`. `supports_create_index()` and `supports_drop_index()` still answer `True`,
-which is why the two statements above render rather than raise.
+`False`. `supports_create_index()` and `supports_drop_index()` still answer
+`True`, which is why the two statements above render rather than raise, and
+`supports_index_schema_qualification()` answers `True`, so the qualified index
+name is not refused at render time either.
 
 ## There is no session-level current dataset
 
@@ -705,12 +765,14 @@ count:
 **This library currently carries one of them.** Stated plainly:
 
 > **The table, view, column and index expressions in this backend accept a
-> `schema_name` and nothing above it. `TableExpression`, `Column`,
-> `WildcardExpression` has no project field,
+> `schema_name` and nothing above it. `TableExpression`, `Column` and
+> `WildcardExpression` have no project field,
 > and no dialect hook adds one. A dataset is always rendered as exactly one
 > quoted segment followed by one dot, so a dotted value stays inside that
 > segment.** (`Column` and `WildcardExpression` discard the value; see
-> [Columns never carry the dataset](#columns-never-carry-the-dataset).)
+> [Columns never carry the dataset](#columns-never-carry-the-dataset). On an index
+> statement `schema_name` covers the index name only — the table reference has its
+> own dataset.)
 
 ```python
 TableExpression(d, "orders", schema_name="myproj.app").to_sql()[0]
@@ -893,13 +955,16 @@ TableExpression(d, "orders", schema_name="myproj.app").to_sql()[0]
 `supports_schema_cascade()` answers `False`. See
 [`CREATE SCHEMA` and `DROP SCHEMA` create and delete datasets](#create-schema-and-drop-schema-create-and-delete-datasets).
 
-**Creating a replica of a view in another dataset.** The replica statement has one
-`schema_name` and applies it to both the replica and its source. See
-[Materialized views](#materialized-views).
+**Creating a replica of a view in another dataset.** That works: the replica
+statement takes a `TableExpression` for the replica and another for the source,
+so the two datasets are chosen separately. What it still cannot express is the
+project level. See [Materialized views](#materialized-views).
 
-**Expecting construction to raise.** Nothing rejects a bad `schema_name` until the
-statement renders. A model-level mistake therefore survives every step up to and
-including query building, and fails at the point the SQL is assembled.
+**Expecting construction to raise for a bad `schema_name`.** Nothing rejects it
+until the statement renders. A model-level mistake therefore survives every step
+up to and including query building, and fails at the point the SQL is assembled.
+A bare string handed to a statement that names a table *is* caught at
+construction, as a `TypeError`.
 
 **Looking for metadata introspection.** `supports_introspection()` answers `True`
 and every granular introspection flag answers `False`; the query formatters raise.

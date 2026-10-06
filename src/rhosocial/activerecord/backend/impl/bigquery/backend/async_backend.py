@@ -9,9 +9,10 @@ from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeature
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
 from ..async_transaction import AsyncBigQueryTransactionManager
+from .qualified_names import BigQueryQualifiedNameMixin
 
 
-class AsyncBigQueryBackend(AsyncStorageBackend):
+class AsyncBigQueryBackend(BigQueryQualifiedNameMixin, AsyncStorageBackend):
     """BigQuery native async backend."""
 
     def __init__(self, **kwargs):
@@ -156,7 +157,7 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
 
-        qualified = f"`{schema_name}`.`{table}`" if schema_name else f"`{table}`"
+        qualified = self._render_relation(table, schema_name)
         sql = f"SELECT COALESCE(MAX(`{pk_column}`), 0) + 1 AS next_id FROM {qualified}"
         result = await self.execute(sql, options=ExecutionOptions(stmt_type=StatementType.DQL))
         row = result.data[0]
@@ -222,9 +223,10 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
     async def bulk_update(self, options) -> QueryResult:
         # See BigQueryBackend.bulk_update: explicit ELSE branch per CASE.
         from rhosocial.activerecord.backend.expression import (
-            Column, Literal, UpdateExpression, TableExpression, ComparisonPredicate, InPredicate,
+            Column, Literal, UpdateExpression, ComparisonPredicate, InPredicate,
         )
         from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
+        from rhosocial.activerecord.backend.expression.objects import Table
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
 
@@ -243,9 +245,11 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
         where_predicate = InPredicate(self.dialect, pk_col, pk_literals)
         update_expr = UpdateExpression(
             dialect=self.dialect,
-            table=TableExpression(self.dialect, options.table, schema_name=options.schema_name)
-            if options.schema_name
-            else TableExpression(self.dialect, options.table),
+            # One construction whether or not a dataset was given; see
+            # BigQueryBackend.bulk_update.
+            table=Table(
+                self.dialect, options.table, schema_name=options.schema_name
+            ),
             assignments=assignments,
             where=where_predicate,
         )
@@ -277,7 +281,7 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
         stripped = where_sql.strip()
         if stripped.upper().startswith("WHERE "):
             where_sql = stripped[5:].strip()
-        qualified = f"`{schema_name}`.`{table}`" if schema_name else f"`{table}`"
+        qualified = self._render_relation(table, schema_name)
         sql = f"SELECT COUNT(*) AS n FROM {qualified} WHERE {where_sql}"
         result = await self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
         if not result.data:

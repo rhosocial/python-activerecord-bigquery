@@ -20,8 +20,28 @@ permissions:
 env:
   # rhosocial-activerecord and rhosocial-activerecord-testsuite dev releases are
   # not published to PyPI; install them from the release branches.
-  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@fix/schema-name-propagation-gaps"
-  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@release/v1.0.0.dev17"
+  # The schema-object refactor this branch depends on lives on the core library's
+  # expression-schema-object-refactor branch, and two of the four names a
+  # previous revision of this comment listed -- QualifiedNameMixin and
+  # CatalogSupport -- are ones that branch *deleted*, along with the
+  # single-`supports_schema_qualification` object model this backend used to
+  # assume. What the dialect actually imports from core is:
+  #
+  #   * the per-kind object mixins and NamespaceMixin, which supply
+  #     format_<kind>_object for the fourteen kinds that carry a namespace and
+  #     the levels behind them (a Database is the one kind that does not -- it
+  #     is never qualified, so format_database_object is name only);
+  #   * RelationSourceMixin, which renders the FROM side of a named object --
+  #     without it, rendering any aliased row source raises AttributeError;
+  #   * the object protocols (ViewObjectSupport, IndexObjectSupport), which
+  #     derive from NamespaceSupport and so must follow this backend's own
+  #     namespace mixin in the base list (C3).
+  #
+  # The previous pin, the fix/schema-name-propagation-gaps branch, predates all
+  # of that layer, so the imports this backend now makes do not resolve against
+  # it.
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/expression-schema-object-refactor"
+  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/expression-schema-object-refactor"
 
 jobs:
   test:

@@ -7,7 +7,11 @@ from typing import Any, Tuple, TYPE_CHECKING
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
 if TYPE_CHECKING:
-    from rhosocial.activerecord.backend.expression.statements.ddl_alter import AddIndex, DropIndex
+    from rhosocial.activerecord.backend.expression.objects import Index
+    from rhosocial.activerecord.backend.expression.statements.ddl_alter import (
+        AddIndex,
+        DropIndex,
+    )
 
 
 class BigQueryDDLColumnMixin:
@@ -29,7 +33,9 @@ class BigQueryDDLColumnMixin:
         """Render a column comment as ``OPTIONS(description='...')``.
 
         Returns the fragment with a leading space so it composes directly
-        after the column definition.
+        after the column definition. Annotated ``Any`` because this formatter is
+        reached from ``CREATE TABLE``'s column loop, where the value is whatever
+        clause class the dialect dispatches on.
         """
         escaped = self._escape_sql_string(clause.comment)
         return f" OPTIONS(description='{escaped}')", ()
@@ -56,7 +62,22 @@ class BigQueryDDLColumnMixin:
         )
 
     def format_drop_index_action(self, action: DropIndex) -> Tuple[str, tuple]:
-        """BigQuery has no ALTER TABLE DROP INDEX."""
+        """BigQuery has no ALTER TABLE DROP INDEX.
+
+        Raises:
+            TypeError: ``action.index`` is not an Index. Checked before the
+                capability refusal, as core's own formatter does, so a caller who
+                passed the wrong object learns that too rather than fixing one
+                error and meeting the other.
+            UnsupportedFeatureError: Always, for a correct Index.
+        """
+        from rhosocial.activerecord.backend.expression.objects import Index
+
+        if not isinstance(action.index, Index):
+            raise TypeError(
+                f"DropIndex.index must be an Index, "
+                f"got {type(action.index).__name__}"
+            )
         raise UnsupportedFeatureError(
             self.name,
             "ALTER TABLE DROP INDEX",

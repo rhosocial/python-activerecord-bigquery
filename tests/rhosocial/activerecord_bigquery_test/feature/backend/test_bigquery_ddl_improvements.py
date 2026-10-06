@@ -4,6 +4,7 @@ import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression import CreateTableExpression
+from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.expression.statements import ColumnDefinition
 from rhosocial.activerecord.backend.expression.types import IntegerType
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
@@ -71,10 +72,9 @@ class TestBigQuerySchemaCapabilityGating:
 class TestBigQueryTableDeclarationGating:
     def test_table_declaration_defaults_are_absent(self):
         dialect = BigQueryDialect()
-        from rhosocial.activerecord.backend.expression.core import TableExpression
         expression = CreateTableExpression(
             dialect,
-            TableExpression(dialect, "plain_table_defaults"),
+            Table(dialect, "plain_table_defaults"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
         )
         sql, params = expression.to_sql()
@@ -87,10 +87,9 @@ class TestBigQueryTableDeclarationGating:
     def test_table_inherits_is_propagated_and_rejected(self):
         dialect = BigQueryDialect()
         assert dialect.supports_table_inheritance() is False
-        from rhosocial.activerecord.backend.expression.core import TableExpression
         expression = CreateTableExpression(
             dialect,
-            TableExpression(dialect, "inherited"),
+            Table(dialect, "inherited"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
             inherits=["parent_a", "parent_b"],
         )
@@ -101,10 +100,9 @@ class TestBigQueryTableDeclarationGating:
     def test_table_tablespace_is_propagated_and_rejected(self):
         dialect = BigQueryDialect()
         assert dialect.supports_table_tablespace() is False
-        from rhosocial.activerecord.backend.expression.core import TableExpression
         expression = CreateTableExpression(
             dialect,
-            TableExpression(dialect, "tablespaced"),
+            Table(dialect, "tablespaced"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
             tablespace="ts_data",
         )

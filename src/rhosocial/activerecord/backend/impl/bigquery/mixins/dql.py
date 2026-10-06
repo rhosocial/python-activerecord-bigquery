@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Tuple, TYPE_CHECKING
 
+from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression.query_sources import SetOperationExpression
 
 if TYPE_CHECKING:
@@ -29,8 +30,6 @@ class BigQueryDQLMixin:
         if expr.alias:
             sql_parts.append(f"AS {self.format_identifier(expr.alias)}")
         if expr.for_update_clause:
-            from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-
             raise UnsupportedFeatureError(
                 self.name,
                 "FOR UPDATE in set operations",
@@ -51,20 +50,52 @@ class BigQueryDQLMixin:
         """BigQuery does not support explicit NULLS FIRST/LAST ordering."""
         return False
 
+    def supports_column_namespace_qualification(self) -> bool:
+        """BigQuery never prefixes a column with a project or a dataset.
+
+        GoogleSQL has no ``dataset.column`` construct. A column is qualified by
+        its relation -- ``table.column``, or the fully qualified
+        ``project.dataset.table.column`` path when a query reaches across
+        datasets -- and the namespace belongs to the relation named in the
+        FROM clause. A namespace on the column alone is therefore not
+        something this dialect renders.
+
+        Declared rather than assumed, because the distinction is what makes
+        the error in :meth:`format_column` possible: leaving the namespace out
+        is correct when a table carries it, and indefensible when nothing does.
+        """
+        return False
+
     def format_column(self, expr: Column) -> Tuple[str, tuple]:
-        """Column references are never schema-qualified in BigQuery."""
-        from rhosocial.activerecord.backend.dialect.protocols import SchemaSupport
+        """Format a column reference, which BigQuery qualifies by table only.
 
-        if isinstance(self, SchemaSupport):
-            self.validate_schema_name(expr)
+        Args:
+            expr: The column being rendered.
 
-        if expr.schema_name and not expr.table:
-            # A column reference cannot be qualified without a table. The core
-            # dialect raises here; BigQuery never schema-qualifies columns at
-            # all, so this is meaningless rather than dangerous. Warn instead
-            # of raising so one model definition can still target both
-            # PostgreSQL and BigQuery.
-            _warn_qualification_dropped(self.name, expr, "BigQuery")
+        Returns:
+            Tuple of (SQL string, empty params tuple).
+
+        Raises:
+            UnsupportedFeatureError: the column carries a dataset but no table.
+                There is then no relation for the namespace to qualify, and the
+                only two honest outcomes are to render it or to refuse it.
+                Emitting a bare ``column`` would silently read a different
+                table than the caller named.
+        """
+        if expr.schema_name and not self.supports_column_namespace_qualification():
+            if not expr.table:
+                raise UnsupportedFeatureError(
+                    self.name,
+                    "schema-qualified column references",
+                    suggestion=(
+                        f"column {expr.name!r} carries "
+                        f"schema_name={expr.schema_name!r} but no table, and "
+                        f"{self.name} qualifies a column by its relation only; "
+                        f"put the dataset on the FROM relation, or pass "
+                        f"table=... as well"
+                    ),
+                )
+
         if expr.table:
             col_sql = (
                 f"{self.format_identifier(expr.table, expr.table_need_quote)}."
@@ -84,16 +115,3 @@ class BigQueryDQLMixin:
 
 
 __all__ = ['BigQueryDQLMixin']
-
-
-def _warn_qualification_dropped(dialect_name: str, expr, label: str) -> None:
-    """Warn that a supplied ``schema_name`` cannot be rendered on a bare column."""
-    import warnings
-
-    warnings.warn(
-        f"{label}: dropping schema_name={expr.schema_name!r} from column "
-        f"{expr.name!r} because no table was given; a column reference needs "
-        "a table to be qualified",
-        UserWarning,
-        stacklevel=3,
-    )
