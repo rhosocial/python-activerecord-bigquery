@@ -58,8 +58,26 @@ class BigQueryIdentityColumnMixin:
     def supports_identity_column(self) -> bool:
         """Whether BigQuery accepts a ``GENERATED ... AS IDENTITY`` column.
 
-        ``True``: documented since 2026-08-31 (Preview). A table can have at
-        most one identity column, and the column must be a top-level INT64.
+        ``True`` -- a **policy choice**, not an unknown capability.
+
+        Identity columns shipped on 2026-08-31 and are documented in
+        **Preview**: the feature is subject to the Pre-GA Offerings Terms, and
+        a project must have it enabled before the clause can be used. The
+        probe still answers ``True`` because it answers "can this dialect
+        express the clause", not "is the clause GA": the grammar exists, this
+        backend can render it, and Preview status belongs to the service and
+        the project's enablement, not to the dialect's expressive power.
+        Answering ``False`` would instead claim that BigQuery cannot express
+        the clause at all, which the documentation contradicts.
+
+        Source (fetched 2026-10-07, no BigQuery instance available -- this is
+        a documentation answer, not an execution result):
+        https://cloud.google.com/bigquery/docs/identity-columns
+        (Preview badge and Pre-GA terms note; see also the 2026-08-31 release
+        notes entry).
+
+        A table can have at most one identity column, and the column must be a
+        top-level INT64.
         """
         return True
 
@@ -126,6 +144,33 @@ class BigQueryIdentityColumnMixin:
         * :meth:`supports_identity_minvalue` / ``_maxvalue`` / ``_cycle``
           answer ``False``, so a requested one raises
           ``UnsupportedFeatureError`` naming that option.
+
+        Why the bare form renders ``AS IDENTITY ()``: in the grammar
+
+            identity_column :=
+              [ GENERATED { ALWAYS | BY DEFAULT } ] AS IDENTITY (
+                [ START WITH start_value ]
+                [ INCREMENT BY increment_value ])
+
+        the ``(`` and ``)`` sit outside every ``[ ]`` optional marker, so they
+        are a literal paren group and only their contents are optional. The
+        same page uses literal parentheses the same way in ``OPTIONS ( ... )``
+        and ``GENERATED ALWAYS AS (generation_expression) STORED``. The
+        announcement blog's only concrete example is
+        ``AS IDENTITY (START WITH 1 INCREMENT BY 1)`` -- a space before the
+        paren, matching this renderer.
+
+        **No official material shows the clause's literal paren group empty**:
+        every example carries options, and the prose that names
+        ``GENERATED ALWAYS AS IDENTITY`` without parentheses is naming the
+        mode, not exhibiting the syntax. This is the round's single assertion
+        that cannot be execution-confirmed -- there is no BigQuery instance to
+        run it against. One query against a real connection (``CREATE TABLE``
+        with a bare identity column) would settle it; until then the empty
+        paren group is the documented-grammar reading, not an observed result.
+
+        Grammar and conventions:
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language
 
         Args:
             expr: The ``IdentityClause`` carrying the identity parameters.
