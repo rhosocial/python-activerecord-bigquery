@@ -13,9 +13,9 @@ GoogleSQL's own form of the SQL-standard clause::
 Two documented facts drive this mixin:
 
 * only ``START WITH`` and ``INCREMENT BY`` exist -- there is no
-  ``MINVALUE`` / ``MAXVALUE`` / ``CYCLE`` in the grammar, so those probes
-  answer ``False`` and the formatter refuses a requested one by name rather
-  than dropping it;
+  ``MINVALUE`` / ``MAXVALUE`` / ``CYCLE`` / ``ORDER`` / ``CACHE`` in the
+  grammar, so those probes answer ``False`` and the formatter refuses a
+  requested one by name rather than dropping it;
 * the option parentheses are literal in the grammar (they are not wrapped in
   the optional-clause brackets used elsewhere on the page), so the bare
   clause still renders them -- ``AS IDENTITY ()`` -- while core's default
@@ -141,9 +141,16 @@ class BigQueryIdentityColumnMixin:
         * :meth:`supports_identity_generation_always` gates ``ALWAYS``;
         * :meth:`supports_identity_start` / ``_increment`` gate the two
           documented options;
-        * :meth:`supports_identity_minvalue` / ``_maxvalue`` / ``_cycle``
-          answer ``False``, so a requested one raises
+        * :meth:`supports_identity_minvalue` / ``_maxvalue`` / ``_cycle`` /
+          ``_order`` / ``_cache`` answer ``False``, so a requested one raises
           ``UnsupportedFeatureError`` naming that option.
+
+        Option spelling goes through core's ``identity_*_keyword`` hooks
+        (``identity_cycle_keyword``, ``identity_order_keyword``,
+        ``identity_cache_keyword``) rather than being hardcoded here: the
+        gates and the spelling stay separate, so a dialect whose grammar
+        spells the negative form differently can change the words without
+        copying this method -- and with it, its gates.
 
         Why the bare form renders ``AS IDENTITY ()``: in the grammar
 
@@ -232,7 +239,21 @@ class BigQueryIdentityColumnMixin:
                     self.name, "IDENTITY CYCLE",
                     f"{self.name} does not support the CYCLE identity option."
                 )
-            attributes.append("CYCLE" if expr.cycle else "NO CYCLE")
+            attributes.append(self.identity_cycle_keyword(expr.cycle))
+        if expr.cache is not None:
+            if not self.supports_identity_cache():
+                raise UnsupportedFeatureError(
+                    self.name, "IDENTITY CACHE",
+                    f"{self.name} does not support the CACHE identity option."
+                )
+            attributes.append(self.identity_cache_keyword(expr.cache))
+        if expr.order is not None:
+            if not self.supports_identity_order():
+                raise UnsupportedFeatureError(
+                    self.name, "IDENTITY ORDER",
+                    f"{self.name} does not support the ORDER identity option."
+                )
+            attributes.append(self.identity_order_keyword(expr.order))
         return f" GENERATED {generation} AS IDENTITY ({' '.join(attributes)})", ()
 
 
