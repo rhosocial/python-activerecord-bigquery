@@ -67,6 +67,10 @@ from .mixins import (
     BigQueryIdentityColumnMixin,
     BigQueryIdentifierMixin,
     BigQueryMaterializedViewMixin,
+    # Transaction formatting owns the refusals for the lock-wait pair
+    # (WAIT / NO WAIT) that BigQuery's grammar does not have; core's generic
+    # renderer would drop them silently. Before TransactionControlMixin.
+    BigQueryTransactionMixin,
 )
 
 
@@ -86,6 +90,9 @@ class BigQueryDialect(
     BigQueryIdentityColumnMixin,
     BigQueryIdentifierMixin,
     BigQueryMaterializedViewMixin,  # Before ViewMixin to override materialized view DDL
+    # Transaction formatting: core's TransactionControlMixin drops the
+    # lock-wait pair silently, so the refusals live here, ahead of it.
+    BigQueryTransactionMixin,
     # The backend's one naming-side mixin: both levels rendered, and
     # validate_catalog_name narrowed, because a BigQuery path is
     # project.dataset.object and a project with no dataset is not a name.

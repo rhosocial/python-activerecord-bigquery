@@ -10,6 +10,7 @@ from .capabilities import BigQueryCapabilityMixin
 from .identity_column import BigQueryIdentityColumnMixin
 from .identifier import BigQueryIdentifierMixin
 from .materialized_view import BigQueryMaterializedViewMixin
+from .transaction import BigQueryTransactionMixin
 
 
 class BigQueryStructMixin:
@@ -42,6 +43,7 @@ __all__ = [
     'BigQueryIdentityColumnMixin',
     'BigQueryIdentifierMixin',
     'BigQueryMaterializedViewMixin',
+    'BigQueryTransactionMixin',
     'BigQueryStructMixin',
     'BigQueryArrayMixin',
     'BigQueryJSONMixin',

@@ -36,6 +36,24 @@ class BigQueryCapabilityMixin:
     def supports_recursive_cte(self) -> bool:
         return True
 
+    def supports_materialized_cte(self) -> bool:
+        """Whether the ``AS MATERIALIZED`` / ``AS NOT MATERIALIZED`` CTE hint exists.
+
+        ``False``: the documented grammar is
+        ``WITH [RECURSIVE] { non_recursive_cte | recursive_cte }[, ...]`` and
+        neither hint string occurs on the query-syntax page; GoogleSQL decides
+        materialization itself (recursive CTEs are materialized, non-recursive
+        ones are not).
+
+        Declared here because core's ``format_cte_expression`` now consults the
+        probe when a hint is requested, so the refusal is this dialect's
+        documented answer rather than an inherited default.
+
+        Reference (fetched 2026-10-08):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/query-syntax#with_clause
+        """
+        return False
+
     def supports_window_functions(self) -> bool:
         return True
 
@@ -76,6 +94,21 @@ class BigQueryCapabilityMixin:
     def supports_if_not_exists_view(self) -> bool:
         """BigQuery does not support IF NOT EXISTS for views."""
         return False
+
+    def supports_truncate(self) -> bool:
+        """Whether ``TRUNCATE TABLE`` is supported.
+
+        ``True``: the DML reference documents
+        ``TRUNCATE TABLE [[project_name.]dataset_name.]table_name``; truncating
+        views, materialized views, models and external tables is not supported,
+        but the table statement itself is.  Declared here because core's
+        ``format_truncate_statement`` now consults the probe; the answer keeps
+        the statement reachable and is this dialect's own.
+
+        Reference (fetched 2026-10-08):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/dml-syntax#truncate_table_statement
+        """
+        return True
 
     def supports_truncate_table_keyword(self) -> bool:
         return True
@@ -130,6 +163,30 @@ class BigQueryCapabilityMixin:
     def supports_create_table_clone(self) -> bool:
         """BigQuery supports CREATE TABLE ... CLONE / COPY."""
         return True
+
+    def supports_with_data_clause(self) -> bool:
+        """Whether the ``WITH [NO] DATA`` population clause exists anywhere.
+
+        ``False`` for all three consumers core's formatters consult:
+
+        * ``CREATE TABLE ... AS query_statement`` -- the CREATE TABLE grammar
+          ends at ``[ AS query_statement ]``;
+        * ``CREATE MATERIALIZED VIEW ... AS query_expression`` -- the view is
+          populated at creation time and the MV grammar has no such clause;
+        * ``REFRESH MATERIALIZED VIEW`` -- not a BigQuery statement at all
+          (refresh is an ``OPTIONS(enable_refresh=...)`` concern), so the
+          statement gate answers first.
+
+        Neither page contains the strings "WITH DATA" or "WITH NO DATA".
+        Declared here because core's CTAS renderer now consults the probe, so
+        an explicit request is refused by name instead of emitting
+        server-rejected SQL.
+
+        References (fetched 2026-10-08):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_table_statement
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_materialized_view_statement
+        """
+        return False
 
     def supports_create_or_replace_table(self) -> bool:
         """BigQuery supports CREATE OR REPLACE TABLE."""
