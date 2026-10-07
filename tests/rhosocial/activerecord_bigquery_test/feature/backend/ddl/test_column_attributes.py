@@ -79,7 +79,7 @@ class TestIdentityGates:
             (IdentityAttribute(minvalue=1), "IDENTITY MINVALUE"),
             (IdentityAttribute(maxvalue=10), "IDENTITY MAXVALUE"),
             (IdentityAttribute(cycle=True), "IDENTITY CYCLE"),
-            (IdentityAttribute(cycle=False), "IDENTITY CYCLE"),
+            (IdentityAttribute(cycle=False), "IDENTITY NO CYCLE"),
         ],
         ids=("minvalue", "maxvalue", "cycle", "no-cycle"),
     )

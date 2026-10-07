@@ -114,12 +114,17 @@ class BigQueryMaterializedViewMixin:
 
         Raises:
             TypeError: ``expr.view`` is not a MaterializedView.
-            UnsupportedFeatureError: BigQuery has no ``CASCADE`` here.
+            UnsupportedFeatureError: BigQuery has no ``CASCADE`` or
+                ``RESTRICT`` here.
         """
         self._require_materialized_view(expr, "DropMaterializedViewExpression")
         if getattr(expr, "cascade", False):
             raise UnsupportedFeatureError(
                 self.name, "DROP MATERIALIZED VIEW CASCADE"
+            )
+        if getattr(expr, "restrict", False):
+            raise UnsupportedFeatureError(
+                self.name, "DROP MATERIALIZED VIEW RESTRICT"
             )
         parts = ["DROP MATERIALIZED VIEW"]
         if getattr(expr, "if_exists", False):
@@ -232,7 +237,13 @@ class BigQueryMaterializedViewMixin:
                 f"{feature} STORAGE PARAMETERS",
                 "BigQuery configures materialized views through OPTIONS(...).",
             )
-        if getattr(expr, "with_data", True) is False:
+        if getattr(expr, "with_data", False):
+            raise UnsupportedFeatureError(
+                self.name,
+                f"{feature} WITH DATA",
+                "BigQuery populates the view at creation time and has no WITH DATA clause.",
+            )
+        if getattr(expr, "no_data", False):
             raise UnsupportedFeatureError(
                 self.name,
                 f"{feature} WITH NO DATA",

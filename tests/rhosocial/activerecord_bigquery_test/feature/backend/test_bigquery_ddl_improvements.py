@@ -63,10 +63,22 @@ class TestBigQuerySchemaCapabilityGating:
         dialect = BigQueryDialect()
         assert dialect.supports_schema_if_exists() is True
 
-    def test_schema_cascade_not_supported(self):
-        """BigQuery does not support DROP SCHEMA CASCADE."""
+    def test_schema_cascade_and_restrict_supported(self):
+        """BigQuery supports both spellings of ``DROP SCHEMA``'s qualifier.
+
+        The grammar is ``DROP SCHEMA [IF EXISTS] name [CASCADE | RESTRICT]``;
+        RESTRICT is the default. The previous declaration answered ``False``
+        for CASCADE, which the documentation contradicts. Both probes are now
+        declared, so the renderer can express either request instead of
+        refusing one of them.
+
+        Evidence (fetched 2026-10-07):
+        https://docs.cloud.google.com/bigquery/docs/managing-datasets
+        https://cloud.google.com/blog/topics/developers-practitioners/spring-forward-bigquery-user-friendly-sql
+        """
         dialect = BigQueryDialect()
-        assert dialect.supports_schema_cascade() is False
+        assert dialect.supports_schema_cascade() is True
+        assert dialect.supports_schema_restrict() is True
 
 
 class TestBigQueryTableDeclarationGating:

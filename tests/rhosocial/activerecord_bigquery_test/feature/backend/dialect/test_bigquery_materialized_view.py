@@ -240,16 +240,39 @@ class TestCreateRejectsNonBigQueryClauses:
         with pytest.raises(UnsupportedFeatureError):
             expr.to_sql()
 
+    def test_generic_with_data_rejected(self, dialect):
+        """BigQuery populates at creation and has no ``WITH DATA`` clause."""
+        expr = CreateMaterializedViewExpression(
+            dialect=dialect,
+            view=MaterializedView(dialect, "mv"),
+            query=_query(dialect),
+            with_data=True,
+        )
+        with pytest.raises(UnsupportedFeatureError) as exc:
+            expr.to_sql()
+        assert "WITH DATA" in str(exc.value)
+
     def test_generic_with_no_data_rejected(self, dialect):
         expr = CreateMaterializedViewExpression(
             dialect=dialect,
             view=MaterializedView(dialect, "mv"),
             query=_query(dialect),
-            with_data=False,
+            no_data=True,
         )
         with pytest.raises(UnsupportedFeatureError) as exc:
             expr.to_sql()
         assert "WITH NO DATA" in str(exc.value)
+
+    def test_generic_plain_expression_renders(self, dialect):
+        """The pair defaults to neither, which is this grammar's shape."""
+        expr = CreateMaterializedViewExpression(
+            dialect=dialect,
+            view=MaterializedView(dialect, "mv"),
+            query=_query(dialect),
+        )
+        assert expr.to_sql()[0] == (
+            "CREATE MATERIALIZED VIEW `mv` AS SELECT `product_id` FROM `sales`"
+        )
 
     def test_drop_cascade_rejected(self, dialect):
         expr = DropMaterializedViewExpression(
@@ -261,6 +284,18 @@ class TestCreateRejectsNonBigQueryClauses:
         with pytest.raises(UnsupportedFeatureError) as exc:
             expr.to_sql()
         assert "CASCADE" in str(exc.value)
+
+    def test_drop_restrict_rejected(self, dialect):
+        """BigQuery's ``DROP MATERIALIZED VIEW`` has neither qualifier."""
+        expr = DropMaterializedViewExpression(
+            dialect=dialect,
+            view=MaterializedView(dialect, "mv"),
+            if_exists=True,
+            restrict=True,
+        )
+        with pytest.raises(UnsupportedFeatureError) as exc:
+            expr.to_sql()
+        assert "RESTRICT" in str(exc.value)
 
 
 class TestDropMaterializedView:
@@ -278,6 +313,12 @@ class TestDropMaterializedView:
         with pytest.raises(ValueError, match="CASCADE"):
             BigQueryDropMaterializedViewExpression(
                 dialect, MaterializedView(dialect, "mv"), cascade=True
+            )
+
+    def test_restrict_rejected_at_construction(self, dialect):
+        with pytest.raises(ValueError, match="RESTRICT"):
+            BigQueryDropMaterializedViewExpression(
+                dialect, MaterializedView(dialect, "mv"), restrict=True
             )
 
     def test_generic_expression_renders(self, dialect):

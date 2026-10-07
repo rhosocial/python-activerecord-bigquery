@@ -389,11 +389,13 @@ def register_specials():
     )
     # Both constraint modifiers hide their required arguments behind defaulted
     # positionals, so the introspective constructor skips them and the action
-    # arrives incomplete.
+    # arrives incomplete. The enforcement keyword is mandatory in
+    # AlterConstraint's grammar (exactly one of enforced / not_enforced), so
+    # the constructor names one of them.
     register_special_constructor(
         "statements.ddl_alter.AlterConstraint",
         lambda d: ddl_alter.AlterConstraint(
-            d, name="c", constraint_type=TableConstraintType.CHECK
+            d, "c", enforced=True, constraint_type=TableConstraintType.CHECK
         ),
     )
     register_special_constructor(

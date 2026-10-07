@@ -41,7 +41,7 @@ Divergence from the SQL-standard statement
   a schedule configured through ``OPTIONS(enable_refresh=…,
   refresh_interval_minutes=…)``; use
   :class:`BigQueryAlterMaterializedViewSetOptionsExpression` to change it.
-* ``DROP`` has no ``CASCADE``.
+* ``DROP`` has neither ``CASCADE`` nor ``RESTRICT``.
 """
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
@@ -115,11 +115,12 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression)
             dialect,
             view,
             query,
-            # BigQuery has no clause for these; the formatter rejects them, so the
-            # values are never silently rendered.
+            # BigQuery has no clause for these; the formatter rejects them, so a
+            # caller who sets one on a generic expression is refused by name.
+            # The pair defaults to neither, which is exactly this grammar's
+            # shape: there is no WITH DATA / WITH NO DATA to spell.
             column_aliases=None,
             tablespace=None,
-            with_data=True,
             storage_options=None,
         )
         self.or_replace = or_replace
@@ -137,7 +138,8 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression)
 class BigQueryDropMaterializedViewExpression(DropMaterializedViewExpression):
     """``DROP MATERIALIZED VIEW [IF EXISTS] mv_name``.
 
-    BigQuery has no ``CASCADE`` for materialized views.
+    BigQuery has neither ``CASCADE`` nor ``RESTRICT`` for materialized views;
+    both spellings are refused at construction rather than dropped.
     """
 
     def __init__(
@@ -146,6 +148,7 @@ class BigQueryDropMaterializedViewExpression(DropMaterializedViewExpression):
         view: MaterializedView,
         if_exists: bool = False,
         cascade: bool = False,
+        restrict: bool = False,
     ):
         """
         Args:
@@ -153,7 +156,11 @@ class BigQueryDropMaterializedViewExpression(DropMaterializedViewExpression):
         """
         if cascade:
             raise ValueError("BigQuery DROP MATERIALIZED VIEW has no CASCADE clause")
-        super().__init__(dialect, view, if_exists=if_exists, cascade=False)
+        if restrict:
+            raise ValueError("BigQuery DROP MATERIALIZED VIEW has no RESTRICT clause")
+        super().__init__(
+            dialect, view, if_exists=if_exists, cascade=False, restrict=False
+        )
 
     @property
     def format_method(self) -> str:

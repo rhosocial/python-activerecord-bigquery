@@ -3,35 +3,39 @@
 
 ``BigQueryIdentityColumnMixin.format_identity_clause`` fully overrides core's
 formatter -- it exists to keep the literal option parentheses -- and therefore
-owns every per-option gate the clause needs. Core's identity round grew
-``order`` and ``cache`` (with ``supports_identity_order`` /
-``supports_identity_cache``), and the override did not grow with them:
-``IdentityClause(dialect, order=True)`` and ``cache=10`` rendered the bare
-``AS IDENTITY ()``, silently dropping the request. The dialect's probes
-answered ``False``, but a probe the formatter never consults cannot refuse
-anything.
+owns every per-option gate the clause needs.  Core's expressiveness round split
+each two-spelling option into its own parameter pair (``cycle`` / ``no_cycle``,
+``order`` / ``no_order``, ``cache`` / ``no_cache``); the override consumes the
+pairs, and this file holds it to that.
 
-This file is the durable half of the fix. It does not list the options it
-knows about; it enumerates the option fields from ``IdentityClause.__init__``
-itself, so the next field core adds is exercised without anyone remembering to
-edit a list here. For every field the override must do exactly one of two
-things:
+This file does not list the options it knows about; it enumerates the option
+fields from ``IdentityClause.__init__`` itself, so the next field core adds is
+exercised without anyone remembering to edit a list here.  For every field the
+override must do exactly one of two things:
 
 * render the requested option -- the SQL must differ from the bare clause -- or
-* refuse it with ``UnsupportedFeatureError`` naming ``IDENTITY <FIELD>``.
+* refuse it with ``UnsupportedFeatureError`` naming the requested spelling:
+  ``IDENTITY CYCLE`` / ``IDENTITY NO CYCLE`` (and likewise ``order`` /
+  ``no_order``, ``cache`` / ``no_cache``).
 
-Rendering the bare clause is the failure: the request was dropped. The
+Rendering the bare clause is the failure: the request was dropped.  The
 outcome is also checked against the dialect's own probe (``True`` must render,
 ``False`` must refuse by name), which is the conformance rule core's own
-identity tests state. A permanent sentinel feeds the check an ungated field,
-so a future drop is caught rather than trusted.
+identity tests state.  A negative field (``no_*``) is gated by its base
+option's probe -- ``no_cycle`` by ``supports_identity_cycle`` -- because the
+probe answers for the option, and the parameter says which spelling was asked
+for.  A permanent sentinel feeds the check an ungated field, so a future drop
+is caught rather than trusted.
 
 The spelling half is checked too: option spelling must come from core's
 ``identity_*_keyword`` hooks, not from words hardcoded in the override.
 BigQuery's probes decline cycle / order / cache, so those lines are
 unreachable through the public dialect; a subclass that declares an option and
-returns a deliberately implausible spelling exercises the delegation. A
+returns a deliberately implausible spelling exercises the delegation.  A
 hardcoded ``CYCLE`` / ``NO CYCLE`` (or ``CACHE {n}``) cannot pass it.
+
+``cache=0`` is no longer the spelling of NO CACHE (the sentinel is gone); it is
+refused at construction, and that refusal is pinned here as its own state.
 
 **Not server-verified.** No BigQuery instance exists in this repository and CI
 has none; the emulator does not implement the Preview identity grammar. Every
@@ -51,6 +55,14 @@ from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 #: the clause mode, gated by ``supports_identity_generation_always`` and
 #: covered by the identity tests; the option fields follow it.
 _NON_OPTION_PARAMETERS = ("self", "dialect", "generation")
+
+#: The negative spelling of an option is gated by the option's own probe; the
+#: parameter picks the spelling, the probe answers for the option.
+_PROBE_FOR_FIELD = {
+    "no_cycle": "cycle",
+    "no_order": "order",
+    "no_cache": "cache",
+}
 
 
 def _option_fields(expression_cls=IdentityClause) -> tuple:
@@ -81,23 +93,23 @@ def _annotation_kinds(annotation: object) -> tuple:
     )
 
 
-def _requested_values(parameter: inspect.Parameter) -> tuple:
-    """Non-``None`` values that request this option.
+def _requested_values(field: str, parameter: inspect.Parameter) -> tuple:
+    """Values that request this field's spelling.
 
-    A truthy and a falsy value: ``cycle=False``, ``order=False`` and
-    ``cache=0`` are real requests (``NO CYCLE`` / ``NO ORDER`` / ``NO
-    CACHE``), so a gate that tests truthiness instead of ``is not None`` must
-    be caught too. The annotation picks the type; an unforeseen type still
-    gets requested with ``True`` / ``0``.
+    A bool option requests its spelling with ``True`` only: the negative
+    spelling is now a parameter of its own, so ``cycle=False`` is the default
+    and requests nothing.  An int option is requested with a positive count
+    (``cache=0`` is refused at construction and pinned separately); a
+    zero-length start / increment is a real request and is exercised too.
     """
     kinds = _annotation_kinds(parameter.annotation)
     if bool in kinds:
-        return (True, False)
+        return (True,)
     if int in kinds:
-        return (10, 0)
+        return (10,) if field == "cache" else (10, 0)
     if str in kinds:
         return ("x",)
-    return (True, 0)
+    return (True,)
 
 
 def _check_option(dialect, expression_cls, field) -> None:
@@ -108,27 +120,30 @@ def _check_option(dialect, expression_cls, field) -> None:
     """
     bare_sql = expression_cls(dialect).to_sql()[0]
 
-    probe = getattr(dialect, f"supports_identity_{field}", None)
+    probe_field = _PROBE_FOR_FIELD.get(field, field)
+    probe = getattr(dialect, f"supports_identity_{probe_field}", None)
     assert probe is not None, (
         f"IdentityClause carries the option field {field!r} but the dialect "
-        f"has no supports_identity_{field}() probe to gate it; the override "
-        f"cannot refuse what it cannot answer for."
+        f"has no supports_identity_{probe_field}() probe to gate it; the "
+        f"override cannot refuse what it cannot answer for."
     )
     declared = probe()
     parameter = inspect.signature(expression_cls.__init__).parameters[field]
+    feature = f"IDENTITY {field.upper().replace('_', ' ')}"
 
-    for value in _requested_values(parameter):
+    for value in _requested_values(field, parameter):
         clause = expression_cls(dialect, **{field: value})
         try:
             sql = clause.to_sql()[0]
         except UnsupportedFeatureError as exc:
-            assert f"IDENTITY {field.upper()}" in str(exc), (
-                f"{field}={value!r} was refused without naming the option: {exc}"
+            assert feature in str(exc), (
+                f"{field}={value!r} was refused without naming the requested "
+                f"spelling ({feature}): {exc}"
             )
             assert declared is False, (
                 f"{field}={value!r} was refused although "
-                f"supports_identity_{field}() answers {declared!r}; a declared "
-                f"option needs a renderer."
+                f"supports_identity_{probe_field}() answers {declared!r}; a "
+                f"declared option needs a renderer."
             )
             continue
         assert sql != bare_sql, (
@@ -138,7 +153,7 @@ def _check_option(dialect, expression_cls, field) -> None:
         )
         assert declared is True, (
             f"{field}={value!r} rendered {sql!r} although "
-            f"supports_identity_{field}() answers {declared!r}; a non-True "
+            f"supports_identity_{probe_field}() answers {declared!r}; a non-True "
             f"answer must fail closed."
         )
 
@@ -162,6 +177,12 @@ def test_every_identity_option_is_rendered_or_refused_by_name(field):
     override that forgot it.
     """
     _check_option(BigQueryDialect(), IdentityClause, field)
+
+
+def test_cache_zero_is_refused_at_construction():
+    """The old ``cache=0`` sentinel is gone; the negative spelling has a name."""
+    with pytest.raises(ValueError, match="cache must be a positive integer"):
+        IdentityClause(BigQueryDialect(), cache=0)
 
 
 class _FutureIdentityClause(IdentityClause):
@@ -196,26 +217,42 @@ def test_the_check_catches_a_future_ungated_field():
         _check_option(_FutureDialect(), _FutureIdentityClause, "foo")
 
 
-#: One hook-gated option -> the constructor kwargs that request it, the hook
+#: One hook-gated spelling -> the constructor kwargs that request it, the hook
 #: that owns its spelling, and a spelling a hardcoded SQL-standard word cannot
 #: accidentally match.
+def _cycle_hook(self, value):
+    return "HOOK-CYCLE" if value else "HOOK-NO-CYCLE"
+
+
+def _order_hook(self, value):
+    return "HOOK-ORDER" if value else "HOOK-NO-ORDER"
+
+
+def _cache_hook(self, value):
+    return f"HOOK-CACHE-{value}"
+
+
+def _no_cache_hook(self):
+    return "HOOK-NO-CACHE"
+
+
 _HOOK_CASES = (
-    ({"cycle": True}, "identity_cycle_keyword", "HOOK-CYCLE"),
-    ({"cycle": False}, "identity_cycle_keyword", "HOOK-NO-CYCLE"),
-    ({"order": True}, "identity_order_keyword", "HOOK-ORDER"),
-    ({"order": False}, "identity_order_keyword", "HOOK-NO-ORDER"),
-    ({"cache": 10}, "identity_cache_keyword", "HOOK-CACHE-10"),
-    ({"cache": 0}, "identity_cache_keyword", "HOOK-NO-CACHE"),
+    ({"cycle": True}, "supports_identity_cycle", "identity_cycle_keyword", _cycle_hook, "HOOK-CYCLE"),
+    ({"no_cycle": True}, "supports_identity_cycle", "identity_cycle_keyword", _cycle_hook, "HOOK-NO-CYCLE"),
+    ({"order": True}, "supports_identity_order", "identity_order_keyword", _order_hook, "HOOK-ORDER"),
+    ({"no_order": True}, "supports_identity_order", "identity_order_keyword", _order_hook, "HOOK-NO-ORDER"),
+    ({"cache": 10}, "supports_identity_cache", "identity_cache_keyword", _cache_hook, "HOOK-CACHE-10"),
+    ({"no_cache": True}, "supports_identity_cache", "identity_no_cache_keyword", _no_cache_hook, "HOOK-NO-CACHE"),
 )
 
 
 @pytest.mark.parametrize(
-    "kwargs,hook,spelling",
+    "kwargs,probe_name,hook,impl,spelling",
     _HOOK_CASES,
     ids=("cycle", "no-cycle", "order", "no-order", "cache-10", "no-cache"),
 )
-def test_option_spelling_comes_from_the_hook(kwargs, hook, spelling):
-    """The override delegates option spelling to core's ``identity_*_keyword``.
+def test_option_spelling_comes_from_the_hook(kwargs, probe_name, hook, impl, spelling):
+    """The override delegates option spelling to core's ``identity_*_keyword`` hooks.
 
     BigQuery's probes decline all three options, so the override's spelling
     lines are unreachable through the public dialect. A subclass that declares
@@ -223,15 +260,10 @@ def test_option_spelling_comes_from_the_hook(kwargs, hook, spelling):
     proves the line calls the hook: reverting it to a hardcoded
     ``"CYCLE" if ... else "NO CYCLE"`` (or ``CACHE {n}``) fails here.
     """
-    option = next(iter(kwargs))
-
-    def hooked(self, value):
-        return spelling
-
     dialect = type(
-        f"BigQueryWithHooked{option.title()}",
+        f"BigQueryWithHooked{next(iter(kwargs)).title()}",
         (BigQueryDialect,),
-        {f"supports_identity_{option}": lambda self: True, hook: hooked},
+        {probe_name: lambda self: True, hook: impl},
     )()
 
     sql = IdentityClause(dialect, **kwargs).to_sql()[0]

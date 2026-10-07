@@ -125,7 +125,26 @@ class BigQueryIdentityColumnMixin:
         """Whether the ``CYCLE`` / ``NO CYCLE`` identity option can be expressed.
 
         ``False``: not part of BigQuery's ``identity_column`` grammar. A
-        requested cycle setting is refused by name, never dropped.
+        requested cycle setting is refused by name, never dropped -- both the
+        positive and the negative spelling.
+        """
+        return False
+
+    def supports_identity_order(self) -> bool:
+        """Whether the ``ORDER`` / ``NO ORDER`` identity option can be expressed.
+
+        ``False``: not part of BigQuery's ``identity_column`` grammar. A
+        requested order setting is refused by name, never dropped -- both the
+        positive and the negative spelling.
+        """
+        return False
+
+    def supports_identity_cache(self) -> bool:
+        """Whether the ``CACHE`` / ``NO CACHE`` identity option can be expressed.
+
+        ``False``: not part of BigQuery's ``identity_column`` grammar. A
+        requested cache setting is refused by name, never dropped -- both the
+        positive count and the negative spelling.
         """
         return False
 
@@ -145,12 +164,20 @@ class BigQueryIdentityColumnMixin:
           ``_order`` / ``_cache`` answer ``False``, so a requested one raises
           ``UnsupportedFeatureError`` naming that option.
 
+        Each two-spelling option has its own parameter, and each spelling is
+        refused by name: ``cycle`` -> ``IDENTITY CYCLE``, ``no_cycle`` ->
+        ``IDENTITY NO CYCLE`` (and likewise ``order`` / ``no_order``,
+        ``cache`` / ``no_cache``).  The exact spelling in the feature name is
+        what keeps the four states of each pair distinguishable; a single
+        group name would make ``CYCLE`` and ``NO CYCLE`` the same outcome.
+
         Option spelling goes through core's ``identity_*_keyword`` hooks
         (``identity_cycle_keyword``, ``identity_order_keyword``,
-        ``identity_cache_keyword``) rather than being hardcoded here: the
-        gates and the spelling stay separate, so a dialect whose grammar
-        spells the negative form differently can change the words without
-        copying this method -- and with it, its gates.
+        ``identity_cache_keyword``, ``identity_no_cache_keyword``) rather
+        than being hardcoded here: the gates and the spelling stay separate,
+        so a dialect whose grammar spells the negative form differently can
+        change the words without copying this method -- and with it, its
+        gates.
 
         Why the bare form renders ``AS IDENTITY ()``: in the grammar
 
@@ -233,13 +260,20 @@ class BigQueryIdentityColumnMixin:
                     f"{self.name} does not support the MAXVALUE identity option."
                 )
             attributes.append(f"MAXVALUE {expr.maxvalue}")
-        if expr.cycle is not None:
+        if expr.cycle:
             if not self.supports_identity_cycle():
                 raise UnsupportedFeatureError(
                     self.name, "IDENTITY CYCLE",
                     f"{self.name} does not support the CYCLE identity option."
                 )
-            attributes.append(self.identity_cycle_keyword(expr.cycle))
+            attributes.append(self.identity_cycle_keyword(True))
+        if expr.no_cycle:
+            if not self.supports_identity_cycle():
+                raise UnsupportedFeatureError(
+                    self.name, "IDENTITY NO CYCLE",
+                    f"{self.name} does not support the NO CYCLE identity option."
+                )
+            attributes.append(self.identity_cycle_keyword(False))
         if expr.cache is not None:
             if not self.supports_identity_cache():
                 raise UnsupportedFeatureError(
@@ -247,13 +281,27 @@ class BigQueryIdentityColumnMixin:
                     f"{self.name} does not support the CACHE identity option."
                 )
             attributes.append(self.identity_cache_keyword(expr.cache))
-        if expr.order is not None:
+        if expr.no_cache:
+            if not self.supports_identity_cache():
+                raise UnsupportedFeatureError(
+                    self.name, "IDENTITY NO CACHE",
+                    f"{self.name} does not support the NO CACHE identity option."
+                )
+            attributes.append(self.identity_no_cache_keyword())
+        if expr.order:
             if not self.supports_identity_order():
                 raise UnsupportedFeatureError(
                     self.name, "IDENTITY ORDER",
                     f"{self.name} does not support the ORDER identity option."
                 )
-            attributes.append(self.identity_order_keyword(expr.order))
+            attributes.append(self.identity_order_keyword(True))
+        if expr.no_order:
+            if not self.supports_identity_order():
+                raise UnsupportedFeatureError(
+                    self.name, "IDENTITY NO ORDER",
+                    f"{self.name} does not support the NO ORDER identity option."
+                )
+            attributes.append(self.identity_order_keyword(False))
         return f" GENERATED {generation} AS IDENTITY ({' '.join(attributes)})", ()
 
 

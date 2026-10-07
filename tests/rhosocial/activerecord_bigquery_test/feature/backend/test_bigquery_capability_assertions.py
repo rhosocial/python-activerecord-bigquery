@@ -42,7 +42,10 @@ def test_identity_column_capabilities(dialect):
     """BigQuery identity columns (Preview, 2026-08-31): documented option by option.
 
     ``START WITH`` / ``INCREMENT BY`` are in the ``identity_column`` grammar;
-    ``MINVALUE`` / ``MAXVALUE`` / ``CYCLE`` are not, so those probes decline.
+    ``MINVALUE`` / ``MAXVALUE`` / ``CYCLE`` / ``ORDER`` / ``CACHE`` are not, so
+    those probes decline. Each declined option is a pair now (``cycle`` /
+    ``no_cycle`` and so on); the probe answers for the option and the formatter
+    refuses each requested spelling by name.
     These are documentation answers, not execution results -- no BigQuery
     instance is available.
     """
@@ -53,6 +56,8 @@ def test_identity_column_capabilities(dialect):
     assert dialect.supports_identity_minvalue() is False
     assert dialect.supports_identity_maxvalue() is False
     assert dialect.supports_identity_cycle() is False
+    assert dialect.supports_identity_order() is False
+    assert dialect.supports_identity_cache() is False
 
 
 def test_auto_increment_column_capability(dialect):

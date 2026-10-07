@@ -42,8 +42,37 @@ class BigQuerySchemaMixin:
         return True
 
     def supports_schema_cascade(self) -> bool:
-        """BigQuery does not support DROP SCHEMA CASCADE."""
-        return False
+        """BigQuery supports ``DROP SCHEMA ... CASCADE``.
+
+        The grammar is ``DROP SCHEMA [IF EXISTS] [project_name.]dataset_name
+        [CASCADE | RESTRICT]``: CASCADE deletes the dataset and all resources
+        within it.  The previous declaration answered ``False``; the
+        documentation contradicts that, and the round's rule is that a probe
+        answers "can this dialect express the clause", so both spellings are
+        declared and rendered.
+
+        Evidence (fetched 2026-10-07):
+        https://docs.cloud.google.com/bigquery/docs/managing-datasets
+        ("To delete a dataset and all of its contents, use the CASCADE
+        keyword") and
+        https://cloud.google.com/blog/topics/developers-practitioners/spring-forward-bigquery-user-friendly-sql
+        (shows both ``DROP SCHEMA ... RESTRICT`` and ``DROP SCHEMA ...
+        CASCADE``).
+        """
+        return True
+
+    def supports_schema_restrict(self) -> bool:
+        """BigQuery supports ``DROP SCHEMA ... RESTRICT``.
+
+        RESTRICT is the documented default: the dataset is deleted only if it
+        is empty.  This probe is new in core and defaults to ``False``; the
+        engine supports the spelling, so this dialect declares it ``True``.
+
+        Evidence (fetched 2026-10-07):
+        https://docs.cloud.google.com/bigquery/docs/managing-datasets and the
+        DDL grammar ``DROP SCHEMA ... [ CASCADE | RESTRICT ]``.
+        """
+        return True
 
     def format_create_schema_statement(self, expr: CreateSchemaExpression) -> Tuple[str, tuple]:
         """Format ``CREATE SCHEMA`` (GoogleSQL: ``CREATE DATASET``).
@@ -93,8 +122,15 @@ class BigQuerySchemaMixin:
                 self.name, "DROP SCHEMA CASCADE",
                 f"{self.name} does not support DROP SCHEMA CASCADE."
             )
+        if expr.restrict and not self.supports_schema_restrict():
+            raise UnsupportedFeatureError(
+                self.name, "DROP SCHEMA RESTRICT",
+                f"{self.name} does not support DROP SCHEMA RESTRICT."
+            )
         if_exists_part = "IF EXISTS " if expr.if_exists else ""
-        cascade_part = " CASCADE" if expr.cascade else ""
+        cascade_part = (
+            " CASCADE" if expr.cascade else (" RESTRICT" if expr.restrict else "")
+        )
         return f"DROP SCHEMA {if_exists_part}{expr.schema.to_sql()[0]}{cascade_part}", ()
 
 
