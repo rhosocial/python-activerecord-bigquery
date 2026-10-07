@@ -20,10 +20,11 @@ permissions:
 env:
   # rhosocial-activerecord and rhosocial-activerecord-testsuite dev releases are
   # not published to PyPI; install them from the release branches.
-  # The schema-object refactor this branch depends on lives on the core library's
-  # expression-schema-object-refactor branch, and two of the four names a
-  # previous revision of this comment listed -- QualifiedNameMixin and
-  # CatalogSupport -- are ones that branch *deleted*, along with the
+  # The schema-object refactor this branch depends on was developed on the core
+  # library's expression-schema-object-refactor branch and merged to
+  # release/v1.0.0.dev30 (PR #125), which is the ref CORE_PKG pins. Two of the
+  # four names a previous revision of this comment listed -- QualifiedNameMixin
+  # and CatalogSupport -- are ones that work *deleted*, along with the
   # single-`supports_schema_qualification` object model this backend used to
   # assume. What the dialect actually imports from core is:
   #
@@ -40,7 +41,7 @@ env:
   # The previous pin, the fix/schema-name-propagation-gaps branch, predates all
   # of that layer, so the imports this backend now makes do not resolve against
   # it.
-  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/expression-schema-object-refactor"
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@release/v1.0.0.dev30"
   TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/expression-schema-object-refactor"
 
 jobs:
