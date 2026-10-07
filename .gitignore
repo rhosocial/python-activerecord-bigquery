@@ -75,3 +75,6 @@ coverage.xml
 
 # Claude Code temporary files (local only)
 .claude/plan*/
+
+# Local PR drafts and other scratch files used by the merge flow
+.claude/tmp*/
