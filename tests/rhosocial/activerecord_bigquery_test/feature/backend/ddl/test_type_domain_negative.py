@@ -9,12 +9,19 @@ import pytest
 
 from rhosocial.activerecord.backend.dialect import (
     DomainMixin,
-    DomainSupport,
     UserDefinedTypeMixin,
-    UserDefinedTypeSupport,
+)
+from rhosocial.activerecord.backend.dialect.protocols import (
+    AlterDomainSupport,
+    AlterTypeSupport,
+    CreateDomainSupport,
+    CreateTypeSupport,
+    DropDomainSupport,
+    DropTypeSupport,
 )
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression import BaseExpression, Literal
+from rhosocial.activerecord.backend.expression.objects import Domain, Schema, Type
 from rhosocial.activerecord.backend.expression.statements import (
     AlterDomainExpression,
     AlterTypeExpression,
@@ -123,17 +130,17 @@ def _type_nodes(dialect: BigQueryDialect) -> Tuple[BaseExpression, ...]:
     return (
         CreateTypeExpression(
             dialect,
-            "status",
+            Type(dialect, "status"),
             definition,
             if_not_exists=True,
         ),
         AlterTypeExpression(
             dialect,
-            "status",
+            Type(dialect, "status"),
             [action],
             if_exists=True,
         ),
-        DropTypeExpression(dialect, "status", if_exists=True),
+        DropTypeExpression(dialect, Type(dialect, "status"), if_exists=True),
         definition,
         action,
     )
@@ -150,13 +157,13 @@ def _domain_nodes(dialect: BigQueryDialect) -> Tuple[BaseExpression, ...]:
     return (
         CreateDomainExpression(
             dialect,
-            "nonnegative",
+            Domain(dialect, "nonnegative"),
             IntegerType(dialect),
             checks=[check],
             collation="und:ci",
         ),
-        AlterDomainExpression(dialect, "nonnegative", [action]),
-        DropDomainExpression(dialect, "nonnegative"),
+        AlterDomainExpression(dialect, Domain(dialect, "nonnegative"), [action]),
+        DropDomainExpression(dialect, Domain(dialect, "nonnegative")),
         DomainValueExpression(dialect),
         check,
         action,
@@ -166,15 +173,22 @@ def _domain_nodes(dialect: BigQueryDialect) -> Tuple[BaseExpression, ...]:
 def test_type_and_domain_protocols_and_mixins_are_composed(
     dialect: BigQueryDialect,
 ) -> None:
-    assert isinstance(dialect, UserDefinedTypeSupport)
-    assert isinstance(dialect, DomainSupport)
+    for protocol in (
+        CreateTypeSupport,
+        AlterTypeSupport,
+        DropTypeSupport,
+        CreateDomainSupport,
+        AlterDomainSupport,
+        DropDomainSupport,
+    ):
+        assert isinstance(dialect, protocol), protocol.__name__
     assert isinstance(dialect, UserDefinedTypeMixin)
     assert isinstance(dialect, DomainMixin)
 
     mro = BigQueryDialect.__mro__
     for mixin, protocol in (
-        (UserDefinedTypeMixin, UserDefinedTypeSupport),
-        (DomainMixin, DomainSupport),
+        (UserDefinedTypeMixin, CreateTypeSupport),
+        (DomainMixin, CreateDomainSupport),
     ):
         assert mixin in mro
         assert protocol in mro
@@ -186,8 +200,8 @@ def test_type_and_domain_protocols_and_mixins_are_composed(
         BigQueryJSONSupport,
     ):
         assert protocol in mro
-        assert not issubclass(protocol, UserDefinedTypeSupport)
-        assert not issubclass(protocol, DomainSupport)
+        assert not issubclass(protocol, CreateTypeSupport)
+        assert not issubclass(protocol, CreateDomainSupport)
 
     for mixin in (
         BigQueryTypeSupportMixin,
@@ -275,7 +289,7 @@ def test_column_types_and_dataset_schema_remain_separate(
     assert dialect.supports_json() is True
     assert JsonType(dialect).to_sql() == ("JSON", ())
 
-    schema = CreateSchemaExpression(dialect, "analytics")
+    schema = CreateSchemaExpression(dialect, Schema(dialect, "analytics"))
     assert dialect.supports_create_schema() is True
     assert dialect.supports_domains() is False
     assert schema.to_sql() == ("CREATE SCHEMA `analytics`", ())

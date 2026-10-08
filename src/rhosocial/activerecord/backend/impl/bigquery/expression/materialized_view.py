@@ -1,4 +1,5 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/expression/materialized_view.py
+
 """BigQuery materialized view DDL expressions.
 
 GoogleSQL syntax (BigQuery Standard SQL DDL reference):
@@ -18,6 +19,18 @@ GoogleSQL syntax (BigQuery Standard SQL DDL reference):
         [OPTIONS(materialized_view_replica_option_list)]
         AS REPLICA OF source_materialized_view_name
 
+Naming
+-------
+Every ``mv_name`` above is a
+:class:`~rhosocial.activerecord.backend.expression.objects.MaterializedView`,
+so the dataset lives in the object's ``schema_name`` slot and the project in
+its ``catalog_name`` slot. Nothing here takes a bare string for a name and a
+separate ``schema_name`` beside it: one object, one set of slots, and the
+object's own ``format_materialized_view_object`` is the only thing that turns
+any of them into SQL. A ``replica_name``/``source_view_name`` pair is two
+objects because a replica usually sits in a different dataset from the view it
+mirrors.
+
 Divergence from the SQL-standard statement
 ------------------------------------------
 * No ``TABLESPACE``, no ``WITH (storage_parameter)``, no ``WITH [NO] DATA``
@@ -28,11 +41,12 @@ Divergence from the SQL-standard statement
   a schedule configured through ``OPTIONS(enable_refresh=…,
   refresh_interval_minutes=…)``; use
   :class:`BigQueryAlterMaterializedViewSetOptionsExpression` to change it.
-* ``DROP`` has no ``CASCADE``.
+* ``DROP`` has neither ``CASCADE`` nor ``RESTRICT``.
 """
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from rhosocial.activerecord.backend.expression.bases import BaseExpression
+from rhosocial.activerecord.backend.expression.objects import MaterializedView
 from rhosocial.activerecord.backend.expression.statements.ddl_view import (
     CreateMaterializedViewExpression,
     DropMaterializedViewExpression,
@@ -52,18 +66,14 @@ __all__ = [
 ]
 
 
-def _validate_name(value: Optional[str], field_name: str) -> None:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a non-empty string")
-
-
 class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression):
     """``CREATE [OR REPLACE] MATERIALIZED VIEW [IF NOT EXISTS] ... AS query``.
 
     Args:
         dialect: the BigQuery dialect instance.
-        view_name: materialized view name; may be dataset-qualified
-            (``project.dataset.mv``).
+        view: the materialized view being created. Its ``schema_name`` is the
+            dataset and its ``catalog_name`` the project; both may be ``None``
+            to let the project default and leave the view unqualified.
         query: defining query expression.
         or_replace: emit ``OR REPLACE`` (mutually exclusive with ``if_not_exists``).
         if_not_exists: emit ``IF NOT EXISTS``.
@@ -73,14 +83,15 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression)
             :class:`~..materialized_view_options.BigQueryMaterializedViewOption`.
 
     Raises:
-        ValueError: on a bad name, mutually exclusive flags, or an undocumented
-            option name.
+        ValueError: on mutually exclusive flags or an undocumented option name.
+            A malformed *view* raises from ``MaterializedView`` itself, which is
+            what fixes the rule that a name is never empty.
     """
 
     def __init__(
         self,
         dialect: "BigQueryDialect",
-        view_name: str,
+        view: MaterializedView,
         query: Any,
         or_replace: bool = False,
         if_not_exists: bool = False,
@@ -88,7 +99,6 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression)
         cluster_by: Optional[List[str]] = None,
         options: Optional[Dict[Any, Any]] = None,
     ):
-        _validate_name(view_name, "view_name")
         if or_replace and if_not_exists:
             raise ValueError(
                 "BigQuery rejects OR REPLACE together with IF NOT EXISTS"
@@ -103,13 +113,14 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression)
 
         super().__init__(
             dialect,
-            view_name=view_name,
-            query=query,
-            # BigQuery has no clause for these; the formatter rejects them, so the
-            # values are never silently rendered.
+            view,
+            query,
+            # BigQuery has no clause for these; the formatter rejects them, so a
+            # caller who sets one on a generic expression is refused by name.
+            # The pair defaults to neither, which is exactly this grammar's
+            # shape: there is no WITH DATA / WITH NO DATA to spell.
             column_aliases=None,
             tablespace=None,
-            with_data=True,
             storage_options=None,
         )
         self.or_replace = or_replace
@@ -127,20 +138,29 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression)
 class BigQueryDropMaterializedViewExpression(DropMaterializedViewExpression):
     """``DROP MATERIALIZED VIEW [IF EXISTS] mv_name``.
 
-    BigQuery has no ``CASCADE`` for materialized views.
+    BigQuery has neither ``CASCADE`` nor ``RESTRICT`` for materialized views;
+    both spellings are refused at construction rather than dropped.
     """
 
     def __init__(
         self,
         dialect: "BigQueryDialect",
-        view_name: str,
+        view: MaterializedView,
         if_exists: bool = False,
         cascade: bool = False,
+        restrict: bool = False,
     ):
-        _validate_name(view_name, "view_name")
+        """
+        Args:
+            view: the materialized view to drop, carrying its own dataset.
+        """
         if cascade:
             raise ValueError("BigQuery DROP MATERIALIZED VIEW has no CASCADE clause")
-        super().__init__(dialect, view_name=view_name, if_exists=if_exists, cascade=False)
+        if restrict:
+            raise ValueError("BigQuery DROP MATERIALIZED VIEW has no RESTRICT clause")
+        super().__init__(
+            dialect, view, if_exists=if_exists, cascade=False, restrict=False
+        )
 
     @property
     def format_method(self) -> str:
@@ -158,16 +178,21 @@ class BigQueryAlterMaterializedViewSetOptionsExpression(BaseExpression):
     def __init__(
         self,
         dialect: "BigQueryDialect",
-        view_name: str,
+        view: MaterializedView,
         options: Dict[Any, Any],
         if_exists: bool = False,
     ):
+        """
+        Args:
+            view: the materialized view being reconfigured, carrying its dataset.
+            options: the ``OPTIONS(...)`` entries to set.
+            if_exists: emit ``IF EXISTS``.
+        """
         super().__init__(dialect)
-        _validate_name(view_name, "view_name")
         if not isinstance(options, dict) or not options:
             raise ValueError("options must be a non-empty dict")
         validate_materialized_view_options(options)
-        self.view_name = view_name
+        self.view = view
         self.options = dict(options)
         self.if_exists = if_exists
 
@@ -188,13 +213,22 @@ class BigQueryCreateMaterializedViewReplicaExpression(BaseExpression):
     def __init__(
         self,
         dialect: "BigQueryDialect",
-        replica_name: str,
-        source_view_name: str,
+        replica: MaterializedView,
+        source_view: MaterializedView,
         replication_interval_seconds: Optional[int] = None,
     ):
+        """
+        Args:
+            replica: The replica to create, carrying its own dataset.
+            source_view: The view being replicated, carrying its own dataset.
+                A replica usually lives in a different dataset from its
+                source, so the two namespaces are chosen independently.
+
+        Raises:
+            ValueError: ``replication_interval_seconds`` is outside the
+                documented range.
+        """
         super().__init__(dialect)
-        _validate_name(replica_name, "replica_name")
-        _validate_name(source_view_name, "source_view_name")
         if replication_interval_seconds is not None and not (
             self.MIN_REPLICATION_INTERVAL_SECONDS
             <= replication_interval_seconds
@@ -205,8 +239,8 @@ class BigQueryCreateMaterializedViewReplicaExpression(BaseExpression):
                 f"{self.MIN_REPLICATION_INTERVAL_SECONDS} and "
                 f"{self.MAX_REPLICATION_INTERVAL_SECONDS} inclusive"
             )
-        self.replica_name = replica_name
-        self.source_view_name = source_view_name
+        self.replica = replica
+        self.source_view = source_view
         self.replication_interval_seconds = replication_interval_seconds
 
     @property

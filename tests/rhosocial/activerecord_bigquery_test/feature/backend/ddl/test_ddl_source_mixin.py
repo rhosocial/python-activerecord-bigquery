@@ -490,9 +490,10 @@ def test_collected_bigquery_type_and_option_render_minimal_table():
     option.dialect = dialect
     try:
         column = ColumnDefinition(dialect, "physical_value", data_type)
+        from rhosocial.activerecord.backend.expression.objects import Table
         expression = CreateTableExpression(
             dialect,
-            "rendered",
+            Table(dialect, "rendered"),
             [column],
             table_options=option,
         )

@@ -6,4 +6,6 @@ and protocol conformance.
 | File | Description |
 |------|-------------|
 | `test_dialect_formatting.py` | Identifier quoting (backticks). |
-| `test_schema_support.py` | `SchemaSupport` protocol: `supports_schema()` is True (dataset namespaces), granular schema-DDL bits currently False. |
+| `test_bigquery_materialized_view.py` | The four MATERIALIZED VIEW statements, their BigQuery-only clauses, and the object-kind checks in each formatter. |
+| `test_column_schema_validation.py` | A dataset on a bare column is reported, never dropped. |
+| `test_expression_fields_match_formatters.py` | Every statement whose formatter qualifies a name builds with the object that carries the namespace, and refuses the wrong object kind. |

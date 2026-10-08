@@ -7,13 +7,15 @@ from rhosocial.activerecord.backend.errors import (
     ConnectionError, DatabaseError, IntegrityError, QueryError,
 )
 from rhosocial.activerecord.backend.result import QueryResult
+from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
 from ..transaction import BigQueryTransactionManager
+from .qualified_names import BigQueryQualifiedNameMixin
 
 
-class BigQueryBackend(StorageBackend):
+class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
     """BigQuery-specific backend (synchronous)."""
 
     def __init__(self, **kwargs):
@@ -162,6 +164,23 @@ class BigQueryBackend(StorageBackend):
 
     def get_server_version(self) -> Tuple[int, ...]:
         return self._version
+
+    def get_current_schema(self) -> Optional[str]:
+        """Raise: BigQuery does not expose a current schema.
+
+        A dataset is bound per query rather than tracked as session state, so
+        it cannot be read back from the server. No dataset is inferred from the
+        connection config either -- that would be a guess about which of the
+        configured datasets is meant.
+        """
+
+        raise UnsupportedFeatureError(
+            self.dialect.name,
+            "reading the current schema",
+            "A dataset is bound per query rather than tracked as session "
+            "state, so it cannot be read back from the server. Pass "
+            "schema_name explicitly instead.",
+        )
 
     def introspect_and_adapt(self) -> None:
         """Introspect the BigQuery server and adapt backend capabilities.
@@ -519,7 +538,7 @@ class BigQueryBackend(StorageBackend):
         from rhosocial.activerecord.backend.schema import StatementType
 
         key = (schema_name, table, pk_column)
-        qualified = f"`{schema_name}`.`{table}`" if schema_name else f"`{table}`"
+        qualified = self._render_relation(table, schema_name)
         sql = f"SELECT COALESCE(MAX(`{pk_column}`), 0) + 1 AS next_id FROM {qualified}"
         result = self.execute(sql, options=ExecutionOptions(stmt_type=StatementType.DQL))
         row = result.data[0]
@@ -600,9 +619,10 @@ class BigQueryBackend(StorageBackend):
         # column itself is also the safe semantics.
         from rhosocial.activerecord.backend.base.operations import _is_sql_expression
         from rhosocial.activerecord.backend.expression import (
-            Column, Literal, UpdateExpression, TableExpression, ComparisonPredicate, InPredicate,
+            Column, Literal, UpdateExpression, ComparisonPredicate, InPredicate,
         )
         from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
+        from rhosocial.activerecord.backend.expression.objects import Table
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
 
@@ -622,9 +642,13 @@ class BigQueryBackend(StorageBackend):
         where_predicate = InPredicate(self.dialect, pk_col, pk_literals)
         update_expr = UpdateExpression(
             dialect=self.dialect,
-            table=TableExpression(self.dialect, options.table, schema_name=options.schema_name)
-            if options.schema_name
-            else options.table,
+            # One construction whether or not a dataset was given. The
+            # conditional branch here existed only to avoid passing
+            # ``schema_name=None``, which is not a special case: it is the
+            # connection's default dataset.
+            table=Table(
+                self.dialect, options.table, schema_name=options.schema_name
+            ),
             assignments=assignments,
             where=where_predicate,
         )
@@ -662,7 +686,7 @@ class BigQueryBackend(StorageBackend):
         stripped = where_sql.strip()
         if stripped.upper().startswith("WHERE "):
             where_sql = stripped[5:].strip()
-        qualified = f"`{schema_name}`.`{table}`" if schema_name else f"`{table}`"
+        qualified = self._render_relation(table, schema_name)
         sql = f"SELECT COUNT(*) AS n FROM {qualified} WHERE {where_sql}"
         result = self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
         if not result.data:

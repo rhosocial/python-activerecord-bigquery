@@ -4,6 +4,7 @@ import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression import CreateTableExpression
+from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.expression.statements import ColumnDefinition
 from rhosocial.activerecord.backend.expression.types import IntegerType
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
@@ -62,10 +63,22 @@ class TestBigQuerySchemaCapabilityGating:
         dialect = BigQueryDialect()
         assert dialect.supports_schema_if_exists() is True
 
-    def test_schema_cascade_not_supported(self):
-        """BigQuery does not support DROP SCHEMA CASCADE."""
+    def test_schema_cascade_and_restrict_supported(self):
+        """BigQuery supports both spellings of ``DROP SCHEMA``'s qualifier.
+
+        The grammar is ``DROP SCHEMA [IF EXISTS] name [CASCADE | RESTRICT]``;
+        RESTRICT is the default. The previous declaration answered ``False``
+        for CASCADE, which the documentation contradicts. Both probes are now
+        declared, so the renderer can express either request instead of
+        refusing one of them.
+
+        Evidence (fetched 2026-10-07):
+        https://docs.cloud.google.com/bigquery/docs/managing-datasets
+        https://cloud.google.com/blog/topics/developers-practitioners/spring-forward-bigquery-user-friendly-sql
+        """
         dialect = BigQueryDialect()
-        assert dialect.supports_schema_cascade() is False
+        assert dialect.supports_schema_cascade() is True
+        assert dialect.supports_schema_restrict() is True
 
 
 class TestBigQueryTableDeclarationGating:
@@ -73,7 +86,7 @@ class TestBigQueryTableDeclarationGating:
         dialect = BigQueryDialect()
         expression = CreateTableExpression(
             dialect,
-            "plain_table_defaults",
+            Table(dialect, "plain_table_defaults"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
         )
         sql, params = expression.to_sql()
@@ -88,7 +101,7 @@ class TestBigQueryTableDeclarationGating:
         assert dialect.supports_table_inheritance() is False
         expression = CreateTableExpression(
             dialect,
-            "inherited",
+            Table(dialect, "inherited"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
             inherits=["parent_a", "parent_b"],
         )
@@ -101,7 +114,7 @@ class TestBigQueryTableDeclarationGating:
         assert dialect.supports_table_tablespace() is False
         expression = CreateTableExpression(
             dialect,
-            "tablespaced",
+            Table(dialect, "tablespaced"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
             tablespace="ts_data",
         )

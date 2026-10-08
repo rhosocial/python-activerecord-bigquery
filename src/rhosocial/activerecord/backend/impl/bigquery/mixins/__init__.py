@@ -2,12 +2,15 @@
 """BigQuery dialect-specific mixin implementations."""
 
 from .types import BigQueryTypeSupportMixin
+from .namespace import BigQueryNamespaceMixin
 from .dql import BigQueryDQLMixin
 from .schema import BigQuerySchemaMixin
 from .ddl import BigQueryDDLColumnMixin
 from .capabilities import BigQueryCapabilityMixin
+from .identity_column import BigQueryIdentityColumnMixin
 from .identifier import BigQueryIdentifierMixin
 from .materialized_view import BigQueryMaterializedViewMixin
+from .transaction import BigQueryTransactionMixin
 
 
 class BigQueryStructMixin:
@@ -32,12 +35,15 @@ class BigQueryGeographyMixin:
 
 __all__ = [
     'BigQueryTypeSupportMixin',
+    'BigQueryNamespaceMixin',
     'BigQueryDQLMixin',
     'BigQuerySchemaMixin',
     'BigQueryDDLColumnMixin',
     'BigQueryCapabilityMixin',
+    'BigQueryIdentityColumnMixin',
     'BigQueryIdentifierMixin',
     'BigQueryMaterializedViewMixin',
+    'BigQueryTransactionMixin',
     'BigQueryStructMixin',
     'BigQueryArrayMixin',
     'BigQueryJSONMixin',

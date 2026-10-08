@@ -1,25 +1,7 @@
-"""BigQuery-specific protocol definitions."""
+# src/rhosocial/activerecord/backend/impl/bigquery/protocols/materialized_view.py
+"""BigQuery MATERIALIZED VIEW protocol."""
+
 from typing import Any, Protocol, runtime_checkable, Tuple
-
-
-@runtime_checkable
-class BigQueryStructSupport(Protocol):
-    def supports_struct(self) -> bool: ...
-
-
-@runtime_checkable
-class BigQueryArraySupport(Protocol):
-    def supports_array(self) -> bool: ...
-
-
-@runtime_checkable
-class BigQueryJSONSupport(Protocol):
-    def supports_json(self) -> bool: ...
-
-
-@runtime_checkable
-class BigQueryGeographySupport(Protocol):
-    def supports_geography(self) -> bool: ...
 
 
 @runtime_checkable
@@ -40,6 +22,12 @@ class BigQueryMaterializedViewSupport(Protocol):
 
     There is no ``REFRESH MATERIALIZED VIEW`` statement: refresh is scheduled
     through ``OPTIONS(enable_refresh=…, refresh_interval_minutes=…)``.
+
+    Every ``mv_name`` above is a
+    :class:`~rhosocial.activerecord.backend.expression.objects.MaterializedView`
+    -- dataset and, optionally, project in the object's fixed slots -- so all
+    four statements render their target through the shared qualified-name
+    renderer.
     """
 
     def supports_materialized_view(self) -> bool:

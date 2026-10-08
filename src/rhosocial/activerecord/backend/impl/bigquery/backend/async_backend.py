@@ -4,13 +4,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from rhosocial.activerecord.backend.base import AsyncStorageBackend
 from rhosocial.activerecord.backend.errors import ConnectionError, DatabaseError
 from rhosocial.activerecord.backend.result import QueryResult
+from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
 from ..async_transaction import AsyncBigQueryTransactionManager
+from .qualified_names import BigQueryQualifiedNameMixin
 
 
-class AsyncBigQueryBackend(AsyncStorageBackend):
+class AsyncBigQueryBackend(BigQueryQualifiedNameMixin, AsyncStorageBackend):
     """BigQuery native async backend."""
 
     def __init__(self, **kwargs):
@@ -155,7 +157,7 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
 
-        qualified = f"`{schema_name}`.`{table}`" if schema_name else f"`{table}`"
+        qualified = self._render_relation(table, schema_name)
         sql = f"SELECT COALESCE(MAX(`{pk_column}`), 0) + 1 AS next_id FROM {qualified}"
         result = await self.execute(sql, options=ExecutionOptions(stmt_type=StatementType.DQL))
         row = result.data[0]
@@ -221,9 +223,10 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
     async def bulk_update(self, options) -> QueryResult:
         # See BigQueryBackend.bulk_update: explicit ELSE branch per CASE.
         from rhosocial.activerecord.backend.expression import (
-            Column, Literal, UpdateExpression, TableExpression, ComparisonPredicate, InPredicate,
+            Column, Literal, UpdateExpression, ComparisonPredicate, InPredicate,
         )
         from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
+        from rhosocial.activerecord.backend.expression.objects import Table
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
 
@@ -238,14 +241,15 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
             assignments[field_name] = CaseExpression(
                 self.dialect, cases=cases, else_result=Column(self.dialect, field_name),
             )
-
         pk_literals = Literal(self.dialect, options.pk_values)
         where_predicate = InPredicate(self.dialect, pk_col, pk_literals)
         update_expr = UpdateExpression(
             dialect=self.dialect,
-            table=TableExpression(self.dialect, options.table, schema_name=options.schema_name)
-            if options.schema_name
-            else options.table,
+            # One construction whether or not a dataset was given; see
+            # BigQueryBackend.bulk_update.
+            table=Table(
+                self.dialect, options.table, schema_name=options.schema_name
+            ),
             assignments=assignments,
             where=where_predicate,
         )
@@ -277,7 +281,7 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
         stripped = where_sql.strip()
         if stripped.upper().startswith("WHERE "):
             where_sql = stripped[5:].strip()
-        qualified = f"`{schema_name}`.`{table}`" if schema_name else f"`{table}`"
+        qualified = self._render_relation(table, schema_name)
         sql = f"SELECT COUNT(*) AS n FROM {qualified} WHERE {where_sql}"
         result = await self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
         if not result.data:
@@ -364,6 +368,23 @@ class AsyncBigQueryBackend(AsyncStorageBackend):
 
     def get_server_version(self) -> Tuple[int, ...]:
         return self._version
+
+    async def get_current_schema(self) -> Optional[str]:
+        """Raise: BigQuery does not expose a current schema.
+
+        A dataset is bound per query rather than tracked as session state, so
+        it cannot be read back from the server. No dataset is inferred from the
+        connection config either -- that would be a guess about which of the
+        configured datasets is meant.
+        """
+
+        raise UnsupportedFeatureError(
+            self.dialect.name,
+            "reading the current schema",
+            "A dataset is bound per query rather than tracked as session "
+            "state, so it cannot be read back from the server. Pass "
+            "schema_name explicitly instead.",
+        )
 
     async def introspect_and_adapt(self) -> None:
         """See :meth:`BigQueryBackend.introspect_and_adapt`."""

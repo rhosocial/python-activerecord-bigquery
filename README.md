@@ -118,6 +118,34 @@ The dialect reports `supports_struct`, `supports_array`, `supports_json` and
 `DecimalType` is the only numeric type — so treat the older
 "BIGNUMERIC adapter" claim with suspicion.
 
+## Schema names
+
+A `schema_name` names a **dataset**:
+
+```python
+class Order(ActiveRecord):
+    __schema_name__ = "analytics"   # this is a dataset
+    __table_name__ = "orders"
+```
+
+```sql
+-- generated
+SELECT * FROM `analytics`.`orders`
+```
+
+Each part is quoted separately, so a two-part BigQuery name is written
+`` `dataset`.`table` `` — two quoted identifiers, not one quoted string
+containing a dot. Columns are never dataset-qualified.
+
+**`get_current_schema()` raises.** A dataset is bound per query rather than
+tracked as session state, so there is no current dataset for the server to report
+and none is inferred from the connection config — that would be a guess about
+which of the configured datasets is meant. The error points at `schema_name`
+instead. Both the sync and async backends raise it.
+
+DDL statements take a `schema_name` of their own, defaulting to `None` for an
+unqualified reference.
+
 ## Local testing without a GCP account
 
 Tests run against the [goccy/bigquery-emulator](https://github.com/goccy/go-bigquery-emulator),
@@ -173,11 +201,17 @@ export BIGQUERY_ACTIVE_SCENARIOS=bigquery_emulator
 
 ## Documentation
 
-This repository has no `docs/` tree. Core library documentation is at
-[python-activerecord/docs](https://github.com/rhosocial/python-activerecord/tree/main/docs),
-and backend internals are visible in
-`src/rhosocial/activerecord/backend/impl/bigquery/`.
+This repository has a bilingual `docs/` tree:
 
+- [English Documentation](docs/en_US/README.md)
+- [中文文档 (Chinese)](docs/zh_CN/README.md)
+
+Start with the [Schema Namespaces](docs/en_US/bigquery_specific_features/schema_namespace.md) guide, which
+covers `__schema_name__`, the DDL `schema_name` parameter, identifier quoting, and this
+backend's column-reference rules.
+
+Backend notes also live in the `src/rhosocial/activerecord/backend/impl/bigquery/` package; core library documentation is at
+[python-activerecord/docs](https://github.com/rhosocial/python-activerecord/tree/main/docs).
 ## Contributing
 
 See [CONTRIBUTING.md](https://github.com/rhosocial/python-activerecord/blob/main/CONTRIBUTING.md).

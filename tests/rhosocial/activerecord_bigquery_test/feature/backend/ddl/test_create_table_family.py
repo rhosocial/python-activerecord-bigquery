@@ -15,6 +15,7 @@ from rhosocial.activerecord.backend.expression import (
     CreateTableOptions,
     CreateTableExpression,
 )
+from rhosocial.activerecord.backend.expression.objects import Table
 
 
 @pytest.fixture
@@ -30,18 +31,25 @@ class TestBigQueryCreateTableFamily:
         assert dialect.supports_create_table_clone() is True
 
     def test_create_table_like(self, dialect):
-        sql, params = CreateTableLikeExpression(dialect, "copy", "src").to_sql()
+        sql, params = CreateTableLikeExpression(
+            dialect, Table(dialect, "copy"), Table(dialect, "src")
+        ).to_sql()
         assert sql == "CREATE TABLE `copy` LIKE `src`"
         assert params == ()
 
     def test_create_table_clone(self, dialect):
-        sql, params = CreateTableCloneExpression(dialect, "clone_t", "src").to_sql()
+        sql, params = CreateTableCloneExpression(
+            dialect, Table(dialect, "clone_t"), Table(dialect, "src")
+        ).to_sql()
         assert sql == "CREATE TABLE `clone_t` CLONE `src`"
         assert params == ()
 
     def test_create_table_copy(self, dialect):
         sql, params = CreateTableCloneExpression(
-            dialect, "copy_t", "src", mode=CreateTableCloneMode.COPY
+            dialect,
+            Table(dialect, "copy_t"),
+            Table(dialect, "src"),
+            mode=CreateTableCloneMode.COPY,
         ).to_sql()
         assert sql == "CREATE TABLE `copy_t` COPY `src`"
         assert params == ()
@@ -49,7 +57,7 @@ class TestBigQueryCreateTableFamily:
     def test_create_or_replace(self, dialect):
         expr = CreateTableExpression(
             dialect,
-            table="t",
+            table=Table(dialect, "t"),
             columns=[],
             table_options=CreateTableOptions(dialect, or_replace=True),
         )
