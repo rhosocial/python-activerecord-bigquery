@@ -1,7 +1,7 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/capabilities.py
 """BigQuery capability detection mixin."""
 
-from typing import Tuple
+from typing import Dict, Tuple
 
 
 class BigQueryCapabilityMixin:
@@ -9,6 +9,11 @@ class BigQueryCapabilityMixin:
 
     Aggregated capability checks for BigQuery features.
     """
+
+    #: BigQuery does not accept ``||`` as concatenation at all; the function is
+    #: the only spelling.
+    STRING_CONCATENATION = "CONCAT"
+
 
     def supports_table_comment(self) -> bool:
         """Whether an inline table comment is supported.
@@ -212,5 +217,86 @@ class BigQueryCapabilityMixin:
         """BigQuery does not support RESTRICT for DROP TABLE."""
         return False
 
+    def supports_json_type(self) -> bool:
+        """BigQuery has a JSON type and the functions that read it.
+
+        Declared here rather than in BigQueryJSONMixin: that mixin is not on
+        the dialect's MRO at all, and this one sits well before the core
+        JSONMixin, so a probe written later would never be reached.
+        """
+        return True
+
+    #: The JSON path functions BigQuery spells this way. Declared so the
+    #: "no foreign syntax" contract can tell a function this dialect has from
+    #: one it inherited, and BigQuery has no supports_json_function otherwise.
+    _JSON_FUNCTION_NAMES = ("JSON_QUERY", "JSON_VALUE")
+
+    def supports_functions(self) -> Dict[str, bool]:
+        """Return supported SQL functions as function_name -> bool mapping.
+
+        BigQuery has no functions module of its own: it renders with the core
+        factories and spells them its own way. So the honest answer is the core
+        set, less the ones BigQuery spells differently and plus the JSON
+        functions declared above.
+
+        The method existed only as a Protocol, so calling it returned None and
+        a test asking whether a function was supported raised AttributeError on
+        the result rather than skipping the test. An empty mapping would be a
+        lie in the other direction — it would skip tests BigQuery passes.
+        """
+        from ....expression.functions import __all__ as core_functions
+
+        #: Core factories that exist but that BigQuery has no formatter for.
+        #: Checked against the core list so a name that is not there does not
+        #: masquerade as a decision: naming a function that does not exist
+        #: reads as coverage while changing nothing.
+        not_available = {
+            "json_extract",   # MySQL/MariaDB spelling; BigQuery uses JSON_QUERY
+            "xmltable",      # BigQuery has no XMLTABLE
+        }
+        result = {name: name not in not_available for name in core_functions}
+        for name in self._JSON_FUNCTION_NAMES:
+            result[name.lower()] = True
+        return result
+
+    def supports_json_function(self, function_name: str) -> bool:
+        """Whether a named JSON function is available on this server."""
+        return function_name.upper() in self._JSON_FUNCTION_NAMES
+
+    def format_json_function_expression(self, expr) -> Tuple[str, tuple]:
+        """Render a JSON path with JSON_QUERY / JSON_VALUE.
+
+        The core default emits JSON_EXTRACT and JSON_UNQUOTE, and BigQuery has
+        neither — it spells them JSON_QUERY and JSON_VALUE. `->` asks for a
+        document and `->>` for text, which is the same distinction those two
+        functions draw.
+        """
+        from ....expression import bases
+
+        if isinstance(expr.column, bases.BaseExpression):
+            col_sql, col_params = expr.column.to_sql()
+        else:
+            col_sql, col_params = self.format_identifier(str(expr.column)), ()
+
+        path = _jsonpath_literal(self, expr.path)
+        if expr.operation == "->>":
+            sql = f"JSON_VALUE({col_sql}, {path})"
+        else:
+            sql = f"JSON_QUERY({col_sql}, {path})"
+
+        if expr.alias:
+            sql = f"{sql} AS {self.format_identifier(expr.alias)}"
+        return sql, col_params
+
+
+
+def _jsonpath_literal(dialect, path: str) -> str:
+    """Render a jsonpath as a bound-parameter-free SQL string literal.
+
+    BigQuery's JSON functions take the path as a literal, and the shared form
+    already is one: ``$.a.b`` needs no rewriting, only quoting and escaping,
+    which format_literal is there to do.
+    """
+    return dialect.format_literal(str(path or "").strip() or "$")
 
 __all__ = ['BigQueryCapabilityMixin']

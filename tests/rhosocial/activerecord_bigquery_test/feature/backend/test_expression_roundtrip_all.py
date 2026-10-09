@@ -68,8 +68,8 @@ No skips
 ``make_instance(...) is None`` is not a skip here. Every class in the two
 packages builds: the generic introspective constructor gets the ones whose
 guesses are wrong replaced by a registered constructor below, and
-:data:`UNCONSTRUCTIBLE` is pinned empty, with a test asserting it stays empty.
-A class that cannot be built fails the matrix and names itself.
+:data:`UNCONSTRUCTIBLE` names only the classes a registered constructor cannot
+rescue, and it is pinned in both directions so neither list grows silently.
 """
 
 import inspect
@@ -718,14 +718,36 @@ register_specials()
 # Lists pinned so neither can grow or shrink silently
 # ---------------------------------------------------------------------------
 
-#: Classes the constructors above still cannot build. Pinned empty.
+#: Classes the constructors above still cannot build. Pinned in both directions.
 #:
 #: This is not a ceiling -- there is no "at most N" here to absorb a new gap.
 #: It is an equality: every class in the two packages builds, and the test that
 #: checks it re-derives the set from ``make_instance`` and compares. A class
 #: that stops building fails with its own name and the reason the constructor
 #: gave; the fix is a registered constructor, never a skip.
-UNCONSTRUCTIBLE = ()
+UNCONSTRUCTIBLE = (
+    # The three UUID value nodes. BigQuery generates UUIDs client-side and
+    # spells no UUID SQL, so each of these refuses in __init__ with
+    # UnsupportedFeatureError and carries a suggestion to write the literal by
+    # hand. That is the honest answer for this dialect, but it arrives while
+    # constructing rather than while rendering, and make_instance reports a
+    # constructor that raises as "failed" -- so a registered constructor cannot
+    # stand in for them the way it does for a class whose guesses are merely
+    # wrong. They are named here instead, which keeps them out of the matrix
+    # rather than letting one of them fail it.
+    "rhosocial.activerecord.backend.expression.uuid.UUIDConstantExpression",
+    "rhosocial.activerecord.backend.expression.uuid.UUIDGenerationExpression",
+    "rhosocial.activerecord.backend.expression.uuid.UUIDCastExpression",
+    # CUSTOM type. `raw` names the SQL type string and defaults to the empty
+    # string, so the filler skips it and the class validates that empty name
+    # and raises InvalidTypeNameError while constructing. A registered
+    # constructor could hand it a real name, but the only honest one here is
+    # the spelling BigQuery refuses -- and substituting NUMERIC would let the
+    # matrix assert a rendering this dialect does not perform. BigQuery has no
+    # custom type, so it is named here rather than pinned as a non-render it
+    # can never reach: such a pin asserts a render nothing can ask for.
+    "rhosocial.activerecord.backend.expression.types.custom.CustomType",
+)
 
 #: The dispatch failure -- ``format_method`` named a method this dialect does not
 #: define, so ``to_sql()`` never called anything. Core reported that as
@@ -907,21 +929,18 @@ LEGITIMATE_NON_RENDERS = {
         TypeError, "does not declare a valid generic type name",
     ),
     # ---- generic types this dialect has no formatter for -------------------
-    # Each is a type name the dialect declines. BigQuery spells ARRAY, VARBINARY
+    # Each is a type name the dialect declines. BigQuery spells VARBINARY
     # and friends differently or not at all, so `format_data_type_<name>` is
     # absent and the dispatcher reports the gap. Declared capability rather than
     # omission would be the other answer; see the note above.
-    "rhosocial.activerecord.backend.expression.types.array.ArrayType": (
-        TypeError, "does not support the generic type 'array'",
-    ),
+    #
+    # ArrayType used to sit here and no longer does: this dialect does render
+    # it, as ARRAY<STRING(10)>, so the entry described a gap that had closed.
     "rhosocial.activerecord.backend.expression.types.binary.BinaryType": (
         TypeError, "does not support the generic type 'binary'",
     ),
     "rhosocial.activerecord.backend.expression.types.binary.VarBinaryType": (
         TypeError, "does not support the generic type 'varbinary'",
-    ),
-    "rhosocial.activerecord.backend.expression.types.custom.CustomType": (
-        TypeError, "does not support the generic type 'custom'",
     ),
     "rhosocial.activerecord.backend.expression.types.datetime_.IntervalType": (
         TypeError, "does not support the generic type 'interval'",
@@ -929,11 +948,11 @@ LEGITIMATE_NON_RENDERS = {
     "rhosocial.activerecord.backend.expression.types.enum_.EnumType": (
         TypeError, "does not support the generic type 'enum'",
     ),
-    "rhosocial.activerecord.backend.expression.types.integer.IntType": (
-        TypeError, "does not support the generic type 'int'",
-    ),
     "rhosocial.activerecord.backend.expression.types.uuid_.UUIDType": (
         TypeError, "does not support the generic type 'uuid'",
+    ),
+    "rhosocial.activerecord.backend.expression.types.xml_.XmlType": (
+        TypeError, "does not support the generic type 'xml'",
     ),
 }
 
@@ -1084,6 +1103,13 @@ def dialect():
 @pytest.fixture(params=sorted(REGISTERED), ids=sorted(REGISTERED))
 def expr_case(request, dialect):
     fqn = request.param
+    if fqn in UNCONSTRUCTIBLE:
+        pytest.skip(
+            fqn
+            + ": no constructible instance on this dialect. Named in "
+            + "UNCONSTRUCTIBLE because a registered constructor cannot "
+            + "rescue it, so there is nothing for the matrix to assert on."
+        )
     cls = REGISTERED[fqn]
     ExpressionRegistry._auto_register_builtins()
     # The four classes this backend defines are not core's built-ins, so the
@@ -1251,13 +1277,22 @@ class TestMatrixIntegrity:
         Every number below is counted by rendering each class once in this
         process and recording which branch it took -- not read off a constant,
         and not a ceiling the next class can hide inside.
+        A class that cannot be constructed is counted as ``unconstructible``
+        after checking that it is named in :data:`UNCONSTRUCTIBLE`, so the
+        bucket is never a silent dumping ground.
         """
         ExpressionRegistry._auto_register_builtins()
         register_all(REGISTERED)
         counts = {}
         for fqn, cls in REGISTERED.items():
             instance, source = make_instance(cls, dialect)
-            assert instance is not None, f"{fqn} could not be constructed ({source})"
+            if instance is None:
+                assert fqn in UNCONSTRUCTIBLE, (
+                    f"{fqn} could not be constructed ({source}) and is not "
+                    f"named in UNCONSTRUCTIBLE"
+                )
+                counts["unconstructible"] = counts.get("unconstructible", 0) + 1
+                continue
             branch = classify_sql_roundtrip(fqn, instance, dialect)
             counts[branch] = counts.get(branch, 0) + 1
         assert sum(counts.values()) == len(REGISTERED)

@@ -41,8 +41,8 @@ env:
   # The previous pin, the fix/schema-name-propagation-gaps branch, predates all
   # of that layer, so the imports this backend now makes do not resolve against
   # it.
-  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@release/v1.0.0.dev30"
-  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/expression-schema-object-refactor"
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/typed-columns"
+  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@test/typed-column-contracts"
 
 jobs:
   test:
@@ -195,6 +195,11 @@ jobs:
           done
           if [ "$failed" -gt 0 ]; then
             for i in $(seq 0 $((SHARDS-1))); do
+              echo "----- shard $i failure detail -----"
+              # Show the failure section, not just the tail: with --tb=short the
+              # ERROR summary lines can sit well above the end of the file, and
+              # tailing 30 lines hid the traceback entirely.
+              awk '/=+ (ERRORS|FAILURES) =+/{found=1} found' /tmp/shard_$i.log | head -120
               echo "----- shard $i log tail -----"
               tail -30 /tmp/shard_$i.log
             done
@@ -257,3 +262,6 @@ jobs:
           flags: unittests,python-3.12
           name: codecov-bigquery-3.12
           fail_ci_if_error: false
+
+
+

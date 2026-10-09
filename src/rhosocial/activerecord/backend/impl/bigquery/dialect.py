@@ -44,6 +44,9 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     TypeNameMixin, DomainNameMixin, SynonymNameMixin,
     SchemaNameMixin, DatabaseNameMixin, PropertyGraphNameMixin,
     NamespaceMixin,
+    # Column-type suggestions: the generic half, which
+    # BigQueryColumnSuggestionMixin below overrides.
+    ColumnSuggestionMixin,
 )
 from .protocols import (
     BigQueryArraySupport,
@@ -64,6 +67,7 @@ from .mixins import (
     BigQueryNamespaceMixin,
     BigQueryDDLColumnMixin,
     BigQueryCapabilityMixin,
+    BigQueryColumnSuggestionMixin,
     BigQueryIdentityColumnMixin,
     BigQueryIdentifierMixin,
     BigQueryMaterializedViewMixin,
@@ -121,6 +125,11 @@ class BigQueryDialect(
     # the branch of format_named_relation that would need a temporal formatter
     # is never taken and TemporalTableMixin stays off the dialect.
     RelationSourceMixin,
+    # Column-type suggestions. The BigQuery half first: it overrides both the
+    # eighteen-entry table and supports_column_operation, and C3 gives the
+    # earlier name priority. Nothing else in this list answers either, so the
+    # pair may move as a unit without disturbing the order around it.
+    BigQueryColumnSuggestionMixin, ColumnSuggestionMixin,
     # One format_<kind>_object per catalogue kind, all of them core's spelling,
     # and NamespaceMixin for the levels behind them. BigQuery overrides none.
     TableNameMixin, ViewNameMixin, MaterializedViewNameMixin,
