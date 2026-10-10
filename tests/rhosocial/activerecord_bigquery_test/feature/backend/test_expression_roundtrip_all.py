@@ -41,14 +41,40 @@ Four outcomes, each asserted:
   expression category rather than a renderable thing and declares no
   ``format_method``, or a statement this dialect declines to render. Asserted as
   exactly ``NotImplementedError``, with the message pinned too.
-* ``UnsupportedFeatureError`` from a class in neither table -- this dialect does
-  not model the feature. Asserted as exactly that type, so a subclass raised for
-  an unrelated reason is still visible rather than passing.
+* ``UnsupportedFeatureError`` from a probe inside a formatter, for a class in
+  neither table -- this dialect does not model the feature. Asserted as
+  exactly that type, so a subclass raised for an unrelated reason is still
+  visible rather than passing.
+* ``UnsupportedFeatureError`` from the dispatch, for a class in neither table
+  -- the dialect declares no ``format_*`` method for it at all, which is a
+  wiring fact about this backend rather than a capability answer. The method
+  the dispatch names must be a row in :data:`UNMODELLED_FORMATTERS`, so the
+  gap is a decision with a reason rather than an omission; see
+  :func:`_dispatched_formatter`.
 * **anything else** -- a failure naming the class and the exception.
 
 The two tables are read before the ``UnsupportedFeatureError`` branch, because
 core now reports a *missing formatter* through that same type; see
 :func:`classify_sql_roundtrip`.
+
+Why the dispatch's refusal is no longer allowed on its type alone
+=================================================================
+
+The two ``UnsupportedFeatureError`` outcomes above were one branch until core
+turned ``trim``/``lpad``/``rpad``/``repeat`` into dedicated nodes. BigQuery
+spells all four -- LPAD, RPAD and REPEAT natively, and TRIM through
+BigQueryTrimMixin -- so none of them is a gap here, but the shape they made
+load-bearing is general: a backend shipping no formatter for a new node would
+answer every call on it with a refusal this matrix read as "BigQuery lacks
+the feature", and nothing here could tell that apart from a probe declining
+something BigQuery genuinely declines. The exception itself records who is
+refusing: a probe names the feature, while the dispatch frames the formatting
+method it could not find as ``the '<method>' statement`` -- see
+:func:`_dispatched_formatter`. Only the dispatch's refusal is a wiring fact
+about this backend, so only it must be accounted for:
+:meth:`TestMatrixIntegrity.test_unmodelled_formatter_list_is_exact` pins
+:data:`UNMODELLED_FORMATTERS` in both directions, and a method nobody listed
+fails the run.
 
 Discovery is not the registry
 =============================
@@ -1016,6 +1042,136 @@ LEGITIMATE_NOT_IMPLEMENTED = {
 
 
 # ---------------------------------------------------------------------------
+# The dispatch gap: a missing formatter is a decision, not an omission
+# ---------------------------------------------------------------------------
+#
+# ``to_sql()`` reports a dialect that names no formatter for a class through
+# the same ``UnsupportedFeatureError`` a capability probe uses, so the type
+# alone cannot say "this backend never wired the feature in". The frame the
+# dispatch puts around the method name can, and it is the only place in the
+# tree that opens it -- see :func:`_dispatched_formatter`.
+
+#: The two ends of the frame ``to_sql()`` puts around a formatting method name
+#: in the ``feature_name`` of the ``UnsupportedFeatureError`` it raises for a
+#: dialect that has no such formatter.
+_DISPATCH_FEATURE_PREFIX = "the '"
+_DISPATCH_FEATURE_SUFFIX = "' statement"
+
+
+def _dispatched_formatter(exc):
+    """The formatting method *exc* says the dialect does not have, or ``None``.
+
+    ``None`` means *exc* is not the dispatch reporting a missing formatter --
+    it is a probe inside a formatter that refused a feature, which is the
+    ``"unsupported"`` branch and needs no row anywhere.
+
+    Args:
+        exc: An :class:`UnsupportedFeatureError` raised out of ``to_sql()``.
+
+    Returns:
+        The method name out of the ``feature_name`` frame, or ``None`` when
+        *exc* came from a probe rather than from the dispatch.
+    """
+    feature = exc.feature_name
+    if not feature.startswith(_DISPATCH_FEATURE_PREFIX):
+        return None
+    if not feature.endswith(_DISPATCH_FEATURE_SUFFIX):
+        return None
+    method = feature[len(_DISPATCH_FEATURE_PREFIX) : len(feature) - len(_DISPATCH_FEATURE_SUFFIX)]
+    return method if method else None
+
+
+#: Formatters BigQuery declares no implementation of, grouped by the feature
+#: that is absent, each group naming every method the matrix's classes need.
+#:
+#: A class needing one of these fails with ``UnsupportedFeatureError`` naming
+#: the method it wanted, and :func:`classify_sql_roundtrip` asserts that
+#: method is a row here. :meth:`TestMatrixIntegrity.\
+#: test_unmodelled_formatter_list_is_exact` pins the table in both directions:
+#: a formatter that starts existing moves its classes out of the table and the
+#: pin fails until the entry goes, and a class that starts needing a method
+#: outside the table fails outright instead of passing as "unsupported".
+#:
+#: These are not defects: they are features BigQuery does not have, which the
+#: shared renderer reports by naming the method it could not find. BigQuery
+#: does spell the new pad/repeat/trim nodes -- LPAD, RPAD and REPEAT natively,
+#: and TRIM through BigQueryTrimMixin -- so none of the four appears here.
+UNMODELLED_FORMATTERS = {
+    "SQL/XML (BigQuery has no SQL/XML functions at all)": (
+        "format_xmlagg_expression",
+        "format_xmlattributes_expression",
+        "format_xmlcomment_expression",
+        "format_xmlconcat_expression",
+        "format_xmlelement_expression",
+        "format_xmlexists_expression",
+        "format_xmlforest_expression",
+        "format_xmlpi_expression",
+        "format_xmlparse_expression",
+        "format_xmlquery_expression",
+        "format_xmlroot_expression",
+        "format_xmlserialize_expression",
+        "format_xmltable_expression",
+    ),
+    "SQL/PGQ property graphs (BigQuery has no CREATE PROPERTY GRAPH, no "
+    "GRAPH_TABLE and no Cypher)": (
+        "format_create_property_graph_statement",
+        "format_alter_property_graph_statement",
+        "format_drop_property_graph_statement",
+        "format_graph_table_expression",
+        "format_graph_vertex",
+        "format_graph_edge",
+        "format_quantified_path",
+        "format_path_pattern",
+        "format_match_clause",
+        "format_graph_columns_clause",
+        "format_vertex_table",
+        "format_edge_table",
+        "format_table_properties_clause",
+    ),
+    "the core SQL/PSM routine statements (BigQuery's UDFs render through their "
+    "own path; the dialect composes no formatter for the core statements)": (
+        "format_create_function_statement",
+        "format_drop_function_statement",
+    ),
+    "TRIGGER (BigQuery has no triggers)": (
+        "format_create_trigger_statement",
+        "format_drop_trigger_statement",
+    ),
+    "SEQUENCE (BigQuery has no sequences)": (
+        "format_create_sequence_statement",
+        "format_alter_sequence_statement",
+        "format_drop_sequence_statement",
+    ),
+    "DATABASE (BigQuery has datasets, not databases)": (
+        "format_create_database_statement",
+        "format_alter_database_statement",
+        "format_drop_database_statement",
+    ),
+    "COMMENT ON (BigQuery has no standalone COMMENT ON statement)": ("format_comment_statement",),
+    "the generic DDL PARTITION clause (BigQuery partitions tables through its "
+    "own partition options, not this clause)": ("format_partition_clause",),
+    "the core PIVOT / UNPIVOT expressions (this backend composes no formatter "
+    "for either; aggregation over rotated rows is spelled by conditional "
+    "aggregation)": (
+        "format_pivot_expression",
+        "format_unpivot_expression",
+    ),
+    "ILIKE (BigQuery has no ILIKE; case-insensitive matching goes through "
+    "LOWER() comparisons)": ("format_ilike_expression",),
+    "the core temporal-options clause (a BigQuery FROM names no temporal "
+    "version; time travel is spelled FOR SYSTEM_TIME AS OF, which the dialect "
+    "renders elsewhere)": ("format_temporal_options",),
+    "the TableSource root (every concrete row source overrides its formatter; "
+    "the root carries nothing but an alias and is never rendered)": ("format_table_source",),
+}
+
+
+def _unmodelled_methods():
+    """The flat set of formatter names in :data:`UNMODELLED_FORMATTERS`."""
+    return {method for methods in UNMODELLED_FORMATTERS.values() for method in methods}
+
+
+# ---------------------------------------------------------------------------
 # The local assertion: classify the outcome instead of swallowing it
 # ---------------------------------------------------------------------------
 
@@ -1030,6 +1186,12 @@ def classify_sql_roundtrip(fqn, instance, dialect):
     and message would go unasserted on this path and the "no-formatter" bucket
     would quietly go to zero. Checking the pins first keeps every entry
     load-bearing and keeps the branch name meaning what it says.
+
+    The catch-all branch is itself split in two, by who is refusing: a probe
+    inside a formatter names the feature (``"unsupported"``), while the dispatch
+    frames the method it could not find as ``the '<method>' statement`` and that
+    method must be a row in :data:`UNMODELLED_FORMATTERS`
+    (``"unmodelled"``) -- see :func:`_dispatched_formatter`.
 
     Returns the name of the branch taken, so a caller can report the
     distribution. Raises ``AssertionError`` on a round-trip mismatch, on an
@@ -1061,6 +1223,17 @@ def classify_sql_roundtrip(fqn, instance, dialect):
             )
             return "no-formatter"
         if type(exc) is UnsupportedFeatureError:
+            method = _dispatched_formatter(exc)
+            if method is not None:
+                assert method in _unmodelled_methods(), (
+                    f"{fqn}: to_sql() reported that {exc.dialect_name} declares no "
+                    f"{method!r}, which is not in UNMODELLED_FORMATTERS.\n"
+                    f"  Either BigQuery now needs that formatter -- in which case "
+                    f"the class should render and this entry should go -- or the "
+                    f"feature is absent and the method belongs in that table with "
+                    f"its reason."
+                )
+                return "unmodelled"
             return "unsupported"
         raise AssertionError(
             f"{fqn}: to_sql() raised {type(exc).__name__}, which is neither a "
@@ -1213,6 +1386,61 @@ class TestMatrixIntegrity:
                 f"{exc_info.value}"
             )
 
+    def test_unmodelled_formatter_list_is_exact(self, dialect):
+        """Pin the unmodelled-formatter table against what the dialect lacks.
+
+        Observed rather than assumed: for each class the matrix covers, either
+        it renders or it fails, and every dispatch refusal is attributed to
+        the method it named -- including the classes pinned in
+        :data:`LEGITIMATE_NON_RENDERS`, whose dispatch failures those pins
+        record class by class. Then the table is compared with the set
+        observed, in both directions, so:
+
+        * a method in the table that BigQuery now implements fails here,
+          because its classes render and are no longer attributed to it --
+          which is the moment to delete the entry rather than leave a lie in
+          the table;
+        * a class that starts needing a method outside the table fails the
+          per-class assertion in :func:`classify_sql_roundtrip` instead of
+          being absorbed into "unsupported".
+
+        This is the regression test for the pad/trim incident. Core turned
+        ``trim``/``lpad``/``rpad``/``repeat`` into dedicated nodes; BigQuery
+        spells all four, so none of the four is a gap here, and this test is
+        what would have said so loudly if a fifth node of that family had
+        arrived without a BigQuery formatter.
+        """
+        ExpressionRegistry._auto_register_builtins()
+        register_all(REGISTERED)
+        observed = set()
+        for fqn in sorted(REGISTERED):
+            instance, source = make_instance(REGISTERED[fqn], dialect)
+            if instance is None:
+                continue
+            try:
+                instance.to_sql()
+            except UnsupportedFeatureError as exc:
+                method = _dispatched_formatter(exc)
+                if method is not None:
+                    observed.add(method)
+                continue
+            except Exception:
+                continue
+
+        declared = _unmodelled_methods()
+        assert not (observed - declared), (
+            "classes need formatters that are not in UNMODELLED_FORMATTERS: "
+            f"{sorted(observed - declared)}. Add each with the feature that is "
+            f"absent and why -- or mix the formatter in, in which case the "
+            f"classes render and the entry is not needed."
+        )
+        assert not (declared - observed), (
+            "UNMODELLED_FORMATTERS names formatters no class actually needs: "
+            f"{sorted(declared - observed)}. BigQuery may have gained one of "
+            f"these, in which case the classes needing it now render and the "
+            f"entry should go."
+        )
+
     def test_matrix_covers_both_packages_completely(self):
         """The matrix covers every concrete class in both packages.
 
@@ -1302,6 +1530,8 @@ class TestMatrixIntegrity:
         )
         for branch in sorted(counts):
             print(f"  {branch}: {counts[branch]}")
+        for feature, methods in sorted(UNMODELLED_FORMATTERS.items()):
+            print(f"  not modelled: {feature} ({len(methods)} formatters)")
         assert counts["rendered"], "no class renders; the matrix is not testing anything"
         assert len(counts) >= 4, (
             f"only {len(counts)} distinct outcomes; a narrow SQL surface usually "
