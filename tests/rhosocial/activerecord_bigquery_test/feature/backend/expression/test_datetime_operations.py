@@ -16,7 +16,7 @@ its own.
 
 import pytest
 
-from rhosocial.activerecord.backend.expression import DateTimeColumn
+from rhosocial.activerecord.backend.expression import TimestampColumn
 
 
 @pytest.fixture
@@ -28,12 +28,12 @@ def dialect():
 
 @pytest.fixture
 def started_at(dialect):
-    return DateTimeColumn(dialect, "started_at", table="t")
+    return TimestampColumn(dialect, "started_at", table="t")
 
 
 @pytest.fixture
 def ended_at(dialect):
-    return DateTimeColumn(dialect, "ended_at", table="t")
+    return TimestampColumn(dialect, "ended_at", table="t")
 
 
 class TestDateDiffRenders:

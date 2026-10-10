@@ -33,11 +33,11 @@ from rhosocial.activerecord.backend.expression.column_types import (
     BinaryColumn,
     BooleanColumn,
     ColumnBase,
-    DateTimeColumn,
     IntegerColumn,
     JSONColumn,
     NumericColumn,
     StringColumn,
+    TimestampColumn,
     UUIDColumn,
 )
 
@@ -88,9 +88,9 @@ BIGQUERY_ANSWERS = [
     (str, StringColumn),
     (bytes, BinaryColumn),
     (bytearray, BinaryColumn),
-    (datetime.date, DateTimeColumn),
-    (datetime.time, DateTimeColumn),
-    (datetime.datetime, DateTimeColumn),
+    (datetime.date, TimestampColumn),
+    (datetime.time, TimestampColumn),
+    (datetime.datetime, TimestampColumn),
     (datetime.timedelta, NumericColumn),
     (uuid.UUID, UUIDColumn),
     (dict, JSONColumn),
@@ -288,8 +288,8 @@ class TestBaselineCells:
         answer is a core gap, not a statement about this backend.
         """
         table = dialect.suggested_column_types()
-        assert table[datetime.date] is DateTimeColumn
-        assert table[datetime.time] is DateTimeColumn
+        assert table[datetime.date] is TimestampColumn
+        assert table[datetime.time] is TimestampColumn
 
     def test_timedelta_is_numeric_because_intervals_are_function_shaped(self, dialect):
         """BigQuery expresses a duration as a function operand, not a column.

@@ -99,11 +99,11 @@ from rhosocial.activerecord.backend.expression.column_types import (
     BinaryColumn,
     BooleanColumn,
     ColumnBase,
-    DateTimeColumn,
     IntegerColumn,
     JSONColumn,
     NumericColumn,
     StringColumn,
+    TimestampColumn,
     UUIDColumn,
 )
 
@@ -158,7 +158,7 @@ BIGQUERY_COLUMN_TYPES: Dict[Any, Type[ColumnBase]] = {
     bytes: BinaryColumn,
     bytearray: BinaryColumn,
     # --- date / time ---------------------------------------------------
-    # `DateTimeColumn` for all three temporal entries, the shared baseline.
+    # `TimestampColumn` for all three temporal entries, the shared baseline.
     # Worth pinning because it is a known gap rather than an answer: core
     # has no `DateColumn` / `TimeColumn` yet, while BigQuery has had native
     # `DATE` and `TIME` for years (this repository's investigation appendix
@@ -167,9 +167,9 @@ BIGQUERY_COLUMN_TYPES: Dict[Any, Type[ColumnBase]] = {
     # both entries answer the same column class, which is correct because
     # the column class says what the value can do, not how it is written.
     # 文档（待云验）.
-    datetime.date: DateTimeColumn,
-    datetime.time: DateTimeColumn,
-    datetime.datetime: DateTimeColumn,
+    datetime.date: TimestampColumn,
+    datetime.time: TimestampColumn,
+    datetime.datetime: TimestampColumn,
     # A timedelta is a number of seconds here, answered by the numeric
     # surface, and the reason is documented rather than convenient: BigQuery
     # expresses a duration as the *operand of a function*
