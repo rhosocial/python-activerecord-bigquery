@@ -44,6 +44,14 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     TypeNameMixin, DomainNameMixin, SynonymNameMixin,
     SchemaNameMixin, DatabaseNameMixin, PropertyGraphNameMixin,
     NamespaceMixin,
+    # ``LPAD``/``RPAD``/``REPEAT`` are nodes with default formatters, and
+    # BigQuery spells all three natively (string_functions: ``LPAD`` /
+    # ``RPAD`` truncate at ``return_length`` and refuse a negative one or an
+    # empty ``pattern``; ``REPEAT(original, repetitions)`` refuses a negative
+    # count), so the shared defaults are the answer for those three and no
+    # override is needed. ``TRIM`` differs and is overridden by
+    # BigQueryTrimMixin (below) for the reason documented there.
+    LpadMixin, RepeatMixin, RpadMixin,
 )
 from .protocols import (
     BigQueryArraySupport,
@@ -72,6 +80,11 @@ from .mixins import (
     # (WAIT / NO WAIT) that BigQuery's grammar does not have; core's generic
     # renderer would drop them silently. Before TransactionControlMixin.
     BigQueryTransactionMixin,
+    # TRIM is the one of the four string nodes BigQuery spells differently:
+    # the direction lives in the function name, so BigQueryTrimMixin must
+    # outrank core's TrimMixin in the MRO. LPAD, RPAD and REPEAT are the
+    # shared spellings verbatim here.
+    BigQueryTrimMixin,
 )
 
 
@@ -94,6 +107,12 @@ class BigQueryDialect(
     # Transaction formatting: core's TransactionControlMixin drops the
     # lock-wait pair silently, so the refusals live here, ahead of it.
     BigQueryTransactionMixin,
+    # TRIM is the one of the four string nodes BigQuery spells differently:
+    # the direction lives in the function name, so this must outrank core's
+    # TrimMixin, which appears in the generic block below. LPAD, RPAD and
+    # REPEAT are the shared spellings verbatim here, so the generic mixins
+    # answer for those three unchanged.
+    BigQueryTrimMixin,
     # The backend's one naming-side mixin: both levels rendered, and
     # validate_catalog_name narrowed, because a BigQuery path is
     # project.dataset.object and a project with no dataset is not a name.
@@ -113,6 +132,10 @@ class BigQueryDialect(
     SetOperationMixin, DateTimeMixin,
     DDLColumnMixin, DDLTypeMixin, TransactionControlMixin,
     CollationMixin,
+    # LPAD/RPAD/REPEAT are the three of the four string nodes BigQuery spells
+    # natively, so the shared defaults are the answer for them unchanged;
+    # TRIM is the one with a local override above.
+    LpadMixin, RepeatMixin, RpadMixin,
     # The two auto-increment mechanisms. BigQueryIdentityColumnMixin (above)
     # owns the identity spelling and its probes; core's IdentityColumnMixin
     # keeps the protocol in the MRO, and AutoIncrementMixin supplies the
