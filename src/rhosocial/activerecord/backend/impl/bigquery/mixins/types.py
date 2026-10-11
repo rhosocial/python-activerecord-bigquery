@@ -777,8 +777,8 @@ class BigQueryTypeSupportMixin:
                     f"to go"
                 ),
             )
-        if getattr(data_type, "precision", None) is not None:
-            scale = getattr(data_type, "scale", 0) or 0
+        if data_type.precision is not None:
+            scale = data_type.scale or 0
             return f"NUMERIC({data_type.precision}, {scale})", ()
         return "NUMERIC", ()
 
@@ -888,7 +888,7 @@ class BigQueryTypeSupportMixin:
         states; see :meth:`_check_string_length`.
         """
         self._check_spelling(data_type, CharType)
-        length = getattr(data_type, "length", None)
+        length = data_type.length
         self._check_string_length(length)
         # ``is not None`` rather than a truthiness test: a length of 0 is an
         # out-of-range value, not an absent one, and it is refused above instead
@@ -907,7 +907,7 @@ class BigQueryTypeSupportMixin:
         length is range-checked the same way; see :meth:`_check_string_length`.
         """
         self._check_spelling(data_type, VarCharType)
-        length = getattr(data_type, "length", None)
+        length = data_type.length
         self._check_string_length(length)
         return (f"STRING({length})", ()) if length is not None else ("STRING", ())
 

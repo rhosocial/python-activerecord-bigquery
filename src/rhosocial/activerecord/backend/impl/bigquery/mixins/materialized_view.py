@@ -118,16 +118,16 @@ class BigQueryMaterializedViewMixin:
                 ``RESTRICT`` here.
         """
         self._require_materialized_view(expr, "DropMaterializedViewExpression")
-        if getattr(expr, "cascade", False):
+        if expr.cascade:
             raise UnsupportedFeatureError(
                 self.name, "DROP MATERIALIZED VIEW CASCADE"
             )
-        if getattr(expr, "restrict", False):
+        if expr.restrict:
             raise UnsupportedFeatureError(
                 self.name, "DROP MATERIALIZED VIEW RESTRICT"
             )
         parts = ["DROP MATERIALIZED VIEW"]
-        if getattr(expr, "if_exists", False):
+        if expr.if_exists:
             parts.append("IF EXISTS")
         parts.append(self._materialized_view_name_sql(expr))
         return " ".join(parts), ()
@@ -144,7 +144,7 @@ class BigQueryMaterializedViewMixin:
             expr, "BigQueryAlterMaterializedViewSetOptionsExpression"
         )
         parts = ["ALTER MATERIALIZED VIEW"]
-        if getattr(expr, "if_exists", False):
+        if expr.if_exists:
             parts.append("IF EXISTS")
         parts.append(self._materialized_view_name_sql(expr))
         options = self._format_materialized_view_options(expr.options)
