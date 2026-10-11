@@ -162,4 +162,59 @@ class BigQueryDQLMixin:
         return "*", ()
 
 
+    def format_datetime_diff_expression(self, expr) -> Tuple[str, tuple]:
+        """Format ``DATE_DIFF(end, start, part)``.
+
+        BigQuery takes its arguments in the opposite order to everyone else --
+        the end date first -- so a generic ``date_diff(unit, start, end)`` has
+        to be swapped here or every call would measure the wrong span.
+
+        The parts are not one-to-one either: BigQuery has no WEEK part, so a
+        week is seven days, and MONTH/YEAR/QUARTER are the calendar ones rather
+        than fixed spans.
+
+        Args:
+            expr: The expression carrying ``unit``, ``start`` and ``end``.
+
+        Returns:
+            A ``(sql, params)`` tuple.
+
+        Raises:
+            UnsupportedFeatureError: For a part BigQuery has no spelling for.
+        """
+        from rhosocial.activerecord.backend.dialect.exceptions import (
+            UnsupportedFeatureError,
+        )
+        from rhosocial.activerecord.backend.dialect.base import SQLDialectBase
+
+        # The units the framework's IntervalUnit defines. BigQuery's DATE_DIFF
+        # has more parts -- WEEKDAY, ISOWEEK, QUARTER -- but a caller cannot
+        # name them here, so listing them would be a promise nobody can keep.
+        parts = {
+            "day": "DAY", "hour": "HOUR", "minute": "MINUTE",
+            "second": "SECOND", "month": "MONTH", "year": "YEAR",
+            # BigQuery has no week part; a week is exactly seven days.
+            "week": None,
+        }
+        unit = expr.unit.value.lower()
+        if unit not in parts:
+            raise UnsupportedFeatureError(
+                self.name,
+                f"date_diff({unit})",
+                "BigQuery DATE_DIFF supports year, month, week, day, hour, "
+                "minute and second.",
+            )
+        part = parts[unit] or "DAY"
+        start_sql, start_params = expr.start.to_sql()
+        end_sql, end_params = expr.end.to_sql()
+        if parts[unit] is None:
+            sql = f"DATE_DIFF({end_sql}, {start_sql}, DAY) / 7"
+        else:
+            sql = (
+                f"DATE_DIFF({end_sql}, {start_sql}, "
+                f"{SQLDialectBase._escape_sql_string(part)})"
+            )
+        return self.apply_alias(sql, end_params + start_params, expr)
+
+
 __all__ = ['BigQueryDQLMixin']

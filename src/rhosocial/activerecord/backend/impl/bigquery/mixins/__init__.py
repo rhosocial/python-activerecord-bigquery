@@ -7,10 +7,12 @@ from .dql import BigQueryDQLMixin
 from .schema import BigQuerySchemaMixin
 from .ddl import BigQueryDDLColumnMixin
 from .capabilities import BigQueryCapabilityMixin
+from .column_type import BigQueryColumnTypeMixin
 from .identity_column import BigQueryIdentityColumnMixin
 from .identifier import BigQueryIdentifierMixin
 from .materialized_view import BigQueryMaterializedViewMixin
 from .transaction import BigQueryTransactionMixin
+from .trim import BigQueryTrimMixin
 
 
 class BigQueryStructMixin:
@@ -40,10 +42,12 @@ __all__ = [
     'BigQuerySchemaMixin',
     'BigQueryDDLColumnMixin',
     'BigQueryCapabilityMixin',
+    'BigQueryColumnTypeMixin',
     'BigQueryIdentityColumnMixin',
     'BigQueryIdentifierMixin',
     'BigQueryMaterializedViewMixin',
     'BigQueryTransactionMixin',
+    'BigQueryTrimMixin',
     'BigQueryStructMixin',
     'BigQueryArrayMixin',
     'BigQueryJSONMixin',

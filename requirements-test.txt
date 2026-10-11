@@ -7,3 +7,17 @@ pytest-mock>=3.10.0
 pyyaml>=6.0
 email-validator>=2.0
 dnspython>=2.0
+
+# Python 3.13, including the free-threaded 3.13t build. The python_version
+# marker distinguishes release lines, not GIL configuration, so these two lines
+# pin both 3.13 builds. pydantic-core has no cp313t wheel after 2.41.4, and the
+# newer sdists cannot be built there (PyO3 0.29 refuses the free-threaded build
+# of CPython < 3.14); 2.12.2 is the last pydantic paired with 2.41.4.
+#
+# These mirror the same pins in rhosocial-activerecord's own dependencies, and
+# they have to be restated here because this file is installed before the core
+# package: resolving an unpinned `pydantic` here picks a pydantic-core whose only
+# cp313t distribution is an sdist, and the build then fails on the free-threaded
+# jobs before the core's pin is ever in scope.
+pydantic[email]==2.12.2; python_version == '3.13'
+pydantic-core==2.41.4; python_version == '3.13'

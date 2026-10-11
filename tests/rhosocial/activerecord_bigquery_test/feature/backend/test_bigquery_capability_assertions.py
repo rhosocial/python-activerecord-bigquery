@@ -10,6 +10,7 @@ import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression import (
+    BinaryArithmeticExpression,
     Column,
     CreateTableExpression,
     CreateViewExpression,
@@ -78,7 +79,7 @@ def test_generated_stored_column_renders(dialect):
         IntegerType(dialect),
         generated_expression=GeneratedColumnExpression(
             dialect,
-            Column(dialect, "a") + Column(dialect, "b"),
+            BinaryArithmeticExpression(dialect, "+", Column(dialect, "a"), Column(dialect, "b")),
             storage_type=GeneratedColumnType.STORED,
         ),
     )
