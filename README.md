@@ -27,6 +27,11 @@ _f986100_
 - **Driver**: `google-cloud-bigquery>=3.20.0`
 - **Published**: _not yet on PyPI_
 
+Supported Python versions run from 3.10 through 3.15 inclusive; the
+`requires-python = ">=3.10"` pin is a floor, not a cap. The dynamic `Python`
+badge is rendered from the PyPI classifiers, so it shows 3.15 only after the
+first publish.
+
 ## Installation
 
 ```bash
