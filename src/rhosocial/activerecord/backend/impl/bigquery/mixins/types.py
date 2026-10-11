@@ -198,8 +198,24 @@ class BigQueryTypeSupportMixin:
         backend writes — all four render ``INT64``, so naming the requested
         width is the only way the message can say *which* of the four was
         refused.
+
+        The shape check comes first because this is the only gate the field
+        passes through: the expression collects ``unsigned`` without judging it
+        — only the formatter knows which backend has to honour it — so a
+        non-boolean reaches here rather than being rejected at construction.  A
+        truth test cannot see it: ``unsigned=0``, ``unsigned=""`` and
+        ``unsigned=None`` are all falsy, so they would pass the test below and
+        render a signed ``INT64`` and report success, which on this backend is
+        the loss of the caller's declaration with no change at all in the DDL
+        to show for it.
         """
-        if not data_type.unsigned:
+        unsigned = data_type.unsigned
+        if not isinstance(unsigned, bool):
+            raise TypeError(
+                f"unsigned must be a bool, got {type(unsigned).__name__}; it "
+                f"becomes a type modifier in the rendered DDL."
+            )
+        if not unsigned:
             return
         raise UnsupportedFeatureError(
             self.name,
@@ -416,8 +432,22 @@ class BigQueryTypeSupportMixin:
         grammar cannot express at all, not a wrong value.  The two do not share
         a base class, and the project's cross-backend rule keeps them apart so a
         caller can catch one type for the same refusal everywhere.
+
+        The shape check is first for the reason given in
+        :meth:`_refuse_unsigned_integer`: the field arrives unjudged, and a
+        falsy non-boolean — ``0``, ``""``, ``None``, an empty container — is
+        invisible to the truth test below, so it would render a signed
+        ``NUMERIC`` / ``FLOAT64`` and report success.  ``REAL`` reaches this
+        gate too, through the substitution its own formatter documents, so the
+        shape is checked on the concept and not on the word it renders to.
         """
-        if not data_type.unsigned:
+        unsigned = data_type.unsigned
+        if not isinstance(unsigned, bool):
+            raise TypeError(
+                f"unsigned must be a bool, got {type(unsigned).__name__}; it "
+                f"becomes a type modifier in the rendered DDL."
+            )
+        if not unsigned:
             return
         raise UnsupportedFeatureError(
             self.name,
