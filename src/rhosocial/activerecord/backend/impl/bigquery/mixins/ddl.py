@@ -1,5 +1,6 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/ddl.py
 """BigQuery DDL column/index mixin."""
+
 from __future__ import annotations
 
 from typing import Any, Tuple, TYPE_CHECKING
@@ -20,6 +21,57 @@ class BigQueryDDLColumnMixin:
     BigQuery cannot change column types in place or add/drop indexes
     via ALTER TABLE.
     """
+
+    # ------------------------------------------------------------------
+    # CLAUSE ORDER ON THE COLUMN RENDER PATH -- read before reordering anything
+    # ------------------------------------------------------------------
+    #
+    # ``column_schema`` fixes the order of a column definition, and it is the
+    # *reverse* of what most backends use in two places.  Official grammar
+    # (transcribed 2026-10-12; no BigQuery instance is reachable, so this is
+    # 文档（待云验） -- grammar-only):
+    #
+    #     column_schema :=
+    #     { simple_type | STRUCT<field_list> | ARRAY<array_element_schema> }
+    #     [PRIMARY KEY NOT ENFORCED | REFERENCES table_name(column_name) NOT ENFORCED]
+    #     [ DEFAULT default_expression | embedding_generation | identity_column ]
+    #     [NOT NULL]
+    #     [OPTIONS(column_option_list)]
+    #
+    # Two consequences for anything that builds a ``ColumnDefinition``:
+    #
+    # 1. ``NOT NULL`` comes AFTER the ``DEFAULT`` / identity group.  On MySQL,
+    #    MariaDB, PostgreSQL, SQL Server, Oracle and Firebird the nullability
+    #    marker leads.  Here it follows, so ``col STRING NOT NULL DEFAULT 'x'``
+    #    is not the shape BigQuery accepts -- it wants
+    #    ``col STRING DEFAULT 'x' NOT NULL``.
+    # 2. The primary key / reference group comes FIRST, before ``DEFAULT``.
+    #
+    # Why this is a comment and not a sort: core's ``format_column_definition``
+    # renders ``attributes``, then ``constraints``, then
+    # ``generated_expression``, then ``comment``, each in the order it was
+    # built, and ``format_column_attributes`` explicitly does not sort.  So the
+    # order is decided by the order the caller appended constraints, which makes
+    # it a property of the *call site*, not something a formatter override can
+    # guarantee.  Nothing is sorted or reordered here on purpose -- a renderer
+    # that "fixed" the order for BigQuery would break the backends whose order
+    # is the other way round.
+    #
+    # The good news, and the reason this backend has no
+    # ``format_column_definition`` override at all: the generic renderer already
+    # lands on ``column_schema``'s order when the caller supplies the clauses in
+    # grammar order.  Measured on this dialect's own DDL, a column declared with
+    # ``[REFERENCES ... not_enforced, DEFAULT, NOT NULL]`` and an
+    # ``OPTIONS(description=...)`` comment renders as::
+    #
+    #     `id` STRING(10) REFERENCES `p`(`id`) NOT ENFORCED DEFAULT 'x'
+    #          NOT NULL OPTIONS(description='a note')
+    #
+    # -- group 1, group 2, group 3, group 4, exactly as ``column_schema`` spells
+    # them.  The test that locks this is
+    # ``tests/.../test_bigquery_constraint_switches.py::TestClauseOrderIsRecordedOnTheRenderPath``;
+    # if a core change reorders the clauses, that test is where it should fail.
+    # ------------------------------------------------------------------
 
     def supports_column_comment(self) -> bool:
         """Whether an inline column comment is supported.

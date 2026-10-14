@@ -167,12 +167,13 @@ from rhosocial.activerecord.backend.expression.statements.ddl_domain import (
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_table import (
     ColumnConstraint,
-    ColumnConstraintType,
+    ColumnNotNullConstraint,
     ForeignKeyConstraint,
     IndexDefinition,
     ReferencesClause,
+    TableCheckConstraint,
     TableConstraint,
-    TableConstraintType,
+    TableUniqueConstraint,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_trigger import (
     TriggerEvent,
@@ -342,17 +343,18 @@ def register_specials():
     )
 
     # -- constraints, which need member columns and real enum values ---------
-    # The generic guess passes the constraint *type* as the string "x", which
-    # every one of these refuses; and it passes no columns at all, which is a
-    # FOREIGN KEY and a REFERENCES clause without an end.
+    # The clause's kind is a branch node now, not a tag: the constraint cannot
+    # be built without saying what kind it is, and the branches whose payload
+    # is a column list or a referenced table need real values the heuristic
+    # guess has nothing to supply.
     register_special_constructor(
         "statements.ddl_table.ColumnConstraint",
-        lambda d: ColumnConstraint(d, ColumnConstraintType.NOT_NULL, name="c"),
+        lambda d: ColumnConstraint(d, branch=ColumnNotNullConstraint(d), name="c"),
     )
     register_special_constructor(
         "statements.ddl_table.TableConstraint",
         lambda d: TableConstraint(
-            d, TableConstraintType.PRIMARY_KEY, name="c", columns=["a"]
+            d, branch=TableUniqueConstraint(d, ["a"]), name="c"
         ),
     )
     register_special_constructor(
@@ -409,7 +411,7 @@ def register_specials():
         lambda d: ddl_alter.AddTableConstraint(
             d,
             TableConstraint(
-                d, TableConstraintType.PRIMARY_KEY, name="c", columns=["a"]
+                d, branch=TableUniqueConstraint(d, ["a"]), name="c"
             ),
         ),
     )
@@ -421,7 +423,7 @@ def register_specials():
     register_special_constructor(
         "statements.ddl_alter.AlterConstraint",
         lambda d: ddl_alter.AlterConstraint(
-            d, "c", enforced=True, constraint_type=TableConstraintType.CHECK
+            d, "c", enforced=True, constraint_kind=TableCheckConstraint
         ),
     )
     register_special_constructor(

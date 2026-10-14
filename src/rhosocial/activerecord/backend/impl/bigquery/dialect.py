@@ -71,6 +71,15 @@ from .mixins import (
     BigQuerySchemaMixin,
     BigQueryNamespaceMixin,
     BigQueryDDLColumnMixin,
+    # Constraint capability switches, all declared locally and all read off the
+    # official ``column_schema`` / ``constraint_definition`` / ``ALTER TABLE``
+    # grammar (grammar-only: no BigQuery instance is reachable and the CI
+    # emulator implements neither ALTER constraint statement).  Before this
+    # mixin the backend declared none of them and inherited core's, whose
+    # defaults say ``True`` for CHECK, UNIQUE, MATCH, DEFERRABLE and both
+    # referential actions -- all of which BigQuery's grammar rejects.  Ahead of
+    # core's ConstraintMixin and DDLColumnMixin so those defaults cannot answer.
+    BigQueryConstraintMixin,
     BigQueryCapabilityMixin,
     BigQueryColumnTypeMixin,
     BigQueryIdentityColumnMixin,
@@ -97,6 +106,13 @@ class BigQueryDialect(
     BigQueryDQLMixin,
     BigQuerySchemaMixin,
     BigQueryDDLColumnMixin,
+    # Constraint capability switches. Ahead of core's ConstraintMixin and
+    # DDLColumnMixin below: every constraint answer BigQuery gives is declared
+    # in this package with the official grammar it rests on, so a moved core
+    # default cannot silently become BigQuery's contract.  Several values
+    # differ from those defaults -- CHECK, UNIQUE, MATCH, DEFERRABLE, ON DELETE,
+    # ON UPDATE are all False here and True there.
+    BigQueryConstraintMixin,
     # Identity is a parameterised column clause, so its spelling lives with the
     # column DDL mixin and ahead of core's IdentityColumnMixin. BigQuery's
     # grammar makes the option parentheses literal; the probes come from the
@@ -195,7 +211,7 @@ class BigQueryDialect(
             "DECIMAL": "BIGNUMERIC",
         }
 
-    # -- CREATE TABLE diff (CreateTableExpressionDiffSupport hooks) -----------
+    # -- CREATE TABLE diff (the ALTER TABLE probes core consults) -------------
 
     def supports_alter_column_type(self) -> bool:
         """BigQuery cannot change a column type in place."""

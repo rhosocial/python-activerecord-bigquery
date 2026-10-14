@@ -6,6 +6,7 @@ from .namespace import BigQueryNamespaceMixin
 from .dql import BigQueryDQLMixin
 from .schema import BigQuerySchemaMixin
 from .ddl import BigQueryDDLColumnMixin
+from .constraint import BigQueryConstraintMixin
 from .capabilities import BigQueryCapabilityMixin
 from .column_type import BigQueryColumnTypeMixin
 from .identity_column import BigQueryIdentityColumnMixin
@@ -41,6 +42,7 @@ __all__ = [
     'BigQueryDQLMixin',
     'BigQuerySchemaMixin',
     'BigQueryDDLColumnMixin',
+    'BigQueryConstraintMixin',
     'BigQueryCapabilityMixin',
     'BigQueryColumnTypeMixin',
     'BigQueryIdentityColumnMixin',

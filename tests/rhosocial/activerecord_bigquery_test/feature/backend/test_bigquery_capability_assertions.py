@@ -19,8 +19,8 @@ from rhosocial.activerecord.backend.expression import (
 from rhosocial.activerecord.backend.expression.objects import Table, View
 from rhosocial.activerecord.backend.expression.statements import (
     ColumnDefinition,
+    ColumnGeneratedConstraint,
     DropTableStatement,
-    GeneratedColumnExpression,
     GeneratedColumnType,
     TruncateStatement,
 )
@@ -77,7 +77,7 @@ def test_generated_stored_column_renders(dialect):
         dialect,
         "total",
         IntegerType(dialect),
-        generated_expression=GeneratedColumnExpression(
+        generated_expression=ColumnGeneratedConstraint(
             dialect,
             BinaryArithmeticExpression(dialect, "+", Column(dialect, "a"), Column(dialect, "b")),
             storage_type=GeneratedColumnType.STORED,
@@ -92,7 +92,7 @@ def test_virtual_generated_column_rejected(dialect):
         dialect,
         "total",
         IntegerType(dialect),
-        generated_expression=GeneratedColumnExpression(
+        generated_expression=ColumnGeneratedConstraint(
             dialect,
             Column(dialect, "a"),
             storage_type=GeneratedColumnType.VIRTUAL,
