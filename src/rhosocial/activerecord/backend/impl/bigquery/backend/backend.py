@@ -619,9 +619,9 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
         # column itself is also the safe semantics.
         from rhosocial.activerecord.backend.base.operations import _is_sql_expression
         from rhosocial.activerecord.backend.expression import (
-            Column, Literal, UpdateExpression, ComparisonPredicate, InPredicate,
+            Column, Literal, UpdateStatement, ComparisonPredicate, InPredicate,
         )
-        from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
+        from rhosocial.activerecord.backend.expression.advanced_functions import CaseFunction
         from rhosocial.activerecord.backend.expression.objects import Table
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
@@ -634,13 +634,13 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
                 condition = ComparisonPredicate(self.dialect, "=", pk_col, Literal(self.dialect, pk_val))
                 result_expr = Literal(self.dialect, field_val)
                 cases.append((condition, result_expr))
-            assignments[field_name] = CaseExpression(
+            assignments[field_name] = CaseFunction(
                 self.dialect, cases=cases, else_result=Column(self.dialect, field_name),
             )
 
         pk_literals = Literal(self.dialect, options.pk_values)
         where_predicate = InPredicate(self.dialect, pk_col, pk_literals)
-        update_expr = UpdateExpression(
+        update_expr = UpdateStatement(
             dialect=self.dialect,
             # One construction whether or not a dataset was given. The
             # conditional branch here existed only to avoid passing

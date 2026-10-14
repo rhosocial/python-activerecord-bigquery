@@ -9,7 +9,7 @@ Adaptations from the MySQL reference provider
 (``python-activerecord-mysql/tests/providers/query.py``):
 
 * Raw DDL templates come from :mod:`providers.fixtures.query` as plain SQL
-  strings (no ``CreateTableExpression``), with tables created
+  strings (no ``CreateTableStatement``), with tables created
   dataset-qualified; models get ``__schema_name__`` set to the scenario dataset.
 * No ``FOREIGN_KEY_CHECKS`` toggling and no AUTO_INCREMENT — BigQuery has no
   enforced foreign keys and the backend generates primary keys client-side.

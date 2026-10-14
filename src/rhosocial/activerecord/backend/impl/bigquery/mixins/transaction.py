@@ -14,7 +14,7 @@ from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeature
 
 if TYPE_CHECKING:  # pragma: no cover
     from rhosocial.activerecord.backend.expression.transaction import (
-        BeginTransactionExpression,
+        BeginTransactionStatement,
         SetTransactionExpression,
     )
 
@@ -32,7 +32,7 @@ class BigQueryTransactionMixin:
         ``False``: the transactions reference documents ``BEGIN TRANSACTION``,
         ``COMMIT TRANSACTION`` and ``ROLLBACK TRANSACTION``; the string
         ``WAIT`` does not occur on it, and neither does ``SET TRANSACTION``.
-        The pair is carried by ``BeginTransactionExpression`` and
+        The pair is carried by ``BeginTransactionStatement`` and
         ``SetTransactionExpression`` all the same, so both spellings are
         refused by name below rather than dropped.
 
@@ -41,8 +41,8 @@ class BigQueryTransactionMixin:
         """
         return False
 
-    def format_begin_transaction(
-        self, expr: "BeginTransactionExpression"
+    def format_begin_transaction_statement(
+        self, expr: "BeginTransactionStatement"
     ) -> Tuple[str, tuple]:
         """Format a BEGIN statement, refusing the wait pair by name.
 

@@ -3,7 +3,7 @@
 import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression import CreateTableExpression
+from rhosocial.activerecord.backend.expression import CreateTableStatement
 from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.expression.statements import ColumnDefinition
 from rhosocial.activerecord.backend.expression.types import IntegerType
@@ -84,7 +84,7 @@ class TestBigQuerySchemaCapabilityGating:
 class TestBigQueryTableDeclarationGating:
     def test_table_declaration_defaults_are_absent(self):
         dialect = BigQueryDialect()
-        expression = CreateTableExpression(
+        expression = CreateTableStatement(
             dialect,
             Table(dialect, "plain_table_defaults"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
@@ -99,7 +99,7 @@ class TestBigQueryTableDeclarationGating:
     def test_table_inherits_is_propagated_and_rejected(self):
         dialect = BigQueryDialect()
         assert dialect.supports_table_inheritance() is False
-        expression = CreateTableExpression(
+        expression = CreateTableStatement(
             dialect,
             Table(dialect, "inherited"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
@@ -112,7 +112,7 @@ class TestBigQueryTableDeclarationGating:
     def test_table_tablespace_is_propagated_and_rejected(self):
         dialect = BigQueryDialect()
         assert dialect.supports_table_tablespace() is False
-        expression = CreateTableExpression(
+        expression = CreateTableStatement(
             dialect,
             Table(dialect, "tablespaced"),
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],

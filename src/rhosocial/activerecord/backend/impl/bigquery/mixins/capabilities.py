@@ -50,7 +50,7 @@ class BigQueryCapabilityMixin:
         materialization itself (recursive CTEs are materialized, non-recursive
         ones are not).
 
-        Declared here because core's ``format_cte_expression`` now consults the
+        Declared here because core's ``format_cte_clause`` now consults the
         probe when a hint is requested, so the refusal is this dialect's
         documented answer rather than an inherited default.
 

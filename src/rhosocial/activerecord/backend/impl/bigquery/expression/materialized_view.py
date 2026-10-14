@@ -48,8 +48,8 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from rhosocial.activerecord.backend.expression.bases import BaseExpression
 from rhosocial.activerecord.backend.expression.objects import MaterializedView
 from rhosocial.activerecord.backend.expression.statements.ddl_view import (
-    CreateMaterializedViewExpression,
-    DropMaterializedViewExpression,
+    CreateMaterializedViewStatement,
+    DropMaterializedViewStatement,
 )
 
 from ..materialized_view_options import validate_materialized_view_options
@@ -66,7 +66,7 @@ __all__ = [
 ]
 
 
-class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression):
+class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewStatement):
     """``CREATE [OR REPLACE] MATERIALIZED VIEW [IF NOT EXISTS] ... AS query``.
 
     Args:
@@ -135,7 +135,7 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewExpression)
         return "format_create_materialized_view_statement"
 
 
-class BigQueryDropMaterializedViewExpression(DropMaterializedViewExpression):
+class BigQueryDropMaterializedViewExpression(DropMaterializedViewStatement):
     """``DROP MATERIALIZED VIEW [IF EXISTS] mv_name``.
 
     BigQuery has neither ``CASCADE`` nor ``RESTRICT`` for materialized views;

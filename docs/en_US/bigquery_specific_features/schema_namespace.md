@@ -340,18 +340,18 @@ A CTE is named for the rest of the query, not for the database, so its own name 
 bare. The query inside it still carries the model's dataset:
 
 ```python
-inner = QueryExpression(
+inner = QueryStatement(
     dialect=d,
     select=[Column(d, "id", table="orders", schema_name="app")],
     from_=[TableExpression(d, "orders", schema_name="app")],
 )
-main = QueryExpression(
+main = QueryStatement(
     dialect=d,
     select=[Column(d, "id", table="recent_orders")],
     from_=[TableExpression(d, "recent_orders")],
 )
 
-WithQueryExpression(d, [CTEExpression(d, "recent_orders", inner)], main).to_sql()[0]
+WithStatement(d, [CTEClause(d, "recent_orders", inner)], main).to_sql()[0]
 # WITH `recent_orders` AS (SELECT `orders`.`id` FROM `app`.`orders`)
 #   SELECT `recent_orders`.`id` FROM `recent_orders`
 ```
@@ -421,16 +421,16 @@ is built — a migration has to name the dataset it means — but every statemen
 names a dataset-bearing object accepts a `schema_name` of its own:
 
 ```python
-CreateTableExpression(
+CreateTableStatement(
     d, TableExpression(d, "orders", schema_name="app"), columns=cols
 ).to_sql()[0]
 # CREATE TABLE `app`.`orders` (`id` INT64)
 
-DropTableExpression(d, TableExpression(d, "orders", schema_name="app"),
+DropTableStatement(d, TableExpression(d, "orders", schema_name="app"),
                     if_exists=True).to_sql()[0]
 # DROP TABLE IF EXISTS `app`.`orders`
 
-CreateViewExpression(d, "v_orders", query, schema_name="app").to_sql()[0]
+CreateViewStatement(d, "v_orders", query, schema_name="app").to_sql()[0]
 # CREATE VIEW `app`.`v_orders`  AS SELECT `orders`.`id` FROM `app`.`orders`
 ```
 
@@ -441,18 +441,18 @@ Without a `WHERE` clause they render the range and nothing else, which is also
 the shortest way to see that no dataset reaches a predicate:
 
 ```python
-InsertExpression(
+InsertStatement(
     d, TableExpression(d, "users", schema_name="app"),
     ValuesSource(d, [[Literal(d, "x")]]), columns=["name"],
 ).to_sql()
 # ('INSERT INTO `app`.`users` (`name`) VALUES (?)', ('x',))
 
-UpdateExpression(
+UpdateStatement(
     d, TableExpression(d, "users", schema_name="app"), {"name": Literal(d, "x")}
 ).to_sql()
 # ('UPDATE `app`.`users` SET `name` = ?', ('x',))
 
-DeleteExpression(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
+DeleteStatement(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
 # ('DELETE FROM `app`.`users`', ())
 ```
 
@@ -471,11 +471,11 @@ Two DDL statements are refused rather than qualified, because BigQuery does not
 have the clause:
 
 ```python
-DropViewExpression(d, "v_orders", schema_name="app", if_exists=True).to_sql()
+DropViewStatement(d, "v_orders", schema_name="app", if_exists=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support DROP VIEW IF
 # EXISTS. Suggestion: BigQuery does not support DROP VIEW IF EXISTS.
 
-CreateViewExpression(d, "v_orders", query, schema_name="app", if_not_exists=True).to_sql()
+CreateViewStatement(d, "v_orders", query, schema_name="app", if_not_exists=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support CREATE VIEW IF
 # NOT EXISTS. Suggestion: BigQuery does not support CREATE VIEW IF NOT EXISTS.
 ```
@@ -488,25 +488,25 @@ Both statements are rendered through the dataset name as a single quoted
 identifier:
 
 ```python
-CreateSchemaExpression(d, "sales").to_sql()[0]
+CreateSchemaStatement(d, "sales").to_sql()[0]
 # CREATE SCHEMA `sales`
 
-CreateSchemaExpression(d, "sales", if_not_exists=True).to_sql()[0]
+CreateSchemaStatement(d, "sales", if_not_exists=True).to_sql()[0]
 # CREATE SCHEMA IF NOT EXISTS `sales`
 
-DropSchemaExpression(d, "sales", if_exists=True).to_sql()[0]
+DropSchemaStatement(d, "sales", if_exists=True).to_sql()[0]
 # DROP SCHEMA IF EXISTS `sales`
 ```
 
 `authorization=` is refused, and `cascade=True` is refused as well:
 
 ```python
-CreateSchemaExpression(d, "sales", authorization="app_user").to_sql()
+CreateSchemaStatement(d, "sales", authorization="app_user").to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support CREATE SCHEMA
 # AUTHORIZATION. Suggestion: BigQuery does not support CREATE SCHEMA
 # AUTHORIZATION.
 
-DropSchemaExpression(d, "sales", cascade=True).to_sql()
+DropSchemaStatement(d, "sales", cascade=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support DROP SCHEMA
 # CASCADE. Suggestion: BigQuery does not support DROP SCHEMA CASCADE.
 ```
@@ -622,9 +622,9 @@ Sequence DDL is not implemented on this backend, so `schema_name` on it never
 reaches a renderer:
 
 ```python
-CreateSequenceExpression(d, "s_orders", schema_name="app").to_sql()
+CreateSequenceStatement(d, "s_orders", schema_name="app").to_sql()
 # AttributeError: BigQueryDialect has no formatting method
-# 'format_create_sequence_statement' (required by CreateSequenceExpression).
+# 'format_create_sequence_statement' (required by CreateSequenceStatement).
 ```
 
 `ALTER TABLE ... ADD/DROP INDEX` is refused at the capability level
@@ -634,22 +634,22 @@ the table is qualified by its own `TableExpression`, and a bare string for that
 table is refused at construction:
 
 ```python
-CreateIndexExpression(
+CreateIndexStatement(
     d, "idx_orders_id", TableExpression(d, "orders", schema_name="app"), ["id"],
     schema_name="app",
 ).to_sql()[0]
 # CREATE INDEX `app`.`idx_orders_id` ON `app`.`orders` (`id`)
 
-CreateIndexExpression(
+CreateIndexStatement(
     d, "idx_shared", TableExpression(d, "orders", schema_name="sales"), ["user_id"],
     schema_name="app",
 ).to_sql()[0]
 # CREATE INDEX `app`.`idx_shared` ON `sales`.`orders` (`user_id`)
 
-CreateIndexExpression(d, "idx_orders_id", "orders", ["id"], schema_name="app")
+CreateIndexStatement(d, "idx_orders_id", "orders", ["id"], schema_name="app")
 # TypeError: table must be a TableExpression, got str
 
-DropIndexExpression(d, "idx_orders_id", schema_name="app").to_sql()[0]
+DropIndexStatement(d, "idx_orders_id", schema_name="app").to_sql()[0]
 # DROP INDEX `app`.`idx_orders_id`
 ```
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression.query_sources import SetOperationExpression
+from rhosocial.activerecord.backend.expression.query_sources import SetOperationStatement
 
 if TYPE_CHECKING:
     from rhosocial.activerecord.backend.expression.core import Column, WildcardExpression
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 class BigQueryDQLMixin:
     """BigQuery DQL formatting overrides."""
 
-    def format_set_operation_expression(self, expr: SetOperationExpression) -> Tuple[str, tuple]:
+    def format_set_operation_statement(self, expr: SetOperationStatement) -> Tuple[str, tuple]:
         """Format a set operation with GoogleSQL's required qualifier.
 
         BigQuery's grammar has no bare set operator::
@@ -47,7 +47,7 @@ class BigQueryDQLMixin:
         """
         def _render(node) -> Tuple[str, list]:
             sql, params = node.to_sql()
-            if isinstance(node, SetOperationExpression):
+            if isinstance(node, SetOperationStatement):
                 sql = f"({sql})"
             return sql, list(params)
 

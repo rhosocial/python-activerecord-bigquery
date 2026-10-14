@@ -8,13 +8,13 @@ fourth:
 =  ===================================  ==========================================
 #  probe                                now consulted by
 =  ===================================  ==========================================
-1  ``supports_materialized_cte()``      ``format_cte_expression``
+1  ``supports_materialized_cte()``      ``format_cte_clause``
 2  ``supports_truncate()``              ``format_truncate_statement``
 3  ``supports_with_data_clause()``      ``WITH [NO] DATA`` on CTAS, CREATE
                                         MATERIALIZED VIEW and REFRESH
                                         MATERIALIZED VIEW
 4  ``supports_transaction_wait()``      the ``wait`` / ``no_wait`` pair on
-                                        ``BeginTransactionExpression`` and
+                                        ``BeginTransactionStatement`` and
                                         ``SetTransactionExpression``
 =  ===================================  ==========================================
 
@@ -62,23 +62,23 @@ from rhosocial.activerecord.backend.expression.objects import (
     Table,
 )
 from rhosocial.activerecord.backend.expression.query_sources import (
-    CTEExpression,
+    CTEClause,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_table import (
-    CreateTableAsExpression,
+    CreateTableAsStatement,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_truncate import (
-    TruncateExpression,
+    TruncateStatement,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_view import (
-    CreateMaterializedViewExpression,
-    RefreshMaterializedViewExpression,
+    CreateMaterializedViewStatement,
+    RefreshMaterializedViewStatement,
 )
 from rhosocial.activerecord.backend.expression.statements.dql import (
-    QueryExpression,
+    QueryStatement,
 )
 from rhosocial.activerecord.backend.expression.transaction import (
-    BeginTransactionExpression,
+    BeginTransactionStatement,
     SetTransactionExpression,
 )
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
@@ -90,7 +90,7 @@ def dialect():
 
 
 def _query(d, table="t"):
-    return QueryExpression(d, select=[Column(d, "a")], from_=Table(d, table))
+    return QueryStatement(d, select=[Column(d, "a")], from_=Table(d, table))
 
 
 class TestProbeDeclarations:
@@ -116,14 +116,14 @@ class TestProbeDeclarations:
 
 
 class TestMaterializedCteGate:
-    """``CTEExpression.materialized`` / ``not_materialized``: gate 1.
+    """``CTEClause.materialized`` / ``not_materialized``: gate 1.
 
     The documented ``WITH`` grammar has no hint, so both spellings are refused
     by name and the unspecified state renders the plain CTE.
     """
 
     def _cte(self, dialect, **kwargs):
-        return CTEExpression(dialect, "c", _query(dialect), **kwargs)
+        return CTEClause(dialect, "c", _query(dialect), **kwargs)
 
     def test_neither_renders_the_plain_cte(self, dialect):
         sql, params = self._cte(dialect).to_sql()
@@ -150,14 +150,14 @@ class TestMaterializedCteGate:
 
 
 class TestTruncateGate:
-    """``TruncateExpression``: gate 2.
+    """``TruncateStatement``: gate 2.
 
     The probe is True because the DML reference documents the statement, so
     the plain render stays reachable; the option pairs stay refused by name.
     """
 
     def test_truncate_renders(self, dialect):
-        sql, params = TruncateExpression(dialect, Table(dialect, "t")).to_sql()
+        sql, params = TruncateStatement(dialect, Table(dialect, "t")).to_sql()
         assert sql == "TRUNCATE TABLE `t`", sql
         assert params == ()
 
@@ -169,19 +169,19 @@ class TestTruncateGate:
             ({"restrict": True}, "TRUNCATE RESTRICT"),
         ):
             with pytest.raises(UnsupportedFeatureError) as exc:
-                TruncateExpression(dialect, Table(dialect, "t"), **kwargs).to_sql()
+                TruncateStatement(dialect, Table(dialect, "t"), **kwargs).to_sql()
             assert exc.value.feature_name == feature
 
     def test_option_pairs_are_api_misuse_together(self, dialect):
         with pytest.raises(ValueError, match="restart_identity and continue_identity"):
-            TruncateExpression(
+            TruncateStatement(
                 dialect,
                 Table(dialect, "t"),
                 restart_identity=True,
                 continue_identity=True,
             )
         with pytest.raises(ValueError, match="cascade and restrict"):
-            TruncateExpression(
+            TruncateStatement(
                 dialect, Table(dialect, "t"), cascade=True, restrict=True
             )
 
@@ -199,7 +199,7 @@ class TestWithDataGate:
     """
 
     def test_ctas_neither_renders(self, dialect):
-        sql, params = CreateTableAsExpression(
+        sql, params = CreateTableAsStatement(
             dialect, Table(dialect, "t"), _query(dialect)
         ).to_sql()
         assert sql == "CREATE TABLE `t` AS SELECT `a` FROM `t`", sql
@@ -207,7 +207,7 @@ class TestWithDataGate:
 
     def test_ctas_with_data_is_refused_by_name(self, dialect):
         with pytest.raises(UnsupportedFeatureError) as exc:
-            CreateTableAsExpression(
+            CreateTableAsStatement(
                 dialect, Table(dialect, "t"), _query(dialect), with_data=True
             ).to_sql()
         assert exc.value.feature_name == "WITH DATA"
@@ -215,7 +215,7 @@ class TestWithDataGate:
 
     def test_ctas_no_data_is_refused_by_name(self, dialect):
         with pytest.raises(UnsupportedFeatureError) as exc:
-            CreateTableAsExpression(
+            CreateTableAsStatement(
                 dialect, Table(dialect, "t"), _query(dialect), no_data=True
             ).to_sql()
         assert exc.value.feature_name == "WITH NO DATA"
@@ -225,7 +225,7 @@ class TestWithDataGate:
         with pytest.raises(
             ValueError, match="with_data and no_data are mutually exclusive"
         ):
-            CreateTableAsExpression(
+            CreateTableAsStatement(
                 dialect,
                 Table(dialect, "t"),
                 _query(dialect),
@@ -240,14 +240,14 @@ class TestWithDataGate:
         CTAS could raise for an unrelated reason while these tests still passed.
         """
         assert dialect.supports_with_data_clause() is False
-        sql = CreateTableAsExpression(
+        sql = CreateTableAsStatement(
             dialect, Table(dialect, "t"), _query(dialect)
         ).to_sql()[0]
         assert "WITH" not in sql.upper().replace("WITHOUT", "")
 
     def test_mv_create_with_data_is_refused_by_name(self, dialect):
         with pytest.raises(UnsupportedFeatureError) as exc:
-            CreateMaterializedViewExpression(
+            CreateMaterializedViewStatement(
                 dialect,
                 view=MaterializedView(dialect, "mv"),
                 query=_query(dialect),
@@ -258,7 +258,7 @@ class TestWithDataGate:
 
     def test_mv_create_no_data_is_refused_by_name(self, dialect):
         with pytest.raises(UnsupportedFeatureError) as exc:
-            CreateMaterializedViewExpression(
+            CreateMaterializedViewStatement(
                 dialect,
                 view=MaterializedView(dialect, "mv"),
                 query=_query(dialect),
@@ -268,7 +268,7 @@ class TestWithDataGate:
         assert exc.value.dialect_name == "BigQuery"
 
     def test_mv_create_neither_renders(self, dialect):
-        sql = CreateMaterializedViewExpression(
+        sql = CreateMaterializedViewStatement(
             dialect, view=MaterializedView(dialect, "mv"), query=_query(dialect)
         ).to_sql()[0]
         assert sql == "CREATE MATERIALIZED VIEW `mv` AS SELECT `a` FROM `t`", sql
@@ -282,7 +282,7 @@ class TestWithDataGate:
         assert dialect.supports_refresh_materialized_view() is False
         for kwargs in ({}, {"with_data": True}, {"no_data": True}):
             with pytest.raises(UnsupportedFeatureError) as exc:
-                RefreshMaterializedViewExpression(
+                RefreshMaterializedViewStatement(
                     dialect, view=MaterializedView(dialect, "mv"), **kwargs
                 ).to_sql()
             assert exc.value.feature_name == "REFRESH MATERIALIZED VIEW"
@@ -303,25 +303,25 @@ class TestTransactionWaitPair:
     """
 
     def test_begin_neither_renders(self, dialect):
-        sql, params = BeginTransactionExpression(dialect).to_sql()
+        sql, params = BeginTransactionStatement(dialect).to_sql()
         assert sql == "BEGIN", sql
         assert params == ()
 
     def test_begin_wait_is_refused_by_name(self, dialect):
         with pytest.raises(UnsupportedFeatureError) as exc:
-            BeginTransactionExpression(dialect, wait=True).to_sql()
+            BeginTransactionStatement(dialect, wait=True).to_sql()
         assert exc.value.feature_name == "transaction WAIT"
         assert exc.value.dialect_name == "BigQuery"
 
     def test_begin_no_wait_is_refused_by_name(self, dialect):
         with pytest.raises(UnsupportedFeatureError) as exc:
-            BeginTransactionExpression(dialect, no_wait=True).to_sql()
+            BeginTransactionStatement(dialect, no_wait=True).to_sql()
         assert exc.value.feature_name == "transaction NO WAIT"
         assert exc.value.dialect_name == "BigQuery"
 
     def test_begin_both_parameters_are_api_misuse(self, dialect):
         with pytest.raises(ValueError, match="wait and no_wait are mutually exclusive"):
-            BeginTransactionExpression(dialect, wait=True, no_wait=True)
+            BeginTransactionStatement(dialect, wait=True, no_wait=True)
 
     def test_set_transaction_neither_keeps_the_statement_refusal(self, dialect):
         """The pinned round-trip classification: no SET TRANSACTION at all."""
@@ -355,8 +355,8 @@ class TestTransactionWaitPair:
         """
         assert dialect.supports_transaction_wait() is False
         for expr in (
-            BeginTransactionExpression(dialect, wait=True),
-            BeginTransactionExpression(dialect, no_wait=True),
+            BeginTransactionStatement(dialect, wait=True),
+            BeginTransactionStatement(dialect, no_wait=True),
             SetTransactionExpression(dialect, wait=True),
             SetTransactionExpression(dialect, no_wait=True),
         ):
@@ -380,11 +380,11 @@ class TestTransactionWaitPair:
 
         waits = _Waits()
         assert waits.supports_transaction_wait() is True
-        assert BeginTransactionExpression(waits, wait=True).to_sql() == (
+        assert BeginTransactionStatement(waits, wait=True).to_sql() == (
             "BEGIN WAIT",
             (),
         )
-        assert BeginTransactionExpression(waits, no_wait=True).to_sql() == (
+        assert BeginTransactionStatement(waits, no_wait=True).to_sql() == (
             "BEGIN NO WAIT",
             (),
         )

@@ -314,18 +314,18 @@ CTE 是给余下这条查询起名字，不是给数据库起名字，因此它�
 查询仍然带着模型的 dataset：
 
 ```python
-inner = QueryExpression(
+inner = QueryStatement(
     dialect=d,
     select=[Column(d, "id", table="orders", schema_name="app")],
     from_=[TableExpression(d, "orders", schema_name="app")],
 )
-main = QueryExpression(
+main = QueryStatement(
     dialect=d,
     select=[Column(d, "id", table="recent_orders")],
     from_=[TableExpression(d, "recent_orders")],
 )
 
-WithQueryExpression(d, [CTEExpression(d, "recent_orders", inner)], main).to_sql()[0]
+WithStatement(d, [CTEClause(d, "recent_orders", inner)], main).to_sql()[0]
 # WITH `recent_orders` AS (SELECT `orders`.`id` FROM `app`.`orders`)
 #   SELECT `recent_orders`.`id` FROM `recent_orders`
 ```
@@ -392,16 +392,16 @@ Dotted.query().select(Dotted.c.id).to_sql()[0]
 参数：
 
 ```python
-CreateTableExpression(
+CreateTableStatement(
     d, TableExpression(d, "orders", schema_name="app"), columns=cols
 ).to_sql()[0]
 # CREATE TABLE `app`.`orders` (`id` INT64)
 
-DropTableExpression(d, TableExpression(d, "orders", schema_name="app"),
+DropTableStatement(d, TableExpression(d, "orders", schema_name="app"),
                     if_exists=True).to_sql()[0]
 # DROP TABLE IF EXISTS `app`.`orders`
 
-CreateViewExpression(d, "v_orders", query, schema_name="app").to_sql()[0]
+CreateViewStatement(d, "v_orders", query, schema_name="app").to_sql()[0]
 # CREATE VIEW `app`.`v_orders`  AS SELECT `orders`.`id` FROM `app`.`orders`
 ```
 
@@ -411,18 +411,18 @@ DML 语句接受带限定的 `TableExpression`，限定方式一致。不带 `WH
 范围本身，这也是看清「谓词里没有 dataset」最短的一条路：
 
 ```python
-InsertExpression(
+InsertStatement(
     d, TableExpression(d, "users", schema_name="app"),
     ValuesSource(d, [[Literal(d, "x")]]), columns=["name"],
 ).to_sql()
 # ('INSERT INTO `app`.`users` (`name`) VALUES (?)', ('x',))
 
-UpdateExpression(
+UpdateStatement(
     d, TableExpression(d, "users", schema_name="app"), {"name": Literal(d, "x")}
 ).to_sql()
 # ('UPDATE `app`.`users` SET `name` = ?', ('x',))
 
-DeleteExpression(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
+DeleteStatement(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
 # ('DELETE FROM `app`.`users`', ())
 ```
 
@@ -437,11 +437,11 @@ DeleteExpression(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
 有两条 DDL 是被拒绝而不是被限定，因为 BigQuery 没有对应的子句：
 
 ```python
-DropViewExpression(d, "v_orders", schema_name="app", if_exists=True).to_sql()
+DropViewStatement(d, "v_orders", schema_name="app", if_exists=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support DROP VIEW IF
 # EXISTS. Suggestion: BigQuery does not support DROP VIEW IF EXISTS.
 
-CreateViewExpression(d, "v_orders", query, schema_name="app", if_not_exists=True).to_sql()
+CreateViewStatement(d, "v_orders", query, schema_name="app", if_not_exists=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support CREATE VIEW IF
 # NOT EXISTS. Suggestion: BigQuery does not support CREATE VIEW IF NOT EXISTS.
 ```
@@ -453,25 +453,25 @@ CreateViewExpression(d, "v_orders", query, schema_name="app", if_not_exists=True
 两条语句都把 dataset 名渲染成单个带引号的标识符：
 
 ```python
-CreateSchemaExpression(d, "sales").to_sql()[0]
+CreateSchemaStatement(d, "sales").to_sql()[0]
 # CREATE SCHEMA `sales`
 
-CreateSchemaExpression(d, "sales", if_not_exists=True).to_sql()[0]
+CreateSchemaStatement(d, "sales", if_not_exists=True).to_sql()[0]
 # CREATE SCHEMA IF NOT EXISTS `sales`
 
-DropSchemaExpression(d, "sales", if_exists=True).to_sql()[0]
+DropSchemaStatement(d, "sales", if_exists=True).to_sql()[0]
 # DROP SCHEMA IF EXISTS `sales`
 ```
 
 `authorization=` 被拒绝，`cascade=True` 同样被拒绝：
 
 ```python
-CreateSchemaExpression(d, "sales", authorization="app_user").to_sql()
+CreateSchemaStatement(d, "sales", authorization="app_user").to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support CREATE SCHEMA
 # AUTHORIZATION. Suggestion: BigQuery does not support CREATE SCHEMA
 # AUTHORIZATION.
 
-DropSchemaExpression(d, "sales", cascade=True).to_sql()
+DropSchemaStatement(d, "sales", cascade=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support DROP SCHEMA
 # CASCADE. Suggestion: BigQuery does not support DROP SCHEMA CASCADE.
 ```
@@ -580,9 +580,9 @@ sequence 相关的 DDL 在本后端没有实现，因此它上面的 `schema_nam
 渲染器：
 
 ```python
-CreateSequenceExpression(d, "s_orders", schema_name="app").to_sql()
+CreateSequenceStatement(d, "s_orders", schema_name="app").to_sql()
 # AttributeError: BigQueryDialect has no formatting method
-# 'format_create_sequence_statement' (required by CreateSequenceExpression).
+# 'format_create_sequence_statement' (required by CreateSequenceStatement).
 ```
 
 `ALTER TABLE ... ADD/DROP INDEX` 在能力标志层面被拒绝
@@ -591,22 +591,22 @@ CreateSequenceExpression(d, "s_orders", schema_name="app").to_sql()
 `TableExpression` 限定，而给那个表传裸字符串会在构造期被拒绝：
 
 ```python
-CreateIndexExpression(
+CreateIndexStatement(
     d, "idx_orders_id", TableExpression(d, "orders", schema_name="app"), ["id"],
     schema_name="app",
 ).to_sql()[0]
 # CREATE INDEX `app`.`idx_orders_id` ON `app`.`orders` (`id`)
 
-CreateIndexExpression(
+CreateIndexStatement(
     d, "idx_shared", TableExpression(d, "orders", schema_name="sales"), ["user_id"],
     schema_name="app",
 ).to_sql()[0]
 # CREATE INDEX `app`.`idx_shared` ON `sales`.`orders` (`user_id`)
 
-CreateIndexExpression(d, "idx_orders_id", "orders", ["id"], schema_name="app")
+CreateIndexStatement(d, "idx_orders_id", "orders", ["id"], schema_name="app")
 # TypeError: table must be a TableExpression, got str
 
-DropIndexExpression(d, "idx_orders_id", schema_name="app").to_sql()[0]
+DropIndexStatement(d, "idx_orders_id", schema_name="app").to_sql()[0]
 # DROP INDEX `app`.`idx_orders_id`
 ```
 

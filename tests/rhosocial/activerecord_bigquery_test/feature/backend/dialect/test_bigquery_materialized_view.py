@@ -11,12 +11,12 @@ parameters, ``WITH [NO] DATA``, ``CASCADE``, ``REFRESH``).
 import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression import Column, QueryExpression
+from rhosocial.activerecord.backend.expression import Column, QueryStatement
 from rhosocial.activerecord.backend.expression.objects import MaterializedView, Table
 from rhosocial.activerecord.backend.expression.statements.ddl_view import (
-    CreateMaterializedViewExpression,
-    DropMaterializedViewExpression,
-    RefreshMaterializedViewExpression,
+    CreateMaterializedViewStatement,
+    DropMaterializedViewStatement,
+    RefreshMaterializedViewStatement,
 )
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryAlterMaterializedViewSetOptionsExpression,
@@ -42,7 +42,7 @@ def dialect():
 
 
 def _query(dialect):
-    return QueryExpression(
+    return QueryStatement(
         dialect=dialect,
         select=[Column(dialect, "product_id")],
         from_=Table(dialect, "sales"),
@@ -60,7 +60,7 @@ class TestCapabilities:
         assert dialect.supports_refresh_materialized_view() is False
 
     def test_generic_refresh_raises(self, dialect):
-        expr = RefreshMaterializedViewExpression(
+        expr = RefreshMaterializedViewStatement(
             dialect=dialect, view=MaterializedView(dialect, "mv")
         )
         with pytest.raises(UnsupportedFeatureError):
@@ -209,7 +209,7 @@ class TestCreateRejectsNonBigQueryClauses:
     """Clauses BigQuery lacks must be refused, never silently dropped."""
 
     def test_generic_column_aliases_rejected(self, dialect):
-        expr = CreateMaterializedViewExpression(
+        expr = CreateMaterializedViewStatement(
             dialect=dialect,
             view=MaterializedView(dialect, "mv"),
             query=_query(dialect),
@@ -220,7 +220,7 @@ class TestCreateRejectsNonBigQueryClauses:
         assert "COLUMN ALIASES" in str(exc.value)
 
     def test_generic_tablespace_rejected(self, dialect):
-        expr = CreateMaterializedViewExpression(
+        expr = CreateMaterializedViewStatement(
             dialect=dialect,
             view=MaterializedView(dialect, "mv"),
             query=_query(dialect),
@@ -231,7 +231,7 @@ class TestCreateRejectsNonBigQueryClauses:
         assert "TABLESPACE" in str(exc.value)
 
     def test_generic_storage_options_rejected(self, dialect):
-        expr = CreateMaterializedViewExpression(
+        expr = CreateMaterializedViewStatement(
             dialect=dialect,
             view=MaterializedView(dialect, "mv"),
             query=_query(dialect),
@@ -242,7 +242,7 @@ class TestCreateRejectsNonBigQueryClauses:
 
     def test_generic_with_data_rejected(self, dialect):
         """BigQuery populates at creation and has no ``WITH DATA`` clause."""
-        expr = CreateMaterializedViewExpression(
+        expr = CreateMaterializedViewStatement(
             dialect=dialect,
             view=MaterializedView(dialect, "mv"),
             query=_query(dialect),
@@ -253,7 +253,7 @@ class TestCreateRejectsNonBigQueryClauses:
         assert "WITH DATA" in str(exc.value)
 
     def test_generic_with_no_data_rejected(self, dialect):
-        expr = CreateMaterializedViewExpression(
+        expr = CreateMaterializedViewStatement(
             dialect=dialect,
             view=MaterializedView(dialect, "mv"),
             query=_query(dialect),
@@ -265,7 +265,7 @@ class TestCreateRejectsNonBigQueryClauses:
 
     def test_generic_plain_expression_renders(self, dialect):
         """The pair defaults to neither, which is this grammar's shape."""
-        expr = CreateMaterializedViewExpression(
+        expr = CreateMaterializedViewStatement(
             dialect=dialect,
             view=MaterializedView(dialect, "mv"),
             query=_query(dialect),
@@ -275,7 +275,7 @@ class TestCreateRejectsNonBigQueryClauses:
         )
 
     def test_drop_cascade_rejected(self, dialect):
-        expr = DropMaterializedViewExpression(
+        expr = DropMaterializedViewStatement(
             dialect=dialect,
             view=MaterializedView(dialect, "mv"),
             if_exists=True,
@@ -287,7 +287,7 @@ class TestCreateRejectsNonBigQueryClauses:
 
     def test_drop_restrict_rejected(self, dialect):
         """BigQuery's ``DROP MATERIALIZED VIEW`` has neither qualifier."""
-        expr = DropMaterializedViewExpression(
+        expr = DropMaterializedViewStatement(
             dialect=dialect,
             view=MaterializedView(dialect, "mv"),
             if_exists=True,
@@ -322,7 +322,7 @@ class TestDropMaterializedView:
             )
 
     def test_generic_expression_renders(self, dialect):
-        expr = DropMaterializedViewExpression(
+        expr = DropMaterializedViewStatement(
             dialect=dialect, view=MaterializedView(dialect, "mv")
         )
         assert expr.to_sql()[0] == "DROP MATERIALIZED VIEW `mv`"

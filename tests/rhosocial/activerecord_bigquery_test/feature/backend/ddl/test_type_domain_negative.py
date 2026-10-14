@@ -23,17 +23,17 @@ from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeature
 from rhosocial.activerecord.backend.expression import BaseExpression, Literal
 from rhosocial.activerecord.backend.expression.objects import Domain, Schema, Type
 from rhosocial.activerecord.backend.expression.statements import (
-    AlterDomainExpression,
-    AlterTypeExpression,
-    CreateDomainExpression,
-    CreateSchemaExpression,
-    CreateTypeExpression,
+    AlterDomainStatement,
+    AlterTypeStatement,
+    CreateDomainStatement,
+    CreateSchemaStatement,
+    CreateTypeStatement,
     DomainCheckConstraint,
     DomainNullability,
     DomainValueExpression,
     DropDomainDefaultAction,
-    DropDomainExpression,
-    DropTypeExpression,
+    DropDomainStatement,
+    DropTypeStatement,
     TypeAlterAction,
     TypeDefinition,
 )
@@ -128,19 +128,19 @@ def _type_nodes(dialect: BigQueryDialect) -> Tuple[BaseExpression, ...]:
     definition = _NegativeTypeDefinition(dialect)
     action = _NegativeTypeAlterAction(dialect)
     return (
-        CreateTypeExpression(
+        CreateTypeStatement(
             dialect,
             Type(dialect, "status"),
             definition,
             if_not_exists=True,
         ),
-        AlterTypeExpression(
+        AlterTypeStatement(
             dialect,
             Type(dialect, "status"),
             [action],
             if_exists=True,
         ),
-        DropTypeExpression(dialect, Type(dialect, "status"), if_exists=True),
+        DropTypeStatement(dialect, Type(dialect, "status"), if_exists=True),
         definition,
         action,
     )
@@ -155,15 +155,15 @@ def _domain_nodes(dialect: BigQueryDialect) -> Tuple[BaseExpression, ...]:
     check = DomainCheckConstraint(dialect, condition, name="nonnegative")
     action = DropDomainDefaultAction(dialect)
     return (
-        CreateDomainExpression(
+        CreateDomainStatement(
             dialect,
             Domain(dialect, "nonnegative"),
             IntegerType(dialect),
             checks=[check],
             collation="und:ci",
         ),
-        AlterDomainExpression(dialect, Domain(dialect, "nonnegative"), [action]),
-        DropDomainExpression(dialect, Domain(dialect, "nonnegative")),
+        AlterDomainStatement(dialect, Domain(dialect, "nonnegative"), [action]),
+        DropDomainStatement(dialect, Domain(dialect, "nonnegative")),
         DomainValueExpression(dialect),
         check,
         action,
@@ -289,7 +289,7 @@ def test_column_types_and_dataset_schema_remain_separate(
     assert dialect.supports_json() is True
     assert JsonType(dialect).to_sql() == ("JSON", ())
 
-    schema = CreateSchemaExpression(dialect, Schema(dialect, "analytics"))
+    schema = CreateSchemaStatement(dialect, Schema(dialect, "analytics"))
     assert dialect.supports_create_schema() is True
     assert dialect.supports_domains() is False
     assert schema.to_sql() == ("CREATE SCHEMA `analytics`", ())

@@ -52,12 +52,12 @@ class TestQualifiedStatementsRender:
 
     def test_create_materialized_view(self, dialect):
         """A class defined in this repository, qualified by a formatter here."""
-        from rhosocial.activerecord.backend.expression import Column, QueryExpression
+        from rhosocial.activerecord.backend.expression import Column, QueryStatement
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
             BigQueryCreateMaterializedViewExpression,
         )
 
-        query = QueryExpression(dialect, [Column(dialect, "id")], from_="orders")
+        query = QueryStatement(dialect, [Column(dialect, "id")], from_="orders")
         expr = BigQueryCreateMaterializedViewExpression(
             dialect, view=MaterializedView(dialect, "mv_orders"), query=query
         )
@@ -126,7 +126,7 @@ class TestQualifiedStatementsRender:
         stop, so each of the three single-object statements and the replica's
         two objects is asserted separately.
         """
-        from rhosocial.activerecord.backend.expression import Column, QueryExpression
+        from rhosocial.activerecord.backend.expression import Column, QueryStatement
         from rhosocial.activerecord.backend.expression.objects import Table
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
             BigQueryAlterMaterializedViewSetOptionsExpression,
@@ -135,20 +135,20 @@ class TestQualifiedStatementsRender:
             BigQueryDropMaterializedViewExpression,
         )
 
-        query = QueryExpression(dialect, [Column(dialect, "id")], from_="orders")
+        query = QueryStatement(dialect, [Column(dialect, "id")], from_="orders")
         wrong = Table(dialect, "orders")
 
         with pytest.raises(TypeError) as exc:
             BigQueryCreateMaterializedViewExpression(
                 dialect, view=wrong, query=query
             ).to_sql()
-        assert "CreateMaterializedViewExpression.view must be a MaterializedView" in str(
+        assert "CreateMaterializedViewStatement.view must be a MaterializedView" in str(
             exc.value
         )
 
         with pytest.raises(TypeError) as exc:
             BigQueryDropMaterializedViewExpression(dialect, view=wrong).to_sql()
-        assert "DropMaterializedViewExpression.view must be a MaterializedView" in str(
+        assert "DropMaterializedViewStatement.view must be a MaterializedView" in str(
             exc.value
         )
 
@@ -188,19 +188,19 @@ class TestQualifiedStatementsRender:
         """
         from rhosocial.activerecord.backend.expression.objects import Table
         from rhosocial.activerecord.backend.expression.statements import (
-            CreateSchemaExpression,
-            DropSchemaExpression,
+            CreateSchemaStatement,
+            DropSchemaStatement,
         )
 
         with pytest.raises(TypeError) as exc:
-            CreateSchemaExpression(dialect, Table(dialect, "orders")).to_sql()
-        assert "CreateSchemaExpression.schema must be a Schema, got Table" in str(
+            CreateSchemaStatement(dialect, Table(dialect, "orders")).to_sql()
+        assert "CreateSchemaStatement.schema must be a Schema, got Table" in str(
             exc.value
         )
 
         with pytest.raises(TypeError) as exc:
-            DropSchemaExpression(dialect, Table(dialect, "orders")).to_sql()
-        assert "DropSchemaExpression.schema must be a Schema, got Table" in str(
+            DropSchemaStatement(dialect, Table(dialect, "orders")).to_sql()
+        assert "DropSchemaStatement.schema must be a Schema, got Table" in str(
             exc.value
         )
 
@@ -211,7 +211,7 @@ class TestQualifiedStatementsRender:
         reach one statement and miss the next. Building all three from one
         object is the assertion that the path is shared.
         """
-        from rhosocial.activerecord.backend.expression import Column, QueryExpression
+        from rhosocial.activerecord.backend.expression import Column, QueryStatement
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
             BigQueryAlterMaterializedViewSetOptionsExpression,
             BigQueryCreateMaterializedViewExpression,
@@ -219,7 +219,7 @@ class TestQualifiedStatementsRender:
         )
 
         view = MaterializedView(dialect, "mv_orders", schema_name="app")
-        query = QueryExpression(dialect, [Column(dialect, "id")], from_="orders")
+        query = QueryStatement(dialect, [Column(dialect, "id")], from_="orders")
         rendered = [
             BigQueryCreateMaterializedViewExpression(dialect, view=view, query=query)
             .to_sql()[0],
@@ -238,10 +238,10 @@ class TestQualifiedStatementsRender:
         thing that still matters: the formatter reads the field, the statement
         cannot be built without it, and the name reaches the SQL.
         """
-        from rhosocial.activerecord.backend.expression import CreateSchemaExpression
+        from rhosocial.activerecord.backend.expression import CreateSchemaStatement
         from rhosocial.activerecord.backend.expression.objects import Schema
 
-        expr = CreateSchemaExpression(dialect, Schema(dialect, "app"))
+        expr = CreateSchemaStatement(dialect, Schema(dialect, "app"))
         assert expr.to_sql()[0] == "CREATE SCHEMA `app`", expr.to_sql()[0]
 
     def test_a_project_reaches_the_sql_through_the_object(self, dialect):
@@ -251,7 +251,7 @@ class TestQualifiedStatementsRender:
         project in ``catalog_name``. This asserts the outer slot is not dropped
         the way the inner one was before the outer namespace was declared.
         """
-        from rhosocial.activerecord.backend.expression import Column, QueryExpression
+        from rhosocial.activerecord.backend.expression import Column, QueryStatement
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
             BigQueryDropMaterializedViewExpression,
         )
@@ -350,7 +350,7 @@ class TestExpressionSignatures:
     def test_view_defaults_to_unqualified(self):
         """Where the object qualifies a name, no namespace has to mean unqualified.
 
-        ``CreateSchemaExpression`` is exempt on purpose: there the name *is* the
+        ``CreateSchemaStatement`` is exempt on purpose: there the name *is* the
         object, and requiring it is the correct shape. For the materialized
         views the namespace is optional, and "no dataset" is expressed by
         leaving the slot off the object rather than by passing ``None``

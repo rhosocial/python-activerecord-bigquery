@@ -16,8 +16,8 @@ from ..materialized_view_options import resolve_materialized_view_option
 
 if TYPE_CHECKING:  # pragma: no cover
     from rhosocial.activerecord.backend.expression.statements.ddl_view import (
-        CreateMaterializedViewExpression,
-        DropMaterializedViewExpression,
+        CreateMaterializedViewStatement,
+        DropMaterializedViewStatement,
     )
 
     from ..expression.materialized_view import (
@@ -59,7 +59,7 @@ class BigQueryMaterializedViewMixin:
     # ------------------------------------------------------------------
 
     def format_create_materialized_view_statement(
-        self, expr: "CreateMaterializedViewExpression"
+        self, expr: "CreateMaterializedViewStatement"
     ) -> Tuple[str, tuple]:
         """Format ``CREATE [OR REPLACE] MATERIALIZED VIEW [IF NOT EXISTS]``.
 
@@ -76,7 +76,7 @@ class BigQueryMaterializedViewMixin:
                 statement would still be well-formed SQL.
             UnsupportedFeatureError: for clauses BigQuery does not have.
         """
-        self._require_materialized_view(expr, "CreateMaterializedViewExpression")
+        self._require_materialized_view(expr, "CreateMaterializedViewStatement")
         self._reject_unsupported_clauses(expr, "CREATE MATERIALIZED VIEW")
 
         parts = ["CREATE"]
@@ -105,7 +105,7 @@ class BigQueryMaterializedViewMixin:
         return " ".join(parts), query_params
 
     def format_drop_materialized_view_statement(
-        self, expr: "DropMaterializedViewExpression"
+        self, expr: "DropMaterializedViewStatement"
     ) -> Tuple[str, tuple]:
         """Format ``DROP MATERIALIZED VIEW [IF EXISTS]``.
 
@@ -117,7 +117,7 @@ class BigQueryMaterializedViewMixin:
             UnsupportedFeatureError: BigQuery has no ``CASCADE`` or
                 ``RESTRICT`` here.
         """
-        self._require_materialized_view(expr, "DropMaterializedViewExpression")
+        self._require_materialized_view(expr, "DropMaterializedViewStatement")
         if expr.cascade:
             raise UnsupportedFeatureError(
                 self.name, "DROP MATERIALIZED VIEW CASCADE"
@@ -195,7 +195,7 @@ class BigQueryMaterializedViewMixin:
         Every one of these four formatters is reached by name -- a view's
         ``format_method`` says which formatter renders it -- so nothing about the
         dispatch tells them whether the object they were handed is the kind the
-        statement acts on. Left unchecked, ``CreateMaterializedViewExpression``
+        statement acts on. Left unchecked, ``CreateMaterializedViewStatement``
         given a ``Table`` renders ``CREATE MATERIALIZED VIEW`orders` ...``: the
         object's own ``format_table_object`` produces valid SQL, so the result
         is a well-formed statement about the wrong object and nothing says so.

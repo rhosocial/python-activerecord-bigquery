@@ -42,20 +42,20 @@ from rhosocial.activerecord.backend.expression.objects import (
     Table,
 )
 from rhosocial.activerecord.backend.expression.query_sources import (
-    SetOperationExpression,
+    SetOperationStatement,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_schema import (
-    DropSchemaExpression,
+    DropSchemaStatement,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_table import (
     IdentityClause,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_view import (
-    CreateMaterializedViewExpression,
-    DropMaterializedViewExpression,
+    CreateMaterializedViewStatement,
+    DropMaterializedViewStatement,
 )
 from rhosocial.activerecord.backend.expression.statements.dql import (
-    QueryExpression,
+    QueryStatement,
 )
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
@@ -70,11 +70,11 @@ def dialect():
 
 
 def _query(d, table="t"):
-    return QueryExpression(d, select=[Column(d, "a")], from_=Table(d, table))
+    return QueryStatement(d, select=[Column(d, "a")], from_=Table(d, table))
 
 
 class TestSetOperationQualifier:
-    """``SetOperationExpression.all_`` / ``distinct``.
+    """``SetOperationStatement.all_`` / ``distinct``.
 
     BigQuery's grammar has no bare set operator::
 
@@ -97,7 +97,7 @@ class TestSetOperationQualifier:
     """
 
     def _expr(self, dialect, operation="UNION", **kwargs):
-        return SetOperationExpression(
+        return SetOperationStatement(
             dialect,
             left=_query(dialect, "t1"),
             right=_query(dialect, "t2"),
@@ -213,7 +213,7 @@ class TestIdentityClausePairs:
 
 
 class TestMaterializedViewCreateClauses:
-    """``CreateMaterializedViewExpression.with_data`` / ``no_data``.
+    """``CreateMaterializedViewStatement.with_data`` / ``no_data``.
 
     BigQuery's ``CREATE MATERIALIZED VIEW`` grammar has no ``WITH [NO] DATA``
     clause -- the view is populated at creation time -- so both explicit
@@ -222,7 +222,7 @@ class TestMaterializedViewCreateClauses:
     """
 
     def _generic(self, dialect, **kwargs):
-        return CreateMaterializedViewExpression(
+        return CreateMaterializedViewStatement(
             dialect, view=MaterializedView(dialect, "mv"), query=_query(dialect), **kwargs
         )
 
@@ -256,7 +256,7 @@ class TestMaterializedViewCreateClauses:
 
 
 class TestMaterializedViewDropClauses:
-    """``DropMaterializedViewExpression.cascade`` / ``restrict``.
+    """``DropMaterializedViewStatement.cascade`` / ``restrict``.
 
     BigQuery's ``DROP MATERIALIZED VIEW [IF EXISTS] mv_name`` grammar has no
     CASCADE and no RESTRICT, so both explicit spellings are refused: the
@@ -265,7 +265,7 @@ class TestMaterializedViewDropClauses:
     """
 
     def _generic(self, dialect, **kwargs):
-        return DropMaterializedViewExpression(
+        return DropMaterializedViewStatement(
             dialect, view=MaterializedView(dialect, "mv"), **kwargs
         )
 
@@ -304,7 +304,7 @@ class TestMaterializedViewDropClauses:
 
 
 class TestDropSchemaClauses:
-    """``DropSchemaExpression.cascade`` / ``restrict``.
+    """``DropSchemaStatement.cascade`` / ``restrict``.
 
     BigQuery's grammar is ``DROP SCHEMA [IF EXISTS] name [CASCADE | RESTRICT]``
     with RESTRICT as the default; both spellings are therefore expressible
@@ -313,7 +313,7 @@ class TestDropSchemaClauses:
     """
 
     def _expr(self, dialect, **kwargs):
-        return DropSchemaExpression(dialect, Schema(dialect, "s"), **kwargs)
+        return DropSchemaStatement(dialect, Schema(dialect, "s"), **kwargs)
 
     def test_neither_renders(self, dialect):
         assert self._expr(dialect).to_sql()[0] == "DROP SCHEMA `s`"
