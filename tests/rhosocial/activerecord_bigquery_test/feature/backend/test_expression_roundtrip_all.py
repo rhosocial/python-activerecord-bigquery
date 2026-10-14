@@ -131,7 +131,11 @@ from rhosocial.activerecord.backend.expression.objects import (
     Trigger,
     View,
 )
-from rhosocial.activerecord.backend.expression.predicates import ComparisonPredicate
+from rhosocial.activerecord.backend.expression.predicates import (
+    ComparisonPredicate,
+    ILikePredicate,
+    LikePredicate,
+)
 from rhosocial.activerecord.backend.expression.query_parts import JoinClause
 from rhosocial.activerecord.backend.expression.serialization import (
     ExpressionRegistry,
@@ -591,6 +595,19 @@ def register_specials():
         ),
     )
 
+    # -- predicates whose operands are value nodes --------------------------
+    # ``column`` and ``pattern`` are annotated loosely, so the generic guess
+    # leaves a bare string where the formatter calls ``.to_sql()``. Both shapes
+    # are core's own, copied from the core dummy2 matrix so the two agree.
+    register_special_constructor(
+        "predicates.LikePredicate",
+        lambda d: LikePredicate(d, "LIKE", Column(d, "a"), Literal(d, "%x%")),
+    )
+    register_special_constructor(
+        "predicates.ILikePredicate",
+        lambda d: ILikePredicate(d, Column(d, "a"), "%x%"),
+    )
+
     # -- expressions that must not be empty ---------------------------------
     register_special_constructor(
         "advanced_functions.CaseFunction",
@@ -850,6 +867,12 @@ LEGITIMATE_NON_RENDERS = {
     "rhosocial.activerecord.backend.expression.xml.XMLTableExpression": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmltable_expression'",
     ),
+    # SQL/XML PASSING is a clause of the three XML nodes, and the dialect has
+    # no SQL/XML at all -- so the clause node core split out in S1-c is a gap by
+    # the same omission as the twelve XML expressions above.
+    "rhosocial.activerecord.backend.expression.xml.PassingClause": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_passing_clause'",
+    ),
     # ---- SQL/PGQ property graphs: no CREATE PROPERTY GRAPH ------------------
     "rhosocial.activerecord.backend.expression.graph.CreatePropertyGraphStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_create_property_graph_statement'",
@@ -1025,6 +1048,18 @@ LEGITIMATE_NOT_IMPLEMENTED = {
         _NO_DISPATCH
     ),
     "rhosocial.activerecord.backend.expression.objects.type_.TypeObject": _NO_DISPATCH,
+    # The roots of the constraint and column-clause trees. Each concrete member
+    # names its own formatter; the branch bases name no kind, so there is
+    # nothing to dispatch to. Added by core's S3 two-level constraint nodes.
+    "rhosocial.activerecord.backend.expression.statements.ddl_table.ColumnClause": (
+        _NO_DISPATCH
+    ),
+    "rhosocial.activerecord.backend.expression.statements.ddl_table.ColumnConstraintBranch": (
+        _NO_DISPATCH
+    ),
+    "rhosocial.activerecord.backend.expression.statements.ddl_table.TableConstraintBranch": (
+        _NO_DISPATCH
+    ),
     # An ALTER TABLE action, an INSERT row source, and the two transaction
     # roots: each concrete member names its own formatter.
     "rhosocial.activerecord.backend.expression.statements.ddl_alter.AlterTableAction": (
@@ -1113,6 +1148,7 @@ UNMODELLED_FORMATTERS = {
         "format_xmlroot_expression",
         "format_xmlserialize_expression",
         "format_xmltable_expression",
+        "format_passing_clause",
     ),
     "SQL/PGQ property graphs (BigQuery has no CREATE PROPERTY GRAPH, no "
     "GRAPH_TABLE and no Cypher)": (
