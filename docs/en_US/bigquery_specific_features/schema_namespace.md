@@ -179,34 +179,33 @@ documented table-name forms are `mytable`, `dataset.mytable` and
 [from-clause]: https://cloud.google.com/bigquery/docs/reference/standard-sql/query-syntax#from_clause
 
 `BigQueryDialect` enforces this by overriding `format_column` rather than
-letting the core renderer qualify the column, and `format_wildcard` does the
-same for `table.*`:
+letting the core renderer qualify the column; the wildcard itself is core's
+default spelling, and `format_all_columns_wildcard` does the same for
+`table.*` (the qualifier rides the relation object, so what is rendered is the
+name the query itself uses):
 
 ```python
 Column(d, "id", table="orders").to_sql()[0]
 # `orders`.`id`
 
-WildcardExpression(d, table="orders").to_sql()[0]
+AllColumnsWildcard(d, relation=NamedRelationRef(d, Table(d, "orders"))).to_sql()[0]
 # `orders`.*
 
-WildcardExpression(d).to_sql()[0]
+AllColumnsWildcard(d).to_sql()[0]
 # *
 ```
 
-`format_wildcard` is the one formatter that discards a `schema_name` without
-rendering it and without validating it, an empty string included:
+The asterisk is split by grammar position (spec 4.10): the select list and
+RETURNING take `AllColumnsWildcard`, and `COUNT`'s argument takes
+`RowCountWildcard`. The two are not interchangeable. An
+`AllColumnsWildcard`'s relation is a `NamedRelationRef`, which carries both the
+name and the qualifier, so the alias a query uses is the alias rendered --
+BigQuery need not discard or validate a dataset here.
 
-```python
-WildcardExpression(d, table="orders", schema_name="app").to_sql()[0]
-# `orders`.*
-
-WildcardExpression(d, table="orders", schema_name="").to_sql()[0]
-# `orders`.*
-```
-
-Nothing is lost from the output, since a wildcard carries no dataset to begin
-with. The asymmetry is worth noting next to `format_column`, which does refuse an
-empty dataset.
+One BigQuery-specific asterisk spelling does **not** enter core: the wildcard
+table (`dataset.*`). It is a dataset expansion in a Table position, not a
+column expansion and not a row count, so it keeps its backend-side form rather
+than being pressed onto either core wildcard node.
 
 Two further consequences of the override are worth stating precisely, because
 they differ from the core renderer. Both follow from one declared capability,
@@ -765,11 +764,12 @@ count:
 **This library currently carries one of them.** Stated plainly:
 
 > **The table, view, column and index expressions in this backend accept a
-> `schema_name` and nothing above it. `TableExpression`, `Column` and
-> `WildcardExpression` have no project field,
+> `schema_name` and nothing above it. `TableExpression`, `Column` and the
+> wildcard nodes have no project field,
 > and no dialect hook adds one. A dataset is always rendered as exactly one
 > quoted segment followed by one dot, so a dotted value stays inside that
-> segment.** (`Column` and `WildcardExpression` discard the value; see
+> segment.** (A wildcard's qualifier rides its `NamedRelationRef`, and `Column`
+> checks then discards the value; see
 > [Columns never carry the dataset](#columns-never-carry-the-dataset). On an index
 > statement `schema_name` covers the index name only — the table reference has its
 > own dataset.)

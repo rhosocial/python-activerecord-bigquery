@@ -8,7 +8,7 @@ from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeature
 from rhosocial.activerecord.backend.expression.query_sources import SetOperationStatement
 
 if TYPE_CHECKING:
-    from rhosocial.activerecord.backend.expression.core import Column, WildcardExpression
+    from rhosocial.activerecord.backend.expression.core import Column
 
 
 class BigQueryDQLMixin:
@@ -154,13 +154,6 @@ class BigQueryDQLMixin:
         if expr.alias:
             col_sql = f"{col_sql} AS {self.format_identifier(expr.alias, expr.alias_need_quote)}"
         return col_sql, ()
-
-    def format_wildcard(self, expr: WildcardExpression) -> Tuple[str, tuple]:
-        """Wildcard references in BigQuery use the (2-part) table name only."""
-        if expr.table:
-            return f"{self.format_identifier(expr.table, expr.table_need_quote)}.*", ()
-        return "*", ()
-
 
     def format_datetime_diff_expression(self, expr) -> Tuple[str, tuple]:
         """Format ``DATE_DIFF(end, start, part)``.

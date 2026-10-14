@@ -164,33 +164,30 @@ dataset 限定 `FROM` 里的范围，到此为止。列引用是「表名或别�
 
 [from-clause]: https://cloud.google.com/bigquery/docs/reference/standard-sql/query-syntax#from_clause
 
-`BigQueryDialect` 的做法是覆盖 `format_column`，不让核心渲染器去限定列；
-`format_wildcard` 对 `table.*` 做的是同一件事：
+`BigQueryDialect` 的做法是覆盖 `format_column`，不让核心渲染器去限定列；通配符
+本身就是核心的默认拼写，`format_all_columns_wildcard` 对 `table.*` 做的是同一件事
+（`rel.*` 的限定骑在 relation 对象上，渲染出的就是查询所用的名字）：
 
 ```python
 Column(d, "id", table="orders").to_sql()[0]
 # `orders`.`id`
 
-WildcardExpression(d, table="orders").to_sql()[0]
+AllColumnsWildcard(d, relation=NamedRelationRef(d, Table(d, "orders"))).to_sql()[0]
 # `orders`.*
 
-WildcardExpression(d).to_sql()[0]
+AllColumnsWildcard(d).to_sql()[0]
 # *
 ```
 
-`format_wildcard` 是唯一一个既不渲染 `schema_name` 也不校验它的格式化方法，空串
-也一样放过：
+通配符按文法位置分成两个节点（规范 4.10）：选择列表与 RETURNING 位是
+`AllColumnsWildcard`，`COUNT` 的参数位是 `RowCountWildcard`，二者不可互换。
+`AllColumnsWildcard` 的 relation 是一个 `NamedRelationRef`，它的名字与限定符都从
+relation 对象上取，因此 query 里用的别名就是渲染出来的别名——BigQuery 不需要在这里
+丢弃或校验 dataset。
 
-```python
-WildcardExpression(d, table="orders", schema_name="app").to_sql()[0]
-# `orders`.*
-
-WildcardExpression(d, table="orders", schema_name="").to_sql()[0]
-# `orders`.*
-```
-
-输出并没有因此少掉什么：通配符本来就不带 dataset。值得记下的是它与
-`format_column` 的不对称——后者会拒绝空串。
+BigQuery 还有一处后端专属的星号写法**不进入核心**：通配符表（`dataset.*`）。它是
+Table 位置上的一个数据集展开，不是列展开，也不是行计数，语义与上面两个节点都不同，
+因此保持后端侧形态，不由核心的任一通配符节点承担。
 
 覆盖带来的另外两点后果也需要讲清楚，因为它们与核心渲染器不同：
 
@@ -710,12 +707,12 @@ BigQuery 的全限定表名由三段组成，参考文档把段数写明了：
 **本库目前只带其中一级。** 说清楚：
 
 > **本后端的表、视图、列、索引表达式只接受 `schema_name`，不接受它上面的任何一级。
-> `TableExpression`、`Column`、`WildcardExpression` 都没有 project 字段，
+> `TableExpression`、`Column` 与两个通配符节点都没有 project 字段，
 > 也没有可以补上的方言钩子。
 > dataset 一律渲染成恰好一个带引号的段加一个点号，因此写进去的点号会留在这一段
-> 内部。**（`Column` 与 `WildcardExpression` 会把这个值丢弃，见
-> [列引用永远不带 dataset](#列引用永远不带-dataset)；索引语句上的 `schema_name`
-> 只管索引名，表引用自带自己的 dataset。）
+> 内部。**（通配符的限定符骑在它的 `NamedRelationRef` 上；`Column` 会校验后丢弃这个
+> 值，见 [列引用永远不带 dataset](#列引用永远不带-dataset)；索引语句上的
+> `schema_name` 只管索引名，表引用自带自己的 dataset。）
 
 ```python
 TableExpression(d, "orders", schema_name="myproj.app").to_sql()[0]
