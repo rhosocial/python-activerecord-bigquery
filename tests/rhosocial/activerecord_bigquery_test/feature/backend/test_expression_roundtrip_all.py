@@ -81,7 +81,7 @@ Discovery is not the registry
 
 Classes are found by walking the two packages with
 ``collect_expression_classes``, never by reading
-``ExpressionRegistry._registry``. The registry is process-global: it grows as
+``registered_expression_classes()``. The registry is process-global: it grows as
 any sibling test module imports another backend, so a matrix built from it
 holds whatever the import order happened to produce -- core measured three
 different counts for the same tree that way. Walking the packages is
@@ -105,17 +105,19 @@ import pytest
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression import graph as graph_mod
 from rhosocial.activerecord.backend.expression.advanced_functions import (
-    CaseFunction,
+    CaseExpression,
     WindowClause,
     WindowDefinition,
     WindowSpecification,
 )
 from rhosocial.activerecord.backend.expression.bases import BaseExpression
 from rhosocial.activerecord.backend.expression.core import Column, Literal
+from rhosocial.activerecord.backend.expression.operators import ArithmeticOperation
+from rhosocial.activerecord.backend.expression.query_sources import SetOperation
 from rhosocial.activerecord.backend.expression.datetime import (
     TemporalOptionsExpression,
 )
-from rhosocial.activerecord.backend.expression.operators import RawSQLExpression
+from rhosocial.activerecord.backend.expression.operators import RawSQL
 from rhosocial.activerecord.backend.expression.objects import (
     Database,
     Domain,
@@ -138,10 +140,11 @@ from rhosocial.activerecord.backend.expression.predicates import (
 )
 from rhosocial.activerecord.backend.expression.query_parts import JoinClause
 from rhosocial.activerecord.backend.expression.serialization import (
-    ExpressionRegistry,
+    auto_register_builtins,
     deserialize,
     deserialize_json,
     deserialize_xml,
+    registered_expression_classes,
     serialize,
     serialize_json,
     serialize_xml,
@@ -295,6 +298,24 @@ def _integer_column(dialect, name="col"):
 
 def register_specials():
     """Replace every introspective guess that would cost a real assertion."""
+    # -- nodes whose ``op`` is a closed word set, not a free string ----------
+    # Both refuse an ``op`` outside their set at construction, so the
+    # introspective guess (which supplies a placeholder string) cannot build
+    # them at all. Naming one real word is what lets the matrix exercise them.
+    register_special_constructor(
+        "operators.ArithmeticOperation",
+        lambda d: ArithmeticOperation(d, "add", Column(d, "a"), Literal(d, 1)),
+    )
+    register_special_constructor(
+        "query_sources.SetOperation",
+        lambda d: SetOperation(
+            d,
+            op="union",
+            left=_one_column_query(d),
+            right=_one_column_query(d),
+        ),
+    )
+
     # -- the FROM side ------------------------------------------------------
     register_special_constructor(
         "sources.relation.NamedRelationRef",
@@ -610,8 +631,8 @@ def register_specials():
 
     # -- expressions that must not be empty ---------------------------------
     register_special_constructor(
-        "advanced_functions.CaseFunction",
-        lambda d: CaseFunction(
+        "advanced_functions.CaseExpression",
+        lambda d: CaseExpression(
             d,
             cases=[(_column_predicate(d), Literal(d, 1))],
             else_result=Literal(d, 0),
@@ -741,7 +762,7 @@ def register_specials():
     register_special_constructor(
         "xml.XMLTableExpression",
         lambda d: XMLTableExpression(
-            d, RawSQLExpression(d, "SELECT 1 AS a"), [XMLTableColumn("a", "int")]
+            d, RawSQL(d, "SELECT 1 AS a"), [XMLTableColumn("a", "int")]
         ),
     )
 
@@ -951,11 +972,11 @@ LEGITIMATE_NON_RENDERS = {
     "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionClause": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_partition_clause'",
     ),
-    "rhosocial.activerecord.backend.expression.pivot.PivotExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_pivot_expression'",
+    "rhosocial.activerecord.backend.expression.pivot.Pivot": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_pivot'",
     ),
-    "rhosocial.activerecord.backend.expression.pivot.UnpivotExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_unpivot_expression'",
+    "rhosocial.activerecord.backend.expression.pivot.Unpivot": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_unpivot'",
     ),
     "rhosocial.activerecord.backend.expression.predicates.ILikePredicate": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_ilike_predicate'",
@@ -1191,8 +1212,8 @@ UNMODELLED_FORMATTERS = {
     "the core PIVOT / UNPIVOT expressions (this backend composes no formatter "
     "for either; aggregation over rotated rows is spelled by conditional "
     "aggregation)": (
-        "format_pivot_expression",
-        "format_unpivot_expression",
+        "format_pivot",
+        "format_unpivot",
     ),
     "ILIKE (BigQuery has no ILIKE; case-insensitive matching goes through "
     "LOWER() comparisons)": ("format_ilike_predicate",),
@@ -1322,7 +1343,7 @@ def expr_case(request, dialect):
             + "rescue it, so there is nothing for the matrix to assert on."
         )
     cls = REGISTERED[fqn]
-    ExpressionRegistry._auto_register_builtins()
+    auto_register_builtins()
     # The four classes this backend defines are not core's built-ins, so the
     # registry cannot find them by name when it decodes a nested one.
     register_all({fqn: cls})
@@ -1355,7 +1376,7 @@ class TestMatrixIntegrity:
         :data:`UNCONSTRUCTIBLE` both ways, so a class that stops building fails
         with its own name and a named class that starts building fails too.
         """
-        ExpressionRegistry._auto_register_builtins()
+        auto_register_builtins()
         actual = tuple(
             sorted(
                 fqn
@@ -1394,7 +1415,7 @@ class TestMatrixIntegrity:
         Without this an entry could sit in the table for a class that now renders
         perfectly well, and the matrix would be asserting nothing about it.
         """
-        ExpressionRegistry._auto_register_builtins()
+        auto_register_builtins()
         for fqn, (expected_type, fragment) in LEGITIMATE_NON_RENDERS.items():
             instance, source = make_instance(REGISTERED[fqn], dialect)
             assert instance is not None, (
@@ -1410,7 +1431,7 @@ class TestMatrixIntegrity:
 
     def test_pinned_not_implementeds_still_raise_what_they_claim(self, dialect):
         """Each pinned entry still raises, and says the reason the table names."""
-        ExpressionRegistry._auto_register_builtins()
+        auto_register_builtins()
         for fqn, fragment in LEGITIMATE_NOT_IMPLEMENTED.items():
             instance, source = make_instance(REGISTERED[fqn], dialect)
             assert instance is not None, (
@@ -1448,7 +1469,7 @@ class TestMatrixIntegrity:
         what would have said so loudly if a fifth node of that family had
         arrived without a BigQuery formatter.
         """
-        ExpressionRegistry._auto_register_builtins()
+        auto_register_builtins()
         register_all(REGISTERED)
         observed = set()
         for fqn in sorted(REGISTERED):
@@ -1487,7 +1508,7 @@ class TestMatrixIntegrity:
         rather than the registry because the registry also holds whatever
         backends other test modules happened to import.
         """
-        ExpressionRegistry._auto_register_builtins()
+        auto_register_builtins()
         expected = set(_collect_matrix_classes())
         assert expected == set(REGISTERED), (
             "the set of classes the two packages define changed after "
@@ -1516,7 +1537,7 @@ class TestMatrixIntegrity:
         surface is narrow enough that most of the core tree is untested without
         this.
         """
-        ExpressionRegistry._auto_register_builtins()
+        auto_register_builtins()
         core = set(_collect_package(CORE_EXPR_PKG))
         bigquery = set(_collect_package(BIGQUERY_EXPR_PKG))
         assert core, "the core package walk found nothing"
@@ -1530,9 +1551,9 @@ class TestMatrixIntegrity:
         renders but the registry cannot resolve would round-trip into the wrong
         thing or nothing at all.
         """
-        ExpressionRegistry._auto_register_builtins()
+        auto_register_builtins()
         register_all(REGISTERED)
-        unresolved = sorted(set(REGISTERED) - set(ExpressionRegistry._registry))
+        unresolved = sorted(set(REGISTERED) - set(registered_expression_classes()))
         assert not unresolved, (
             f"the matrix covers classes the registry cannot resolve: {unresolved}"
         )
@@ -1547,7 +1568,7 @@ class TestMatrixIntegrity:
         after checking that it is named in :data:`UNCONSTRUCTIBLE`, so the
         bucket is never a silent dumping ground.
         """
-        ExpressionRegistry._auto_register_builtins()
+        auto_register_builtins()
         register_all(REGISTERED)
         counts = {}
         for fqn, cls in REGISTERED.items():

@@ -3,7 +3,7 @@
 
 The expressiveness round split every two-spelling clause into two independent
 parameters (``cycle`` / ``no_cycle``, ``cascade`` / ``restrict``,
-``with_data`` / ``no_data``, ``all_`` / ``distinct``, ...); "unspecified" is
+``with_data`` / ``no_data``, ...); "unspecified" is
 the state where none of a pair's parameters is set, and setting both raises
 ``ValueError`` at construction.  For every pair a formatter here reads, this
 file asserts what each of the four states produces:
@@ -19,9 +19,14 @@ For a dialect that cannot spell a side, the request is refused by name (never
 dropped); the refusal is part of the pair's state table, so "cannot express"
 is an asserted outcome rather than a silent substitution.  Where a dialect's
 grammar makes a spelling mandatory, the "neither" state maps to the grammar's
-required default and that mapping is asserted explicitly -- see
-:class:`TestSetOperationQualifier`, the one pair in this file whose grammar
-has no bare form.
+required default and that mapping is asserted explicitly.
+
+One pair is **out of scope** because it is no longer a pair: the set
+operation's ``all_`` / ``distinct`` flags.  The node now names its operation
+with a word drawn from a closed set the node validates at construction, so
+there is no "unspecified" state to spell and nothing to refuse.
+:class:`TestSetOperationSpelling` guards that word-to-spelling mapping
+instead.
 
 **Not server-verified.**  No BigQuery instance exists in this repository and
 CI has none; every assertion here is a render assertion.  The mapping
@@ -42,7 +47,7 @@ from rhosocial.activerecord.backend.expression.objects import (
     Table,
 )
 from rhosocial.activerecord.backend.expression.query_sources import (
-    SetOperationStatement,
+    SetOperation,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_schema import (
     DropSchemaStatement,
@@ -73,8 +78,8 @@ def _query(d, table="t"):
     return QueryStatement(d, select=[Column(d, "a")], from_=Table(d, table))
 
 
-class TestSetOperationQualifier:
-    """``SetOperationStatement.all_`` / ``distinct``.
+class TestSetOperationSpelling:
+    """The four operation words and the spelling each one gets here.
 
     BigQuery's grammar has no bare set operator::
 
@@ -82,68 +87,83 @@ class TestSetOperationQualifier:
           UNION { ALL | DISTINCT } | INTERSECT DISTINCT | EXCEPT DISTINCT
 
     (GoogleSQL DDL/query reference; the Redshift-to-BigQuery migration guide
-    rewrites a bare ``UNION`` as ``UNION DISTINCT``, and the audit records
-    "BigQuery: falsy forces DISTINCT, so 'unspecified' is unreachable there").
+    rewrites a bare ``UNION`` as ``UNION DISTINCT``.)
 
-    The dialect therefore spells the unspecified state with its grammar's
-    required default, ``DISTINCT``; it does not emit the invalid bare form and
-    it does not refuse the ORM's default ``union()`` path.  The explicit
-    ``distinct=True`` state renders the same SQL: on this dialect the two
-    requests cannot be distinguished in SQL, because there is no second
-    spelling for "no qualifier".  This is the one pair in this file where the
-    four states are not pairwise distinguishable in SQL; the two requests stay
-    distinguishable at the API (one sets a parameter), and the audit entry is
-    the recorded reason.
+    The node names the operation with a word and the dialect maps it. Because
+    the grammar has no bare form, every spelling carries an explicit ``ALL`` or
+    ``DISTINCT``, and ``union`` / ``union_all`` are told apart by the modifier.
+
+    The former ``all_`` / ``distinct`` flag pair is gone, and with it the one
+    intentional SQL collision this file recorded ("falsy forces DISTINCT, so
+    'unspecified' is unreachable there"). That collision cannot occur now: the
+    word set has no duplicate member, and an unknown word is refused at
+    construction. The ``INTERSECT ALL`` / ``EXCEPT ALL`` refusals are likewise
+    structural -- there is no word for them -- so there is nothing left to
+    assert as a named refusal.
     """
 
-    def _expr(self, dialect, operation="UNION", **kwargs):
-        return SetOperationStatement(
+    def _expr(self, dialect, op="union"):
+        return SetOperation(
             dialect,
+            op=op,
             left=_query(dialect, "t1"),
             right=_query(dialect, "t2"),
-            operation=operation,
-            **kwargs,
         )
 
-    def test_neither_spells_the_grammar_required_default(self, dialect):
+    def test_union_spells_distinct(self, dialect):
         sql = self._expr(dialect).to_sql()[0]
         assert sql == (
             "SELECT `a` FROM `t1` UNION DISTINCT SELECT `a` FROM `t2`"
         ), sql
 
-    def test_all_spells_all(self, dialect):
-        sql = self._expr(dialect, all_=True).to_sql()[0]
+    def test_union_all_spells_all(self, dialect):
+        sql = self._expr(dialect, "union_all").to_sql()[0]
         assert sql == "SELECT `a` FROM `t1` UNION ALL SELECT `a` FROM `t2`", sql
 
-    def test_distinct_spells_distinct(self, dialect):
-        sql = self._expr(dialect, distinct=True).to_sql()[0]
-        assert sql == (
-            "SELECT `a` FROM `t1` UNION DISTINCT SELECT `a` FROM `t2`"
-        ), sql
+    def test_the_two_union_words_are_distinguishable(self, dialect):
+        assert self._expr(dialect).to_sql()[0] != self._expr(dialect, "union_all").to_sql()[0]
 
-    def test_both_parameters_are_api_misuse(self, dialect):
-        with pytest.raises(ValueError, match="all_ and distinct are mutually exclusive"):
-            self._expr(dialect, all_=True, distinct=True)
-
-    def test_intersect_all_is_refused_by_name(self, dialect):
-        """BigQuery has ``INTERSECT DISTINCT`` only; ALL is not in the grammar."""
-        with pytest.raises(UnsupportedFeatureError) as exc:
-            self._expr(dialect, operation="INTERSECT", all_=True).to_sql()
-        assert exc.value.feature_name == "INTERSECT ALL"
-
-    def test_except_all_is_refused_by_name(self, dialect):
-        """BigQuery has ``EXCEPT DISTINCT`` only; ALL is not in the grammar."""
-        with pytest.raises(UnsupportedFeatureError) as exc:
-            self._expr(dialect, operation="EXCEPT", all_=True).to_sql()
-        assert exc.value.feature_name == "EXCEPT ALL"
-
-    def test_distinct_on_intersect_and_except_is_expressible(self, dialect):
-        assert self._expr(dialect, operation="INTERSECT", distinct=True).to_sql()[0] == (
+    def test_intersect_and_except_spell_distinct(self, dialect):
+        assert self._expr(dialect, "intersect").to_sql()[0] == (
             "SELECT `a` FROM `t1` INTERSECT DISTINCT SELECT `a` FROM `t2`"
         )
-        assert self._expr(dialect, operation="EXCEPT", distinct=True).to_sql()[0] == (
+        assert self._expr(dialect, "except").to_sql()[0] == (
             "SELECT `a` FROM `t1` EXCEPT DISTINCT SELECT `a` FROM `t2`"
         )
+
+    def test_intersect_all_and_except_all_cannot_be_spelled(self, dialect):
+        """The grammar has no ``INTERSECT ALL`` / ``EXCEPT ALL``, and now
+        neither has the node: there is no word to ask for them."""
+        for word in ("intersect_all", "except_all", "minus", "UNION ALL"):
+            with pytest.raises(ValueError, match="op must be one of"):
+                self._expr(dialect, word)
+
+    def test_the_word_is_case_insensitive_and_normalized(self, dialect):
+        expr = self._expr(dialect, "UNION_ALL")
+        assert expr.op == "union_all"
+        assert "UNION ALL" in expr.to_sql()[0]
+
+    def test_every_operation_word_is_covered_and_distinct(self, dialect):
+        """Each word renders its own SQL, and no bare operator is ever emitted."""
+        rendered = {}
+        for op in ("union", "union_all", "intersect", "except"):
+            sql = self._expr(dialect, op).to_sql()[0]
+            rendered[op] = sql
+            operator = sql.split(" FROM `t1` ")[1].split(" SELECT")[0]
+            assert "ALL" in operator or "DISTINCT" in operator, (op, sql)
+        assert len(set(rendered.values())) == 4, rendered
+
+    def test_nested_set_operations_stay_parenthesized(self, dialect):
+        inner = self._expr(dialect, "union_all")
+        nested = SetOperation(
+            dialect,
+            op="union",
+            left=inner,
+            right=_query(dialect, "t3"),
+        )
+        sql = nested.to_sql()[0]
+        assert sql.startswith("("), sql
+        assert ") UNION DISTINCT " in sql, sql
 
 
 class TestIdentityClausePairs:

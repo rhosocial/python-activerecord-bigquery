@@ -621,7 +621,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
         from rhosocial.activerecord.backend.expression import (
             Column, Literal, UpdateStatement, ComparisonPredicate, InPredicate,
         )
-        from rhosocial.activerecord.backend.expression.advanced_functions import CaseFunction
+        from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
         from rhosocial.activerecord.backend.expression.objects import Table
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
@@ -634,7 +634,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
                 condition = ComparisonPredicate(self.dialect, "=", pk_col, Literal(self.dialect, pk_val))
                 result_expr = Literal(self.dialect, field_val)
                 cases.append((condition, result_expr))
-            assignments[field_name] = CaseFunction(
+            assignments[field_name] = CaseExpression(
                 self.dialect, cases=cases, else_result=Column(self.dialect, field_name),
             )
 

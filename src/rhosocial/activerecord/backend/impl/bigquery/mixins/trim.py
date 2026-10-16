@@ -23,7 +23,7 @@ release because the dialect has no mechanism for it.
 from typing import Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ...expression.advanced_functions import TrimFunction
+    from ...expression.advanced_functions import TrimExpression
 
 
 class BigQueryTrimMixin:
@@ -31,7 +31,7 @@ class BigQueryTrimMixin:
 
     _TRIM_FUNCTIONS = {"BOTH": "TRIM", "LEADING": "LTRIM", "TRAILING": "RTRIM"}
 
-    def format_trim_expression(self, expr: "TrimFunction") -> Tuple[str, Tuple]:
+    def format_trim_expression(self, expr: "TrimExpression") -> Tuple[str, Tuple]:
         """Format a TRIM node in BigQuery's form.
 
         Args:

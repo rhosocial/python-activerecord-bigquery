@@ -20,7 +20,7 @@ from rhosocial.activerecord.backend.dialect.protocols import (
     DropTypeSupport,
 )
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression import BaseExpression, Literal
+from rhosocial.activerecord.backend.expression import BaseExpression, DdlLiteral
 from rhosocial.activerecord.backend.expression.objects import Domain, Schema, Type
 from rhosocial.activerecord.backend.expression.statements import (
     AlterDomainStatement,
@@ -147,11 +147,7 @@ def _type_nodes(dialect: BigQueryDialect) -> Tuple[BaseExpression, ...]:
 
 
 def _domain_nodes(dialect: BigQueryDialect) -> Tuple[BaseExpression, ...]:
-    condition = DomainValueExpression(dialect) > Literal(
-        dialect,
-        0,
-        inline_literals=True,
-    )
+    condition = DomainValueExpression(dialect) > DdlLiteral(dialect, 0)
     check = DomainCheckConstraint(dialect, condition, name="nonnegative")
     action = DropDomainDefaultAction(dialect)
     return (
