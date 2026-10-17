@@ -52,6 +52,11 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     # override is needed. ``TRIM`` differs and is overridden by
     # BigQueryTrimMixin (below) for the reason documented there.
     LpadMixin, RepeatMixin, RpadMixin,
+    # The typed value nodes' tier-1 rendering: the core mixin supplies the
+    # data-position binding and the NULL/boolean/numeric/string defaults;
+    # BigQueryTypedValueMixin (ahead of it, from .mixins) spells the kinds
+    # this grammar writes differently.
+    TypedValueMixin,
 )
 from .protocols import (
     BigQueryArraySupport,
@@ -92,8 +97,10 @@ from .mixins import (
     # TRIM is the one of the four string nodes BigQuery spells differently:
     # the direction lives in the function name, so BigQueryTrimMixin must
     # outrank core's TrimMixin in the MRO. LPAD, RPAD and REPEAT are the
-    # shared spellings verbatim here.
+    # shared spellings verbatim here, and BigQueryTypedValueMixin follows
+    # the same pattern ahead of core's TypedValueMixin (imported above).
     BigQueryTrimMixin,
+    BigQueryTypedValueMixin,
 )
 
 
@@ -129,6 +136,12 @@ class BigQueryDialect(
     # REPEAT are the shared spellings verbatim here, so the generic mixins
     # answer for those three unchanged.
     BigQueryTrimMixin,
+    # Value literals: BigQuery's spellings ahead of the core TypedValueMixin,
+    # whose tier-1 defaults the dialect keeps for the kinds this grammar
+    # agrees with. Both precede SQLDialectBase, so every format_*_value the
+    # typed nodes dispatch to exists on the dialect.
+    BigQueryTypedValueMixin,
+    TypedValueMixin,
     # The backend's one naming-side mixin: both levels rendered, and
     # validate_catalog_name narrowed, because a BigQuery path is
     # project.dataset.object and a project with no dataset is not a name.
@@ -199,6 +212,23 @@ class BigQueryDialect(
     def get_parameter_placeholder(self, position: int = 0) -> str:
         """BigQuery Standard SQL uses ``?`` positional bind markers."""
         return "?"
+
+    @staticmethod
+    def _escape_sql_string(value: str) -> str:
+        """GoogleSQL's string escaping: backslashes, not quote doubling.
+
+        The base helper doubles single quotes, which is the SQL-standard
+        convention. GoogleSQL documents the backslash escape ``\\'`` for a
+        single quote -- and, because backslashes introduce escape sequences
+        there at all, a literal backslash must itself become ``\\\\`` --
+        while quote doubling appears nowhere in its escape table (lexical
+        structure and syntax: "Escape sequences for string and bytes
+        literals"; not server-verified, read 2026-10-17). The backslash is
+        escaped first, then the quote, so neither can eat the other's
+        escape. This is the dialect-wide policy: every inline string this
+        dialect renders goes through it.
+        """
+        return value.replace("\\", "\\\\").replace("'", "\\'")
 
     def get_type_mappings(self) -> Dict[str, Any]:
         return {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Tuple, TYPE_CHECKING
 
+from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression.query_sources import SetOperation
 
 if TYPE_CHECKING:
@@ -153,11 +154,6 @@ class BigQueryDQLMixin:
         Raises:
             UnsupportedFeatureError: For a part BigQuery has no spelling for.
         """
-        from rhosocial.activerecord.backend.dialect.exceptions import (
-            UnsupportedFeatureError,
-        )
-        from rhosocial.activerecord.backend.dialect.base import SQLDialectBase
-
         # The units the framework's IntervalUnit defines. BigQuery's DATE_DIFF
         # has more parts -- WEEKDAY, ISOWEEK, QUARTER -- but a caller cannot
         # name them here, so listing them would be a promise nobody can keep.
@@ -183,7 +179,7 @@ class BigQueryDQLMixin:
         else:
             sql = (
                 f"DATE_DIFF({end_sql}, {start_sql}, "
-                f"{SQLDialectBase._escape_sql_string(part)})"
+                f"{self._escape_sql_string(part)})"
             )
         return self.apply_alias(sql, end_params + start_params, expr)
 

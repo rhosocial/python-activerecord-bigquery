@@ -14,6 +14,7 @@ from .identifier import BigQueryIdentifierMixin
 from .materialized_view import BigQueryMaterializedViewMixin
 from .transaction import BigQueryTransactionMixin
 from .trim import BigQueryTrimMixin
+from .typed_value import BigQueryTypedValueMixin
 
 
 class BigQueryStructMixin:
@@ -50,6 +51,7 @@ __all__ = [
     'BigQueryMaterializedViewMixin',
     'BigQueryTransactionMixin',
     'BigQueryTrimMixin',
+    'BigQueryTypedValueMixin',
     'BigQueryStructMixin',
     'BigQueryArrayMixin',
     'BigQueryJSONMixin',
