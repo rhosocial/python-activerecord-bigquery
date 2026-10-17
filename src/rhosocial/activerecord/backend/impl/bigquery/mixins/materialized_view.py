@@ -12,6 +12,7 @@ from typing import Any, Tuple, TYPE_CHECKING
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression.objects import MaterializedView
 
+from ..expression.materialized_view import BigQueryCreateMaterializedViewExpression
 from ..materialized_view_options import resolve_materialized_view_option
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -79,26 +80,31 @@ class BigQueryMaterializedViewMixin:
         self._require_materialized_view(expr, "CreateMaterializedViewStatement")
         self._reject_unsupported_clauses(expr, "CREATE MATERIALIZED VIEW")
 
+        # OR REPLACE, IF NOT EXISTS, PARTITION BY, CLUSTER BY and OPTIONS are
+        # BigQueryCreateMaterializedViewExpression's own fields. The generic
+        # statement declares none of them -- its grammar has no such clause to
+        # emit -- so they are read only where they are declared, and the
+        # isinstance dispatch on the declared class is what makes each read a
+        # direct one.
+        is_bigquery_create = isinstance(expr, BigQueryCreateMaterializedViewExpression)
+
         parts = ["CREATE"]
-        if getattr(expr, "or_replace", False):
+        if is_bigquery_create and expr.or_replace:
             parts.append("OR REPLACE")
         parts.append("MATERIALIZED VIEW")
-        if getattr(expr, "if_not_exists", False):
+        if is_bigquery_create and expr.if_not_exists:
             parts.append("IF NOT EXISTS")
         parts.append(self._materialized_view_name_sql(expr))
 
-        partition_by = getattr(expr, "partition_by", None)
-        if partition_by:
-            parts.append(f"PARTITION BY {partition_by}")
-
-        cluster_by = getattr(expr, "cluster_by", None)
-        if cluster_by:
-            cols = ", ".join(str(column) for column in cluster_by)
-            parts.append(f"CLUSTER BY {cols}")
-
-        options = self._format_materialized_view_options(getattr(expr, "options", None))
-        if options:
-            parts.append(f"OPTIONS({options})")
+        if is_bigquery_create:
+            if expr.partition_by:
+                parts.append(f"PARTITION BY {expr.partition_by}")
+            if expr.cluster_by:
+                cols = ", ".join(str(column) for column in expr.cluster_by)
+                parts.append(f"CLUSTER BY {cols}")
+            options = self._format_materialized_view_options(expr.options)
+            if options:
+                parts.append(f"OPTIONS({options})")
 
         query_sql, query_params = self._materialized_view_query_sql(expr)
         parts.append(f"AS {query_sql}")
@@ -221,38 +227,42 @@ class BigQueryMaterializedViewMixin:
         name_sql, _params = expr.view.to_sql()
         return name_sql
 
-    def _reject_unsupported_clauses(self, expr: Any, feature: str) -> None:
+    def _reject_unsupported_clauses(
+        self, expr: "CreateMaterializedViewStatement", feature: str
+    ) -> None:
         """Reject generic-expression clauses BigQuery cannot express."""
-        if getattr(expr, "column_aliases", None):
+        if expr.column_aliases:
             raise UnsupportedFeatureError(
                 self.name,
                 f"{feature} COLUMN ALIASES",
                 "BigQuery materialized views take their column names from the query.",
             )
-        if getattr(expr, "tablespace", None):
+        if expr.tablespace:
             raise UnsupportedFeatureError(self.name, f"{feature} TABLESPACE")
-        if getattr(expr, "storage_options", None):
+        if expr.storage_options:
             raise UnsupportedFeatureError(
                 self.name,
                 f"{feature} STORAGE PARAMETERS",
                 "BigQuery configures materialized views through OPTIONS(...).",
             )
-        if getattr(expr, "with_data", False):
+        if expr.with_data:
             raise UnsupportedFeatureError(
                 self.name,
                 f"{feature} WITH DATA",
                 "BigQuery populates the view at creation time and has no WITH DATA clause.",
             )
-        if getattr(expr, "no_data", False):
+        if expr.no_data:
             raise UnsupportedFeatureError(
                 self.name,
                 f"{feature} WITH NO DATA",
                 "BigQuery populates the view at creation time.",
             )
 
-    def _materialized_view_query_sql(self, expr: Any) -> Tuple[str, tuple]:
+    def _materialized_view_query_sql(
+        self, expr: "CreateMaterializedViewStatement"
+    ) -> Tuple[str, tuple]:
         """Return the defining query SQL, accepting an expression or raw SQL."""
-        query = getattr(expr, "query", None)
+        query = expr.query
         if query is None:
             raise ValueError("CREATE MATERIALIZED VIEW requires a defining query")
         if isinstance(query, str):

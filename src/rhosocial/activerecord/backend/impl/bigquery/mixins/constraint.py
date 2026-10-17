@@ -158,7 +158,7 @@ flat switches below are the ones core's renderers actually consult today; the
 two groups are kept apart deliberately, and every docstring says which it is.
 """
 
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, Tuple, Union
 
 if TYPE_CHECKING:  # pragma: no cover
     from rhosocial.activerecord.backend.expression.statements.ddl_table import (
@@ -958,7 +958,9 @@ class BigQueryConstraintMixin:
         """The SQL spelling to name a constraint branch in a refusal."""
         return self._CONSTRAINT_KIND_SQL.get(type(branch).__name__, type(branch).__name__)
 
-    def _require_bigquery_enforcement(self, constraint: object) -> None:
+    def _require_bigquery_enforcement(
+        self, constraint: "Union[ColumnConstraint, TableConstraint]"
+    ) -> None:
         """Refuse ``ENFORCED`` on BigQuery, and ``NOT ENFORCED`` off a PK/FK.
 
         ``NOT ENFORCED`` is inside every BigQuery constraint production, so
@@ -974,11 +976,11 @@ class BigQueryConstraintMixin:
         """
         from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
-        enforced = getattr(constraint, "enforced", False)
-        not_enforced = getattr(constraint, "not_enforced", False)
+        enforced = constraint.enforced
+        not_enforced = constraint.not_enforced
         if not enforced and not not_enforced:
             return
-        branch = getattr(constraint, "branch", None)
+        branch = constraint.branch
         kind = self._bigquery_kind_sql(branch)
         if enforced:
             feature = f"{kind} ENFORCED"
@@ -1002,7 +1004,7 @@ class BigQueryConstraintMixin:
                 f"{self.name} does not support {feature}.",
             )
 
-    def _require_bigquery_table_kind(self, constraint: object) -> None:
+    def _require_bigquery_table_kind(self, constraint: "TableConstraint") -> None:
         """Refuse the table-level kinds BigQuery has no production for.
 
         ``constraint_definition`` admits a bare ``[primary_key]`` and
@@ -1017,7 +1019,7 @@ class BigQueryConstraintMixin:
         """
         from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
-        kind = self._bigquery_kind_sql(getattr(constraint, "branch", None))
+        kind = self._bigquery_kind_sql(constraint.branch)
         if kind in ("CHECK", "UNIQUE"):
             feature = f"{kind} table constraint"
             raise UnsupportedFeatureError(
