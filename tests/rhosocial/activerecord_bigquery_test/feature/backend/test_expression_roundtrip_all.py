@@ -20,9 +20,10 @@ never learned that their dialect renders 143 of them and refuses 49 outright.
 Why ``to_sql()`` is classified rather than caught
 =================================================
 
-The shared testsuite helper this matrix replaces wraps the first render in
-``try/except Exception: return`` (``testsuite/utils/expression.py``, in
-``sql_consistent``). That makes every render failure a green tick: the three
+The shared-harness helper this matrix does not use for classification wraps
+the first render in ``try/except Exception: return`` (``sql_consistent``, in
+the locally vendored ``expression_roundtrip_harness.py``). That makes every
+render failure a green tick: the three
 SQL comparisons after it never run, so a formatter reading a field that no
 longer exists is indistinguishable from a formatter for a feature this dialect
 does not support. Core measured what that costs on its own matrix -- 74 errors
@@ -80,8 +81,8 @@ Discovery is not the registry
 =============================
 
 Classes are found by walking the two packages with
-``collect_expression_classes``, never by reading
-``registered_expression_classes()``. The registry is process-global: it grows as
+``collect_expression_classes``, never by reading the default registry's kind
+whitelist. The registry is process-global: it grows as
 any sibling test module imports another backend, so a matrix built from it
 holds whatever the import order happened to produce -- core measured three
 different counts for the same tree that way. Walking the packages is
@@ -98,7 +99,9 @@ guesses are wrong replaced by a registered constructor below, and
 rescue, and it is pinned in both directions so neither list grows silently.
 """
 
+import datetime
 import inspect
+import uuid
 
 import pytest
 
@@ -110,14 +113,32 @@ from rhosocial.activerecord.backend.expression.advanced_functions import (
     WindowDefinition,
     WindowSpecification,
 )
-from rhosocial.activerecord.backend.expression.bases import BaseExpression
 from rhosocial.activerecord.backend.expression.core import Column, Literal
 from rhosocial.activerecord.backend.expression.operators import ArithmeticOperation
+from rhosocial.activerecord.backend.expression.operators import RawSQL
 from rhosocial.activerecord.backend.expression.query_sources import SetOperation
 from rhosocial.activerecord.backend.expression.datetime import (
+    ExtractFieldExpression,
     TemporalOptionsExpression,
+    _ExtractBase,
 )
-from rhosocial.activerecord.backend.expression.operators import RawSQL
+from rhosocial.activerecord.backend.expression.functions.string import (
+    ChrFunction,
+    LeftFunction,
+    OverlayExpression,
+    RightFunction,
+    SpaceFunction,
+    SubstringExpression,
+)
+from rhosocial.activerecord.backend.expression.values import (
+    BinaryValue,
+    BooleanValue,
+    DateValue,
+    StringValue,
+    TimeValue,
+    TimestampValue,
+    UUIDValue,
+)
 from rhosocial.activerecord.backend.expression.objects import (
     Database,
     Domain,
@@ -140,11 +161,10 @@ from rhosocial.activerecord.backend.expression.predicates import (
 )
 from rhosocial.activerecord.backend.expression.query_parts import JoinClause
 from rhosocial.activerecord.backend.expression.serialization import (
-    auto_register_builtins,
+    default_registry,
     deserialize,
     deserialize_json,
     deserialize_xml,
-    registered_expression_classes,
     serialize,
     serialize_json,
     serialize_xml,
@@ -209,7 +229,7 @@ from rhosocial.activerecord.backend.expression.xml import (
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryAlterMaterializedViewSetOptionsExpression,
 )
-from rhosocial.activerecord.testsuite.utils.expression import (
+from rhosocial.activerecord_bigquery_test.feature.backend.expression_roundtrip_harness import (
     collect_expression_classes,
     make_instance,
     register_all,
@@ -453,7 +473,10 @@ def register_specials():
     )
     register_special_constructor(
         "statements.ddl_alter.ValidateConstraint",
-        lambda d: ddl_alter.ValidateConstraint(d, name="c"),
+        # The action names its constraint positionally now; the keyword-only
+        # ``name`` must repeat it exactly, so naming it twice says less than
+        # naming it once.
+        lambda d: ddl_alter.ValidateConstraint(d, "c"),
     )
 
     # -- schemas, sequences, databases, domains, types ---------------------
@@ -663,12 +686,90 @@ def register_specials():
 
     # -- types that need a member type or a member value --------------------
     register_special_constructor(
-        "types.array.ArrayType", lambda d: ArrayType(d, VarCharType(d, 10))
+        # ``element_type`` is keyword-only behind an optional ``dialect`` now,
+        # so a positional member type is not expressible; the keyword is the
+        # only spelling left.
+        "types.array.ArrayType",
+        lambda d: ArrayType(d, element_type=VarCharType(d, 10)),
     )
     # ``values`` is keyword-only behind a defaulted positional, so the guess
     # skips it and the type declares no members.
     register_special_constructor(
         "types.enum_.EnumType", lambda d: EnumType(d, values=["a", "b"])
+    )
+
+    # -- the typed value nodes ----------------------------------------------
+    # The base's ``value`` parameter is annotated ``Any``, so the filler's
+    # name-based guess hands every value class an int. The classes whose host
+    # type an int states exactly -- the numbers and the interval, through the
+    # coercions the nodes declare -- accept it; the seven below coerce
+    # nothing, because an int states no honest string, date, time, bytes or
+    # UUID, so each gets the real host value it exists to carry.
+    register_special_constructor(
+        "values.BinaryValue", lambda d: BinaryValue(d, b"\x01\x02")
+    )
+    register_special_constructor(
+        "values.BooleanValue", lambda d: BooleanValue(d, True)
+    )
+    register_special_constructor(
+        "values.DateValue", lambda d: DateValue(d, datetime.date(2026, 10, 18))
+    )
+    register_special_constructor(
+        "values.StringValue", lambda d: StringValue(d, "x")
+    )
+    register_special_constructor(
+        "values.TimeValue", lambda d: TimeValue(d, datetime.time(12, 30))
+    )
+    register_special_constructor(
+        "values.TimestampValue",
+        lambda d: TimestampValue(d, datetime.datetime(2026, 10, 18, 12, 30)),
+    )
+    register_special_constructor(
+        "values.UUIDValue",
+        lambda d: UUIDValue(
+            d, uuid.UUID("123e4567-e89b-12d3-a456-426614174000")
+        ),
+    )
+
+    # -- scalar string nodes whose operands are forward-ref strings ---------
+    # The operands are annotated as ``'SQLValue'`` forward references, which
+    # the filler cannot resolve structurally, and its name-based fallback hands
+    # a bare ``"x"`` that the nodes' typed-operand coercers refuse. Real
+    # operands construct exactly what each node exists to spell.
+    register_special_constructor(
+        "functions.string.ChrFunction", lambda d: ChrFunction(d, 65)
+    )
+    register_special_constructor(
+        "functions.string.LeftFunction", lambda d: LeftFunction(d, "abc", 2)
+    )
+    register_special_constructor(
+        "functions.string.RightFunction", lambda d: RightFunction(d, "abc", 2)
+    )
+    register_special_constructor(
+        "functions.string.SpaceFunction", lambda d: SpaceFunction(d, 3)
+    )
+    register_special_constructor(
+        "functions.string.SubstringExpression",
+        lambda d: SubstringExpression(d, "abc", 2),
+    )
+    register_special_constructor(
+        "functions.string.OverlayExpression",
+        lambda d: OverlayExpression(d, "abc", "xy", 2),
+    )
+
+    # -- the EXTRACT split ---------------------------------------------------
+    # The extract refactor gave the field a closed word set beside a source,
+    # and the filler's guess for a ``str | DateTimeField`` union is a bare
+    # ``"x"`` the class refuses. A real field and a column source are what
+    # the node spells; both classes render through the shared
+    # ``format_extract_expression``.
+    register_special_constructor(
+        "datetime.ExtractFieldExpression",
+        lambda d: ExtractFieldExpression(d, "YEAR", Column(d, "ts")),
+    )
+    register_special_constructor(
+        "datetime._ExtractBase",
+        lambda d: _ExtractBase(d, "YEAR", Column(d, "ts")),
     )
 
     # -- property graphs ----------------------------------------------------
@@ -691,10 +792,9 @@ def register_specials():
         "graph.VertexTable",
         lambda d: graph_mod.VertexTable(d, node_table(d), key_columns=["id"]),
     )
-    register_special_constructor(
-        "graph.EdgeTable",
-        lambda d: graph_mod.EdgeTable(d, edge_table(d), ["src"], ["dst"]),
-    )
+    # graph.EdgeTable is gone: core renamed the element to EdgeTableDefinition,
+    # which the heuristic constructor builds on its own (a guessed source
+    # element and no edge columns), so no registered factory stands in for it.
     register_special_constructor(
         "graph.QuantifiedPath",
         lambda d: graph_mod.QuantifiedPath(
@@ -804,15 +904,13 @@ UNCONSTRUCTIBLE = (
     "rhosocial.activerecord.backend.expression.uuid.UUIDConstantExpression",
     "rhosocial.activerecord.backend.expression.uuid.UUIDGenerationExpression",
     "rhosocial.activerecord.backend.expression.uuid.UUIDCastFunction",
-    # CUSTOM type. `raw` names the SQL type string and defaults to the empty
-    # string, so the filler skips it and the class validates that empty name
-    # and raises InvalidTypeNameError while constructing. A registered
-    # constructor could hand it a real name, but the only honest one here is
-    # the spelling BigQuery refuses -- and substituting NUMERIC would let the
-    # matrix assert a rendering this dialect does not perform. BigQuery has no
-    # custom type, so it is named here rather than pinned as a non-render it
-    # can never reach: such a pin asserts a render nothing can ask for.
-    "rhosocial.activerecord.backend.expression.types.custom.CustomType",
+    # CustomType sat here while its ``raw`` parameter was defaulted to the
+    # empty string -- a defaulted parameter the filler skips, and a name the
+    # class refuses as empty. The parameter is required now, so the filler
+    # supplies a real name and the class builds; the entry is gone rather than
+    # pinned as a non-render it can never reach: this dialect spells no custom
+    # type, and a constructed instance refuses through the generic-type probe
+    # the way the other unsupported types do.
 )
 
 #: The dispatch failure -- ``format_method`` named a method this dialect does not
@@ -928,8 +1026,10 @@ LEGITIMATE_NON_RENDERS = {
     "rhosocial.activerecord.backend.expression.graph.VertexTable": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_vertex_table'",
     ),
-    "rhosocial.activerecord.backend.expression.graph.EdgeTable": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_edge_table'",
+    # EdgeTable was renamed EdgeTableDefinition in the graph split; the gap is
+    # the same one, spelled by the new name.
+    "rhosocial.activerecord.backend.expression.graph.EdgeTableDefinition": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_edge_table_definition'",
     ),
     "rhosocial.activerecord.backend.expression.graph.TablePropertiesClause": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_table_properties_clause'",
@@ -991,6 +1091,16 @@ LEGITIMATE_NON_RENDERS = {
     # would mean inventing SQL for an object that carries nothing but an alias.
     "rhosocial.activerecord.backend.expression.sources.base.TableSource": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_table_source'",
+    ),
+    # The shared state base of the declared-result annotations. It dispatches
+    # to the one formatter those annotations share, which reads the ``alias``
+    # only a concrete annotation carries, so the bare base -- constructible,
+    # with the guessed source it stores -- fails on the state it does not
+    # have rather than on anything this dialect lacks. AttributeError for the
+    # same reason the DataType root pins TypeError: the class is incomplete
+    # rather than the backend being unable.
+    "rhosocial.activerecord.backend.expression.declared._Annotation": (
+        AttributeError, "has no attribute 'alias'",
     ),
     # The root of the type tree. Every concrete type declares its own generic
     # `name`, which is what `format_data_type` dispatches on; the root declares
@@ -1184,7 +1294,7 @@ UNMODELLED_FORMATTERS = {
         "format_match_clause",
         "format_graph_columns_clause",
         "format_vertex_table",
-        "format_edge_table",
+        "format_edge_table_definition",
         "format_table_properties_clause",
     ),
     "the core SQL/PSM routine statements (BigQuery's UDFs render through their "
@@ -1222,6 +1332,15 @@ UNMODELLED_FORMATTERS = {
     "renders elsewhere)": ("format_temporal_options",),
     "the TableSource root (every concrete row source overrides its formatter; "
     "the root carries nothing but an alias and is never rendered)": ("format_table_source",),
+    # Not a feature BigQuery lacks: the typed-value category base declares an
+    # empty kind_name, so the dispatch names the empty 'format_' for the bare
+    # base. Every concrete value class declares its own kind and renders; the
+    # base constructs (the filler hands it an int) and has nothing to dispatch
+    # to. The row exists because the unmodelled list is exact in both
+    # directions: the observed refusal is real, and its name is what separates
+    # it from any future gap a class might report.
+    "the typed-value category base (TypedValue declares no kind of its own; "
+    "each concrete value class overrides it)": ("format_",),
 }
 
 
@@ -1343,7 +1462,6 @@ def expr_case(request, dialect):
             + "rescue it, so there is nothing for the matrix to assert on."
         )
     cls = REGISTERED[fqn]
-    auto_register_builtins()
     # The four classes this backend defines are not core's built-ins, so the
     # registry cannot find them by name when it decodes a nested one.
     register_all({fqn: cls})
@@ -1376,7 +1494,6 @@ class TestMatrixIntegrity:
         :data:`UNCONSTRUCTIBLE` both ways, so a class that stops building fails
         with its own name and a named class that starts building fails too.
         """
-        auto_register_builtins()
         actual = tuple(
             sorted(
                 fqn
@@ -1415,7 +1532,6 @@ class TestMatrixIntegrity:
         Without this an entry could sit in the table for a class that now renders
         perfectly well, and the matrix would be asserting nothing about it.
         """
-        auto_register_builtins()
         for fqn, (expected_type, fragment) in LEGITIMATE_NON_RENDERS.items():
             instance, source = make_instance(REGISTERED[fqn], dialect)
             assert instance is not None, (
@@ -1431,7 +1547,6 @@ class TestMatrixIntegrity:
 
     def test_pinned_not_implementeds_still_raise_what_they_claim(self, dialect):
         """Each pinned entry still raises, and says the reason the table names."""
-        auto_register_builtins()
         for fqn, fragment in LEGITIMATE_NOT_IMPLEMENTED.items():
             instance, source = make_instance(REGISTERED[fqn], dialect)
             assert instance is not None, (
@@ -1469,7 +1584,6 @@ class TestMatrixIntegrity:
         what would have said so loudly if a fifth node of that family had
         arrived without a BigQuery formatter.
         """
-        auto_register_builtins()
         register_all(REGISTERED)
         observed = set()
         for fqn in sorted(REGISTERED):
@@ -1508,7 +1622,6 @@ class TestMatrixIntegrity:
         rather than the registry because the registry also holds whatever
         backends other test modules happened to import.
         """
-        auto_register_builtins()
         expected = set(_collect_matrix_classes())
         assert expected == set(REGISTERED), (
             "the set of classes the two packages define changed after "
@@ -1537,7 +1650,6 @@ class TestMatrixIntegrity:
         surface is narrow enough that most of the core tree is untested without
         this.
         """
-        auto_register_builtins()
         core = set(_collect_package(CORE_EXPR_PKG))
         bigquery = set(_collect_package(BIGQUERY_EXPR_PKG))
         assert core, "the core package walk found nothing"
@@ -1547,13 +1659,20 @@ class TestMatrixIntegrity:
     def test_every_covered_class_is_registered_for_deserialization(self):
         """A class in the matrix can be found again when deserializing.
 
-        Deserialization looks the class up by name, so a class the matrix
-        renders but the registry cannot resolve would round-trip into the wrong
-        thing or nothing at all.
+        Deserialization resolves a node's kind to its class through the
+        framework's default registry, so a class the matrix renders but the
+        registry cannot resolve would round-trip into the wrong thing or
+        nothing at all. Core and the built-in backends populate that registry
+        on first use; this backend's own classes are what ``register_all``
+        adds, which is why the registration happens here before the check.
         """
-        auto_register_builtins()
         register_all(REGISTERED)
-        unresolved = sorted(set(REGISTERED) - set(registered_expression_classes()))
+        registry = default_registry()
+        unresolved = sorted(
+            fqn
+            for fqn, cls in REGISTERED.items()
+            if registry.resolve_node(cls.kind()) is not cls
+        )
         assert not unresolved, (
             f"the matrix covers classes the registry cannot resolve: {unresolved}"
         )
@@ -1568,7 +1687,6 @@ class TestMatrixIntegrity:
         after checking that it is named in :data:`UNCONSTRUCTIBLE`, so the
         bucket is never a silent dumping ground.
         """
-        auto_register_builtins()
         register_all(REGISTERED)
         counts = {}
         for fqn, cls in REGISTERED.items():
