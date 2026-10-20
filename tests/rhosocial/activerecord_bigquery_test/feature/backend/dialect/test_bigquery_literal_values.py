@@ -1,21 +1,21 @@
-# tests/rhosocial/activerecord_bigquery_test/feature/backend/dialect/test_bigquery_typed_values.py
-"""BigQuery's spellings for the typed value nodes (rendering only, no server).
+# tests/rhosocial/activerecord_bigquery_test/feature/backend/dialect/test_bigquery_literal_values.py
+"""BigQuery's inline literal spellings (rendering only, no server).
 
 Every assertion is a rendering assertion against the documented GoogleSQL
 literal grammar (lexical structure and syntax / data types, read 2026-10-17
 -- **not server-verified**: no BigQuery instance is reachable from this
-repository). Each kind asserts both positions the class-level
-``inline_params`` strategy splits rendering into:
+repository). Each claim is asserted at both positions the one value node
+splits rendering into:
 
-* the **data position** (the shipped classes: ``inline_params = False``)
-  binds the host value behind ``?`` and converts nothing;
-* the **DDL syntax position** (``inline_params = True``, declared by the
-  test-local ``Ddl*`` classes the way the core lifts ``Literal`` to
-  ``DdlLiteral``) spells the inline literal exactly.
+* the **data position** -- ``Literal(dialect, value)``, ``inline`` at its
+  default ``False`` -- binds the host value behind ``?`` and converts
+  nothing;
+* the **DDL syntax position** -- ``Literal(dialect, value, inline=True)`` --
+  writes the inline literal text through ``format_literal``.
 
 The explicit refusals -- an INTERVAL step that cannot fit the ``INT64`` the
-grammar takes, a ``Decimal`` outside both decimal types' documented range,
-a non-finite ``Decimal``, an aware ``time`` -- are asserted with their
+grammar takes, a ``Decimal`` outside both decimal types' documented range, a
+non-finite ``Decimal``, an aware ``time`` -- are asserted with their
 messages.
 """
 
@@ -25,21 +25,12 @@ import uuid
 
 import pytest
 
-from rhosocial.activerecord.backend.expression.values import (
-    BinaryValue,
-    BooleanValue,
-    DateValue,
-    DecimalValue,
-    FloatValue,
-    IntegerValue,
-    IntervalValue,
-    NullValue,
-    StringValue,
-    TimeValue,
-    TimestampValue,
-    UUIDValue,
-)
+from rhosocial.activerecord.backend.dialect.base import SQLDialectBase
+from rhosocial.activerecord.backend.expression.core import Literal
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
+from rhosocial.activerecord.backend.impl.bigquery.mixins import (
+    BigQueryLiteralValueMixin,
+)
 
 
 @pytest.fixture
@@ -47,88 +38,66 @@ def dialect():
     return BigQueryDialect()
 
 
-def _ddl(cls):
-    """*cls* with the DDL-position strategy, declared as a class of its own.
-
-    Whether a value inlines is the **class's** decision (spec 4.4), never a
-    per-instance flag -- so the test says it the only way the contract
-    allows, a subclass declaring ``inline_params = True``, which is the
-    same move the core makes when it lifts ``Literal`` to ``DdlLiteral``
-    for a DDL condition it owns.
-    """
-    return type(f"Ddl{cls.__name__}", (cls,), {"inline_params": True})
+def _inline(dialect, value):
+    """The DDL-position rendering of *value* as ``(sql, params)``."""
+    return Literal(dialect, value, inline=True).to_sql()
 
 
 class TestWiring:
-    """The dialect composes this backend's spellings ahead of the base's."""
+    """The dialect composes this backend's spelling ahead of the base's."""
 
-    def test_backend_mixin_wins_the_overridden_kinds(self, dialect):
-        for name in (
-            "format_binary_value",
-            "format_uuid_value",
-            "format_interval_value",
-            "format_decimal_value",
-            "format_date_value",
-            "format_time_value",
-            "format_timestamp_value",
-        ):
-            assert getattr(dialect, name).__qualname__.startswith(
-                "BigQueryTypedValueMixin."
-            )
+    def test_backend_mixin_outranks_the_base(self):
+        mro = BigQueryDialect.__mro__
+        assert mro.index(BigQueryLiteralValueMixin) < mro.index(SQLDialectBase)
 
-    def test_base_mixin_answers_the_untouched_kinds(self, dialect):
-        for name in (
-            "format_null_value",
-            "format_boolean_value",
-            "format_integer_value",
-            "format_float_value",
-            "format_string_value",
-        ):
-            assert getattr(dialect, name).__qualname__.startswith(
-                "TypedValueMixin."
-            )
-
-
-class TestBinaryValue:
-    def test_data_position_binds_the_bytes(self, dialect):
-        assert BinaryValue(dialect, b"\x01\x02").to_sql() == ("?", (b"\x01\x02",))
-
-    def test_ddl_position_spells_the_bytes_literal(self, dialect):
-        assert _ddl(BinaryValue)(dialect, b"\x01\x02").to_sql() == (
-            "b'\\x01\\x02'",
-            (),
+    def test_the_overridden_entry_point_is_this_mixin(self, dialect):
+        assert (
+            BigQueryDialect.format_literal.__qualname__
+            == "BigQueryLiteralValueMixin.format_literal"
         )
+
+
+class TestBindingDecision:
+    """``inline`` decides bind-or-text; BigQuery's placeholder is ``?``."""
+
+    def test_data_position_binds_the_host_value(self, dialect):
+        assert Literal(dialect, 42).to_sql() == ("?", (42,))
+
+    def test_inline_position_writes_text(self, dialect):
+        assert _inline(dialect, 42) == ("42", ())
+
+
+class TestBinary:
+    def test_data_position_binds_the_bytes(self, dialect):
+        assert Literal(dialect, b"\x01\x02").to_sql() == ("?", (b"\x01\x02",))
+
+    def test_inline_position_spells_the_bytes_literal(self, dialect):
+        assert _inline(dialect, b"\x01\x02") == ("b'\\x01\\x02'", ())
 
     def test_every_byte_becomes_one_hex_escape(self, dialect):
-        assert _ddl(BinaryValue)(dialect, b"\x00\x0a\xff\x7f").to_sql() == (
-            "b'\\x00\\x0a\\xff\\x7f'",
-            (),
-        )
+        assert _inline(dialect, b"\x00\x0a\xff\x7f") == ("b'\\x00\\x0a\\xff\\x7f'", ())
 
     def test_empty_bytes_are_the_empty_literal(self, dialect):
-        assert _ddl(BinaryValue)(dialect, b"").to_sql() == ("b''", ())
+        assert _inline(dialect, b"") == ("b''", ())
 
 
-class TestUUIDValue:
+class TestUUID:
+    _VALUE = uuid.UUID("123e4567-e89b-12d3-a456-426614174000")
+
     def test_data_position_binds_the_uuid(self, dialect):
-        value = uuid.UUID("123e4567-e89b-12d3-a456-426614174000")
-        assert UUIDValue(dialect, value).to_sql() == ("?", (value,))
+        assert Literal(dialect, self._VALUE).to_sql() == ("?", (self._VALUE,))
 
-    def test_ddl_position_is_the_bare_quoted_text(self, dialect):
-        assert _ddl(UUIDValue)(
-            dialect, uuid.UUID("123e4567-e89b-12d3-a456-426614174000")
-        ).to_sql() == (
+    def test_inline_position_is_the_bare_quoted_text(self, dialect):
+        assert _inline(dialect, self._VALUE) == (
             "'123e4567-e89b-12d3-a456-426614174000'",
             (),
         )
 
 
-class TestIntervalValue:
+class TestInterval:
     def test_data_position_binds_the_timedelta(self, dialect):
-        assert IntervalValue(dialect, datetime.timedelta(days=1)).to_sql() == (
-            "?",
-            (datetime.timedelta(days=1),),
-        )
+        value = datetime.timedelta(days=1)
+        assert Literal(dialect, value).to_sql() == ("?", (value,))
 
     @pytest.mark.parametrize(
         "value, expected",
@@ -160,27 +129,22 @@ class TestIntervalValue:
             (datetime.timedelta(0), "INTERVAL 0 DAY"),
         ],
     )
-    def test_ddl_position_spells_the_single_part_form(self, dialect, value, expected):
-        assert _ddl(IntervalValue)(dialect, value).to_sql() == (expected, ())
+    def test_inline_position_spells_the_single_part_form(self, dialect, value, expected):
+        assert _inline(dialect, value) == (expected, ())
 
     def test_the_int64_step_boundary_is_spelled(self, dialect):
         value = datetime.timedelta(microseconds=2**63 - 1)
-        assert _ddl(IntervalValue)(dialect, value).to_sql() == (
-            "INTERVAL 9223372036854775807 MICROSECOND",
-            (),
-        )
+        assert _inline(dialect, value) == ("INTERVAL 9223372036854775807 MICROSECOND", ())
 
     def test_a_step_beyond_int64_is_refused(self, dialect):
         with pytest.raises(ValueError, match="INT64"):
-            _ddl(IntervalValue)(dialect, datetime.timedelta(microseconds=2**63)).to_sql()
+            _inline(dialect, datetime.timedelta(microseconds=2**63))
 
 
-class TestDecimalValue:
+class TestDecimal:
     def test_data_position_binds_the_decimal(self, dialect):
-        assert DecimalValue(dialect, decimal.Decimal("3.14")).to_sql() == (
-            "?",
-            (decimal.Decimal("3.14"),),
-        )
+        value = decimal.Decimal("3.14")
+        assert Literal(dialect, value).to_sql() == ("?", (value,))
 
     @pytest.mark.parametrize(
         "value, expected",
@@ -211,17 +175,14 @@ class TestDecimalValue:
             (decimal.Decimal("1e-38"), "BIGNUMERIC '1e-38'"),
         ],
     )
-    def test_ddl_position_spells_the_keyword_literal(self, dialect, value, expected):
-        assert _ddl(DecimalValue)(dialect, value).to_sql() == (expected, ())
+    def test_inline_position_spells_the_keyword_literal(self, dialect, value, expected):
+        assert _inline(dialect, value) == (expected, ())
 
     def test_the_partial_39th_integer_digit_is_inside_the_range(self, dialect):
         # 1e38 has a 39-digit integer part -- the partial digit of the
         # "approximately 76.8 digits" precision -- and is inside
         # BIGNUMERIC's documented range, so it is spelled, not refused.
-        assert _ddl(DecimalValue)(dialect, decimal.Decimal("1e38")).to_sql() == (
-            "BIGNUMERIC '1e+38'",
-            (),
-        )
+        assert _inline(dialect, decimal.Decimal("1e38")) == ("BIGNUMERIC '1e+38'", ())
 
     def test_the_documented_bignumeric_bounds_are_spelled(self, dialect):
         # The documented Min and Max, transcribed from the data-types
@@ -231,56 +192,54 @@ class TestDecimalValue:
         # significant digits), so str() gives the plain form -- 39 integer
         # digits, point, 38 fractional digits -- which the quoted-value
         # grammar takes as it stands.
-        assert _ddl(DecimalValue)(dialect, decimal.Decimal(
-            "5.7896044618658097711785492504343953926634992332820282019728792003956564819967E+38"
-        )).to_sql() == (
+        assert _inline(
+            dialect,
+            decimal.Decimal(
+                "5.7896044618658097711785492504343953926634992332820282019728792003956564819967E+38"
+            ),
+        ) == (
             "BIGNUMERIC '578960446186580977117854925043439539266.34992332820282019728792003956564819967'",
             (),
         )
-        assert _ddl(DecimalValue)(dialect, decimal.Decimal(
-            "-5.7896044618658097711785492504343953926634992332820282019728792003956564819968E+38"
-        )).to_sql() == (
+        assert _inline(
+            dialect,
+            decimal.Decimal(
+                "-5.7896044618658097711785492504343953926634992332820282019728792003956564819968E+38"
+            ),
+        ) == (
             "BIGNUMERIC '-578960446186580977117854925043439539266.34992332820282019728792003956564819968'",
             (),
         )
 
     def test_past_bignumerics_documented_range_is_refused(self, dialect):
         with pytest.raises(ValueError, match="BIGNUMERIC"):
-            _ddl(DecimalValue)(dialect, decimal.Decimal("6e38")).to_sql()
+            _inline(dialect, decimal.Decimal("6e38"))
 
     def test_a_scale_past_bignumerics_is_refused(self, dialect):
         with pytest.raises(ValueError, match="BIGNUMERIC"):
-            _ddl(DecimalValue)(dialect, decimal.Decimal("1e-39")).to_sql()
+            _inline(dialect, decimal.Decimal("1e-39"))
 
     def test_non_finite_is_refused(self, dialect):
         with pytest.raises(ValueError, match="non-finite"):
-            _ddl(DecimalValue)(dialect, decimal.Decimal("NaN")).to_sql()
+            _inline(dialect, decimal.Decimal("NaN"))
 
 
-class TestDateValue:
+class TestDate:
     def test_data_position_binds_the_date(self, dialect):
-        assert DateValue(dialect, datetime.date(2014, 9, 27)).to_sql() == (
-            "?",
-            (datetime.date(2014, 9, 27),),
-        )
+        value = datetime.date(2014, 9, 27)
+        assert Literal(dialect, value).to_sql() == ("?", (value,))
 
-    def test_ddl_position_spells_the_typed_literal(self, dialect):
-        assert _ddl(DateValue)(dialect, datetime.date(2014, 9, 27)).to_sql() == (
-            "DATE '2014-09-27'",
-            (),
-        )
+    def test_inline_position_spells_the_typed_literal(self, dialect):
+        assert _inline(dialect, datetime.date(2014, 9, 27)) == ("DATE '2014-09-27'", ())
 
 
-class TestTimeValue:
+class TestTime:
     def test_data_position_binds_the_time(self, dialect):
-        assert TimeValue(dialect, datetime.time(12, 30)).to_sql() == (
-            "?",
-            (datetime.time(12, 30),),
-        )
+        value = datetime.time(12, 30)
+        assert Literal(dialect, value).to_sql() == ("?", (value,))
 
-    def test_ddl_position_spells_the_typed_literal(self, dialect):
-        value = datetime.time(12, 30, 0, 450000)
-        assert _ddl(TimeValue)(dialect, value).to_sql() == (
+    def test_inline_position_spells_the_typed_literal(self, dialect):
+        assert _inline(dialect, datetime.time(12, 30, 0, 450000)) == (
             "TIME '12:30:00.450000'",
             (),
         )
@@ -290,19 +249,16 @@ class TestTimeValue:
             12, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=5))
         )
         with pytest.raises(ValueError, match="aware time"):
-            _ddl(TimeValue)(dialect, value).to_sql()
+            _inline(dialect, value)
 
 
-class TestTimestampValue:
+class TestTimestamp:
     def test_data_position_binds_the_datetime(self, dialect):
-        assert TimestampValue(dialect, datetime.datetime(2014, 9, 27, 12, 30)).to_sql() == (
-            "?",
-            (datetime.datetime(2014, 9, 27, 12, 30),),
-        )
+        value = datetime.datetime(2014, 9, 27, 12, 30)
+        assert Literal(dialect, value).to_sql() == ("?", (value,))
 
     def test_a_naive_datetime_is_the_zoneless_datetime_literal(self, dialect):
-        value = datetime.datetime(2014, 9, 27, 12, 30, 0, 450000)
-        assert _ddl(TimestampValue)(dialect, value).to_sql() == (
+        assert _inline(dialect, datetime.datetime(2014, 9, 27, 12, 30, 0, 450000)) == (
             "DATETIME '2014-09-27 12:30:00.450000'",
             (),
         )
@@ -311,10 +267,7 @@ class TestTimestampValue:
         value = datetime.datetime(
             2014, 9, 27, 12, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=5))
         )
-        assert _ddl(TimestampValue)(dialect, value).to_sql() == (
-            "TIMESTAMP '2014-09-27 12:30:00+05:00'",
-            (),
-        )
+        assert _inline(dialect, value) == ("TIMESTAMP '2014-09-27 12:30:00+05:00'", ())
 
 
 class TestTheKindsBigQueryAgreesWith:
@@ -322,31 +275,45 @@ class TestTheKindsBigQueryAgreesWith:
 
     ``NULL`` is the keyword, ``BOOL`` takes ``TRUE``/``FALSE``, ``INT64``
     and ``FLOAT64`` literals are numeric text, and a ``STRING`` literal is
-    quoted -- all of them the core mixin's own answers, kept by position.
+    quoted -- all of them the base's own answers, kept by position.
     """
 
     def test_null_binds_and_spells_the_keyword(self, dialect):
-        assert NullValue(dialect).to_sql() == ("?", (None,))
-        assert _ddl(NullValue)(dialect).to_sql() == ("NULL", ())
+        assert Literal(dialect, None).to_sql() == ("?", (None,))
+        assert _inline(dialect, None) == ("NULL", ())
 
     @pytest.mark.parametrize("value, expected", [(True, "TRUE"), (False, "FALSE")])
     def test_boolean_spells_true_false(self, dialect, value, expected):
-        assert _ddl(BooleanValue)(dialect, value).to_sql() == (expected, ())
+        assert _inline(dialect, value) == (expected, ())
 
     def test_integer_spells_numeric_text(self, dialect):
-        assert _ddl(IntegerValue)(dialect, 123).to_sql() == ("123", ())
+        assert _inline(dialect, 123) == ("123", ())
 
     def test_float_spells_numeric_text(self, dialect):
-        assert _ddl(FloatValue)(dialect, 1.5).to_sql() == ("1.5", ())
+        assert _inline(dialect, 1.5) == ("1.5", ())
 
     def test_string_spells_quoted(self, dialect):
-        assert _ddl(StringValue)(dialect, "abc").to_sql() == ("'abc'", ())
+        assert _inline(dialect, "abc") == ("'abc'", ())
 
     def test_string_escapes_the_quote_with_a_backslash(self, dialect):
-        assert _ddl(StringValue)(dialect, "it's").to_sql() == ("'it\\'s'", ())
+        assert _inline(dialect, "it's") == ("'it\\'s'", ())
 
     def test_string_escapes_the_backslash_itself(self, dialect):
-        assert _ddl(StringValue)(dialect, "a\\b").to_sql() == ("'a\\\\b'", ())
+        assert _inline(dialect, "a\\b") == ("'a\\\\b'", ())
+
+
+class TestTheNonFiniteFloats:
+    """NaN and the infinities never reach SQL text (core kinds of their own).
+
+    The base refuses them at the literal entry point, and BigQuery adds no
+    spelling: a ``float`` position carrying one has no SQL text, and the
+    kinds that carry them travel as text in the artifact rather than as SQL.
+    """
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    def test_refused_at_the_literal_entry_point(self, dialect, value):
+        with pytest.raises(ValueError):
+            _inline(dialect, value)
 
 
 class TestTheDialectWideEscapePolicy:
@@ -355,7 +322,7 @@ class TestTheDialectWideEscapePolicy:
     The escape table documents ``\\'`` for a single quote and makes
     backslashes escape-sequence introducers, so a literal backslash is
     doubled first; quote doubling is not in the table at all. Every inline
-    string the dialect renders -- value nodes, OPTIONS entries, comments --
+    string the dialect renders -- literals, OPTIONS entries, comments --
     goes through this policy.
     """
 

@@ -52,11 +52,6 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     # override is needed. ``TRIM`` differs and is overridden by
     # BigQueryTrimMixin (below) for the reason documented there.
     LpadMixin, RepeatMixin, RpadMixin,
-    # The typed value nodes' tier-1 rendering: the core mixin supplies the
-    # data-position binding and the NULL/boolean/numeric/string defaults;
-    # BigQueryTypedValueMixin (ahead of it, from .mixins) spells the kinds
-    # this grammar writes differently.
-    TypedValueMixin,
 )
 from .protocols import (
     BigQueryArraySupport,
@@ -97,10 +92,10 @@ from .mixins import (
     # TRIM is the one of the four string nodes BigQuery spells differently:
     # the direction lives in the function name, so BigQueryTrimMixin must
     # outrank core's TrimMixin in the MRO. LPAD, RPAD and REPEAT are the
-    # shared spellings verbatim here, and BigQueryTypedValueMixin follows
-    # the same pattern ahead of core's TypedValueMixin (imported above).
+    # shared spellings verbatim here, and BigQueryLiteralValueMixin follows
+    # the same pattern (see its position below).
     BigQueryTrimMixin,
-    BigQueryTypedValueMixin,
+    BigQueryLiteralValueMixin,
 )
 
 
@@ -136,12 +131,12 @@ class BigQueryDialect(
     # REPEAT are the shared spellings verbatim here, so the generic mixins
     # answer for those three unchanged.
     BigQueryTrimMixin,
-    # Value literals: BigQuery's spellings ahead of the core TypedValueMixin,
-    # whose tier-1 defaults the dialect keeps for the kinds this grammar
-    # agrees with. Both precede SQLDialectBase, so every format_*_value the
-    # typed nodes dispatch to exists on the dialect.
-    BigQueryTypedValueMixin,
-    TypedValueMixin,
+    # Value literals: BigQuery's spellings ahead of SQLDialectBase, whose
+    # portable forms this dialect keeps for the kinds this grammar agrees
+    # with. A mixin that overrides format_literal and is placed after the
+    # class that defines it never wins the lookup, so this position is
+    # structural rather than stylistic.
+    BigQueryLiteralValueMixin,
     # The backend's one naming-side mixin: both levels rendered, and
     # validate_catalog_name narrowed, because a BigQuery path is
     # project.dataset.object and a project with no dataset is not a name.
