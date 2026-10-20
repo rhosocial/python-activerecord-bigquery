@@ -20,7 +20,7 @@ from rhosocial.activerecord.backend.dialect.protocols import (
     DropTypeSupport,
 )
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression import BaseExpression, DdlLiteral
+from rhosocial.activerecord.backend.expression import BaseExpression, Literal
 from rhosocial.activerecord.backend.expression.objects import Domain, Schema, Type
 from rhosocial.activerecord.backend.expression.statements import (
     AlterDomainStatement,
@@ -147,7 +147,7 @@ def _type_nodes(dialect: BigQueryDialect) -> Tuple[BaseExpression, ...]:
 
 
 def _domain_nodes(dialect: BigQueryDialect) -> Tuple[BaseExpression, ...]:
-    condition = DomainValueExpression(dialect) > DdlLiteral(dialect, 0)
+    condition = DomainValueExpression(dialect) > Literal(dialect, 0, inline=True)
     check = DomainCheckConstraint(dialect, condition, name="nonnegative")
     action = DropDomainDefaultAction(dialect)
     return (
@@ -264,7 +264,7 @@ def test_column_types_and_dataset_schema_remain_separate(
 ) -> None:
     data_types = (
         JsonType(dialect),
-        ArrayType(dialect, IntegerType(dialect)),
+        ArrayType(dialect, element_type=IntegerType(dialect)),
     )
     for data_type in data_types:
         assert isinstance(data_type, DataType)

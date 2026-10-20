@@ -42,7 +42,7 @@ from rhosocial.activerecord.backend.expression.bases import BaseExpression
 # annotation naming it wants an object too.
 _MENTIONS_RELATION = re.compile(
     r"\b(Table|View|MaterializedView|Index|Sequence|Type|Domain|Function|Trigger"
-    r"|Schema|Database|RelationObject|SchemaObject|NodeTable|EdgeTable)\b"
+    r"|Schema|Database|RelationObject|SchemaObject|NodeTable)\b"
 )
 
 # An INSERT's data source. It is an expression now, so it needs a real one --
@@ -332,7 +332,6 @@ def special_constructors():
         "graph.GraphVertex": _graph_vertex,
         "graph.GraphEdge": _graph_edge,
         "graph.VertexTable": _node_table,
-        "graph.EdgeTable": _edge_table,
         "graph.GraphTableExpression": _graph_table_expr,
         "graph.CreatePropertyGraphStatement": _create_property_graph_expr,
         "graph.DropPropertyGraphStatement": _drop_property_graph_expr,
@@ -669,16 +668,6 @@ def _node_table(dialect):
     return VertexTable(dialect, NodeTable(dialect, "n"))
 
 
-def _edge_table(dialect):
-    """A graph edge table declaration."""
-    from rhosocial.activerecord.backend.expression.graph import EdgeTable
-    from rhosocial.activerecord.backend.expression.objects import (
-        EdgeTable as EdgeTableObject,
-    )
-
-    return EdgeTable(dialect, EdgeTableObject(dialect, "e"), ["s"], ["d"])
-
-
 def _graph_vertex(dialect):
     from rhosocial.activerecord.backend.expression.graph import GraphVertex
     from rhosocial.activerecord.backend.expression.objects import NodeTable
@@ -773,7 +762,7 @@ def _relation(dialect, annotation):
     """
     import rhosocial.activerecord.backend.expression.objects as objects
 
-    for kind in ("MaterializedView", "ForeignTable", "NodeTable", "EdgeTable",
+    for kind in ("MaterializedView", "ForeignTable", "NodeTable",
                  "Sequence", "Index", "View", "Table", "Type", "Domain",
                  "Function", "Trigger", "Schema", "Database"):
         if re.search(rf"\b{kind}\b", annotation):
@@ -849,16 +838,16 @@ def _update_expr(dialect):
 
 def _alter_table_expr(dialect):
     from rhosocial.activerecord.backend.expression.statements.ddl_alter import (
-        AddColumn,
+        AddColumnAction,
         AlterTableStatement,
-        DropColumn,
+        DropColumnAction,
     )
 
     column = _column_definition(dialect)
     return AlterTableStatement(
         dialect,
         table=_table(dialect, "t"),
-        actions=[DropColumn(dialect, "a"), AddColumn(dialect, column=column)],
+        actions=[DropColumnAction(dialect, "a"), AddColumnAction(dialect, column=column)],
     )
 
 
