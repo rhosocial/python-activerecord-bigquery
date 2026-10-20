@@ -157,9 +157,8 @@ class AsyncBigQueryBackend(BigQueryQualifiedNameMixin, AsyncStorageBackend):
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
 
-        qualified = self._render_relation(table, schema_name)
-        sql = f"SELECT COALESCE(MAX(`{pk_column}`), 0) + 1 AS next_id FROM {qualified}"
-        result = await self.execute(sql, options=ExecutionOptions(stmt_type=StatementType.DQL))
+        sql, params = self._next_pk_expression(table, schema_name, pk_column).to_sql()
+        result = await self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
         row = result.data[0]
         value = row.get("next_id") if isinstance(row, dict) else row[0]
         key = (schema_name, table, pk_column)
@@ -277,12 +276,7 @@ class AsyncBigQueryBackend(BigQueryQualifiedNameMixin, AsyncStorageBackend):
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
 
-        where_sql, params = where.to_sql()
-        stripped = where_sql.strip()
-        if stripped.upper().startswith("WHERE "):
-            where_sql = stripped[5:].strip()
-        qualified = self._render_relation(table, schema_name)
-        sql = f"SELECT COUNT(*) AS n FROM {qualified} WHERE {where_sql}"
+        sql, params = self._count_expression(table, schema_name, where).to_sql()
         result = await self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
         if not result.data:
             return None
