@@ -9,6 +9,7 @@ from rhosocial.activerecord.backend.expression.query_sources import SetOperation
 
 if TYPE_CHECKING:
     from rhosocial.activerecord.backend.expression.core import Column
+    from rhosocial.activerecord.backend.expression.predicates import LikePredicate
 
 #: The node's operation words mapped to the spelling GoogleSQL needs. Every
 #: entry carries the explicit ALL/DISTINCT qualifier the grammar requires --
@@ -68,6 +69,45 @@ class BigQueryDQLMixin:
         right_sql, right_params = _render(expr.right)
         base_sql = f"{left_sql} {_OP_SPELLINGS[expr.op]} {right_sql}"
         return base_sql, tuple(left_params + right_params)
+
+    def format_like_predicate(self, expr: "LikePredicate") -> Tuple[str, tuple]:
+        """Format a ``LIKE`` predicate, refusing the ``ILIKE`` spelling.
+
+        ``LikePredicate`` carries the operation as a wire word, and the SQL
+        keyword is written here. Two of the three words are BigQuery's:
+        ``LIKE`` and ``NOT LIKE``. The third is not -- GoogleSQL has no
+        ``ILIKE`` operator, and the portable case-insensitive answer is a
+        ``LOWER()`` comparison -- so rendering it would hand the server a
+        keyword it rejects, from a node the caller built, with nothing on the
+        way saying so (§6, §17: a spelling the engine lacks is refused, not
+        silently written).
+
+        ``ILikePredicate`` stays a separate promise and a separate kind; it is
+        refused by its own absent formatter, not by this method.
+
+        Args:
+            expr: The pattern expression exposing ``left``, ``op`` and
+                ``pattern``.
+
+        Returns:
+            Tuple of (SQL string, parameters tuple).
+
+        Raises:
+            UnsupportedFeatureError: ``expr.op`` is ``ILIKE``.
+        """
+        from rhosocial.activerecord.backend.expression.predicates import LikeOperator
+
+        if expr.op is LikeOperator.ILIKE:
+            raise UnsupportedFeatureError(
+                self.name,
+                "ILIKE",
+                "BigQuery has no ILIKE operator; compare LOWER(column) with "
+                "LOWER(pattern), or build an ILikePredicate for the portable "
+                "form.",
+            )
+        left_sql, left_params = expr.left.to_sql()
+        pattern_sql, pattern_params = expr.pattern.to_sql()
+        return (f"{left_sql} {expr.op.keyword} {pattern_sql}", left_params + pattern_params)
 
     def supports_fetch_with_ties(self) -> bool:
         """BigQuery does not support FETCH ... WITH TIES."""
