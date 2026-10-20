@@ -54,17 +54,17 @@ class TestQualifiedStatementsRender:
         """A class defined in this repository, qualified by a formatter here."""
         from rhosocial.activerecord.backend.expression import Column, QueryStatement
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
-            BigQueryCreateMaterializedViewExpression,
+            BigQueryCreateMaterializedViewStatement,
         )
 
         query = QueryStatement(dialect, [Column(dialect, "id")], from_="orders")
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect, view=MaterializedView(dialect, "mv_orders"), query=query
         )
         assert expr.to_sql()[0] == (
             "CREATE MATERIALIZED VIEW `mv_orders` AS SELECT `id` FROM `orders`"
         ), expr.to_sql()[0]
-        qualified = BigQueryCreateMaterializedViewExpression(
+        qualified = BigQueryCreateMaterializedViewStatement(
             dialect, view=MaterializedView(dialect, "mv_orders", schema_name="app"), query=query
         )
         assert qualified.to_sql()[0] == (
@@ -74,14 +74,14 @@ class TestQualifiedStatementsRender:
 
     def test_drop_materialized_view(self, dialect):
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
-            BigQueryDropMaterializedViewExpression,
+            BigQueryDropMaterializedViewStatement,
         )
 
-        expr = BigQueryDropMaterializedViewExpression(
+        expr = BigQueryDropMaterializedViewStatement(
             dialect, view=MaterializedView(dialect, "mv_orders")
         )
         assert expr.to_sql()[0] == "DROP MATERIALIZED VIEW `mv_orders`", expr.to_sql()[0]
-        qualified = BigQueryDropMaterializedViewExpression(
+        qualified = BigQueryDropMaterializedViewStatement(
             dialect, view=MaterializedView(dialect, "mv_orders", schema_name="app")
         )
         assert qualified.to_sql()[0] == (
@@ -95,11 +95,11 @@ class TestQualifiedStatementsRender:
         class, so it is one of the two that reached CI this way.
         """
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
-            BigQueryAlterMaterializedViewSetOptionsExpression,
+            BigQueryAlterMaterializedViewSetOptionsStatement,
         )
 
         def build(schema_name=None):
-            return BigQueryAlterMaterializedViewSetOptionsExpression(
+            return BigQueryAlterMaterializedViewSetOptionsStatement(
                 dialect,
                 view=MaterializedView(dialect, "mv_orders", schema_name=schema_name),
                 options={"enable_refresh": True},
@@ -129,17 +129,17 @@ class TestQualifiedStatementsRender:
         from rhosocial.activerecord.backend.expression import Column, QueryStatement
         from rhosocial.activerecord.backend.expression.objects import Table
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
-            BigQueryAlterMaterializedViewSetOptionsExpression,
-            BigQueryCreateMaterializedViewExpression,
-            BigQueryCreateMaterializedViewReplicaExpression,
-            BigQueryDropMaterializedViewExpression,
+            BigQueryAlterMaterializedViewSetOptionsStatement,
+            BigQueryCreateMaterializedViewStatement,
+            BigQueryCreateMaterializedViewReplicaStatement,
+            BigQueryDropMaterializedViewStatement,
         )
 
         query = QueryStatement(dialect, [Column(dialect, "id")], from_="orders")
         wrong = Table(dialect, "orders")
 
         with pytest.raises(TypeError) as exc:
-            BigQueryCreateMaterializedViewExpression(
+            BigQueryCreateMaterializedViewStatement(
                 dialect, view=wrong, query=query
             ).to_sql()
         assert "CreateMaterializedViewStatement.view must be a MaterializedView" in str(
@@ -147,17 +147,17 @@ class TestQualifiedStatementsRender:
         )
 
         with pytest.raises(TypeError) as exc:
-            BigQueryDropMaterializedViewExpression(dialect, view=wrong).to_sql()
+            BigQueryDropMaterializedViewStatement(dialect, view=wrong).to_sql()
         assert "DropMaterializedViewStatement.view must be a MaterializedView" in str(
             exc.value
         )
 
         with pytest.raises(TypeError) as exc:
-            BigQueryAlterMaterializedViewSetOptionsExpression(
+            BigQueryAlterMaterializedViewSetOptionsStatement(
                 dialect, view=wrong, options={"enable_refresh": True}
             ).to_sql()
         assert (
-            "BigQueryAlterMaterializedViewSetOptionsExpression.view must be a "
+            "BigQueryAlterMaterializedViewSetOptionsStatement.view must be a "
             "MaterializedView" in str(exc.value)
         )
 
@@ -170,10 +170,10 @@ class TestQualifiedStatementsRender:
         of the wrong kind that happens to carry the slots.
         """
         from rhosocial.activerecord.backend.impl.bigquery.expression import (
-            BigQueryDropMaterializedViewExpression,
+            BigQueryDropMaterializedViewStatement,
         )
 
-        sql, _ = BigQueryDropMaterializedViewExpression(
+        sql, _ = BigQueryDropMaterializedViewStatement(
             dialect,
             view=MaterializedView(dialect, "mv", schema_name="app"),
         ).to_sql()
@@ -213,18 +213,18 @@ class TestQualifiedStatementsRender:
         """
         from rhosocial.activerecord.backend.expression import Column, QueryStatement
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
-            BigQueryAlterMaterializedViewSetOptionsExpression,
-            BigQueryCreateMaterializedViewExpression,
-            BigQueryDropMaterializedViewExpression,
+            BigQueryAlterMaterializedViewSetOptionsStatement,
+            BigQueryCreateMaterializedViewStatement,
+            BigQueryDropMaterializedViewStatement,
         )
 
         view = MaterializedView(dialect, "mv_orders", schema_name="app")
         query = QueryStatement(dialect, [Column(dialect, "id")], from_="orders")
         rendered = [
-            BigQueryCreateMaterializedViewExpression(dialect, view=view, query=query)
+            BigQueryCreateMaterializedViewStatement(dialect, view=view, query=query)
             .to_sql()[0],
-            BigQueryDropMaterializedViewExpression(dialect, view=view).to_sql()[0],
-            BigQueryAlterMaterializedViewSetOptionsExpression(
+            BigQueryDropMaterializedViewStatement(dialect, view=view).to_sql()[0],
+            BigQueryAlterMaterializedViewSetOptionsStatement(
                 dialect, view=view, options={"enable_refresh": True}
             ).to_sql()[0],
         ]
@@ -253,10 +253,10 @@ class TestQualifiedStatementsRender:
         """
         from rhosocial.activerecord.backend.expression import Column, QueryStatement
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
-            BigQueryDropMaterializedViewExpression,
+            BigQueryDropMaterializedViewStatement,
         )
 
-        expr = BigQueryDropMaterializedViewExpression(
+        expr = BigQueryDropMaterializedViewStatement(
             dialect,
             view=MaterializedView(dialect, "mv_orders", schema_name="app", catalog_name="proj"),
         )
@@ -271,10 +271,10 @@ class TestQualifiedStatementsRender:
         is known -- not from the constructor, where it is not.
         """
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
-            BigQueryDropMaterializedViewExpression,
+            BigQueryDropMaterializedViewStatement,
         )
 
-        expr = BigQueryDropMaterializedViewExpression(
+        expr = BigQueryDropMaterializedViewStatement(
             dialect, view=MaterializedView(dialect, "mv_orders", catalog_name="proj")
         )
         with pytest.raises(ValueError, match="project only together with a dataset"):
@@ -310,19 +310,19 @@ class TestExpressionSignatures:
         [
             (
                 "rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view",
-                "BigQueryCreateMaterializedViewExpression",
+                "BigQueryCreateMaterializedViewStatement",
             ),
             (
                 "rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view",
-                "BigQueryDropMaterializedViewExpression",
+                "BigQueryDropMaterializedViewStatement",
             ),
             (
                 "rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view",
-                "BigQueryAlterMaterializedViewSetOptionsExpression",
+                "BigQueryAlterMaterializedViewSetOptionsStatement",
             ),
             (
                 "rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view",
-                "BigQueryCreateMaterializedViewReplicaExpression",
+                "BigQueryCreateMaterializedViewReplicaStatement",
             ),
         ],
     )
@@ -357,15 +357,15 @@ class TestExpressionSignatures:
         separately.
         """
         from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
-            BigQueryAlterMaterializedViewSetOptionsExpression,
-            BigQueryCreateMaterializedViewExpression,
-            BigQueryDropMaterializedViewExpression,
+            BigQueryAlterMaterializedViewSetOptionsStatement,
+            BigQueryCreateMaterializedViewStatement,
+            BigQueryDropMaterializedViewStatement,
         )
 
         for cls in (
-            BigQueryCreateMaterializedViewExpression,
-            BigQueryDropMaterializedViewExpression,
-            BigQueryAlterMaterializedViewSetOptionsExpression,
+            BigQueryCreateMaterializedViewStatement,
+            BigQueryDropMaterializedViewStatement,
+            BigQueryAlterMaterializedViewSetOptionsStatement,
         ):
             params = inspect.signature(cls.__init__).parameters
             assert "schema_name" not in params, (

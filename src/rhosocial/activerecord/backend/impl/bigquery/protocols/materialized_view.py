@@ -28,6 +28,12 @@ class BigQueryMaterializedViewSupport(Protocol):
     -- dataset and, optionally, project in the object's fixed slots -- so all
     four statements render their target through the shared qualified-name
     renderer.
+
+    One entry per kind, ``format_<kind>`` (§2, §3): the two core statements
+    this dialect renders, and the four kinds this backend defines. The core
+    ``CreateMaterializedViewStatement`` / ``DropMaterializedViewStatement``
+    keep core's entry names; the BigQuery-named kinds carry the backend name at
+    the head of theirs, exactly as their kinds do.
     """
 
     def supports_materialized_view(self) -> bool:
@@ -47,17 +53,33 @@ class BigQueryMaterializedViewSupport(Protocol):
         ...
 
     def format_create_materialized_view_statement(self, expr: Any) -> Tuple[str, tuple]:
-        """Format ``CREATE [OR REPLACE] MATERIALIZED VIEW [IF NOT EXISTS]``."""
+        """Format the core ``CREATE MATERIALIZED VIEW`` statement."""
         ...
 
     def format_drop_materialized_view_statement(self, expr: Any) -> Tuple[str, tuple]:
+        """Format the core ``DROP MATERIALIZED VIEW`` statement."""
+        ...
+
+    def format_bigquery_create_materialized_view_statement(
+        self, expr: Any
+    ) -> Tuple[str, tuple]:
+        """Format ``CREATE [OR REPLACE] MATERIALIZED VIEW [IF NOT EXISTS]``."""
+        ...
+
+    def format_bigquery_drop_materialized_view_statement(
+        self, expr: Any
+    ) -> Tuple[str, tuple]:
         """Format ``DROP MATERIALIZED VIEW [IF EXISTS]``."""
         ...
 
-    def format_alter_materialized_view_set_options_statement(self, expr: Any) -> Tuple[str, tuple]:
+    def format_bigquery_alter_materialized_view_set_options_statement(
+        self, expr: Any
+    ) -> Tuple[str, tuple]:
         """Format ``ALTER MATERIALIZED VIEW [IF EXISTS] ... SET OPTIONS(...)``."""
         ...
 
-    def format_create_materialized_view_replica_statement(self, expr: Any) -> Tuple[str, tuple]:
+    def format_bigquery_create_materialized_view_replica_statement(
+        self, expr: Any
+    ) -> Tuple[str, tuple]:
         """Format ``CREATE MATERIALIZED VIEW replica ... AS REPLICA OF source``."""
         ...

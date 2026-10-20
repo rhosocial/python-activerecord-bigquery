@@ -40,7 +40,7 @@ Divergence from the SQL-standard statement
 * **There is no ``REFRESH MATERIALIZED VIEW`` statement.** BigQuery refreshes on
   a schedule configured through ``OPTIONS(enable_refresh=…,
   refresh_interval_minutes=…)``; use
-  :class:`BigQueryAlterMaterializedViewSetOptionsExpression` to change it.
+  :class:`BigQueryAlterMaterializedViewSetOptionsStatement` to change it.
 * ``DROP`` has neither ``CASCADE`` nor ``RESTRICT``.
 """
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -59,14 +59,14 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 __all__ = [
-    "BigQueryAlterMaterializedViewSetOptionsExpression",
-    "BigQueryCreateMaterializedViewExpression",
-    "BigQueryCreateMaterializedViewReplicaExpression",
-    "BigQueryDropMaterializedViewExpression",
+    "BigQueryAlterMaterializedViewSetOptionsStatement",
+    "BigQueryCreateMaterializedViewStatement",
+    "BigQueryCreateMaterializedViewReplicaStatement",
+    "BigQueryDropMaterializedViewStatement",
 ]
 
 
-class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewStatement):
+class BigQueryCreateMaterializedViewStatement(CreateMaterializedViewStatement):
     """``CREATE [OR REPLACE] MATERIALIZED VIEW [IF NOT EXISTS] ... AS query``.
 
     Args:
@@ -132,10 +132,10 @@ class BigQueryCreateMaterializedViewExpression(CreateMaterializedViewStatement):
     @property
     def format_method(self) -> str:
         """The dialect formatting method that renders this expression."""
-        return "format_create_materialized_view_statement"
+        return "format_bigquery_create_materialized_view_statement"
 
 
-class BigQueryDropMaterializedViewExpression(DropMaterializedViewStatement):
+class BigQueryDropMaterializedViewStatement(DropMaterializedViewStatement):
     """``DROP MATERIALIZED VIEW [IF EXISTS] mv_name``.
 
     BigQuery has neither ``CASCADE`` nor ``RESTRICT`` for materialized views;
@@ -165,10 +165,10 @@ class BigQueryDropMaterializedViewExpression(DropMaterializedViewStatement):
     @property
     def format_method(self) -> str:
         """The dialect formatting method that renders this expression."""
-        return "format_drop_materialized_view_statement"
+        return "format_bigquery_drop_materialized_view_statement"
 
 
-class BigQueryAlterMaterializedViewSetOptionsExpression(BaseExpression):
+class BigQueryAlterMaterializedViewSetOptionsStatement(BaseExpression):
     """``ALTER MATERIALIZED VIEW [IF EXISTS] mv_name SET OPTIONS(...)``.
 
     This is BigQuery's only ``ALTER MATERIALIZED VIEW`` form — there is no way to
@@ -199,10 +199,10 @@ class BigQueryAlterMaterializedViewSetOptionsExpression(BaseExpression):
     @property
     def format_method(self) -> str:
         """The dialect formatting method that renders this expression."""
-        return "format_alter_materialized_view_set_options_statement"
+        return "format_bigquery_alter_materialized_view_set_options_statement"
 
 
-class BigQueryCreateMaterializedViewReplicaExpression(BaseExpression):
+class BigQueryCreateMaterializedViewReplicaStatement(BaseExpression):
     """``CREATE MATERIALIZED VIEW replica_name [OPTIONS(...)] AS REPLICA OF src``."""
 
     #: Documented bounds for ``replication_interval_seconds``.
@@ -246,4 +246,4 @@ class BigQueryCreateMaterializedViewReplicaExpression(BaseExpression):
     @property
     def format_method(self) -> str:
         """The dialect formatting method that renders this expression."""
-        return "format_create_materialized_view_replica_statement"
+        return "format_bigquery_create_materialized_view_replica_statement"

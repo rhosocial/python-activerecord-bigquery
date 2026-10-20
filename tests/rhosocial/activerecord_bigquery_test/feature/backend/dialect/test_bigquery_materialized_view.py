@@ -19,10 +19,10 @@ from rhosocial.activerecord.backend.expression.statements.ddl_view import (
     RefreshMaterializedViewStatement,
 )
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
-    BigQueryAlterMaterializedViewSetOptionsExpression,
-    BigQueryCreateMaterializedViewExpression,
-    BigQueryCreateMaterializedViewReplicaExpression,
-    BigQueryDropMaterializedViewExpression,
+    BigQueryAlterMaterializedViewSetOptionsStatement,
+    BigQueryCreateMaterializedViewStatement,
+    BigQueryCreateMaterializedViewReplicaStatement,
+    BigQueryDropMaterializedViewStatement,
 )
 from rhosocial.activerecord.backend.impl.bigquery.materialized_view_options import (
     BigQueryMaterializedViewOption,
@@ -76,7 +76,7 @@ class TestCapabilities:
 
 class TestCreateMaterializedView:
     def test_minimal(self, dialect):
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect, MaterializedView(dialect, "sales_summary"), _query(dialect)
         )
         sql, params = expr.to_sql()
@@ -87,20 +87,20 @@ class TestCreateMaterializedView:
         assert params == ()
 
     def test_or_replace(self, dialect):
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect, MaterializedView(dialect, "mv"), _query(dialect), or_replace=True
         )
         assert expr.to_sql()[0].startswith("CREATE OR REPLACE MATERIALIZED VIEW")
 
     def test_if_not_exists(self, dialect):
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect, MaterializedView(dialect, "mv"), _query(dialect), if_not_exists=True
         )
         assert "IF NOT EXISTS" in expr.to_sql()[0]
 
     def test_or_replace_and_if_not_exists_are_exclusive(self, dialect):
         with pytest.raises(ValueError, match="OR REPLACE"):
-            BigQueryCreateMaterializedViewExpression(
+            BigQueryCreateMaterializedViewStatement(
                 dialect,
                 MaterializedView(dialect, "mv"),
                 _query(dialect),
@@ -109,7 +109,7 @@ class TestCreateMaterializedView:
             )
 
     def test_partition_by_and_cluster_by(self, dialect):
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect,
             MaterializedView(dialect, "mv"),
             _query(dialect),
@@ -121,7 +121,7 @@ class TestCreateMaterializedView:
         assert "CLUSTER BY product_id, region" in sql
 
     def test_clause_order_matches_google_sql(self, dialect):
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect,
             MaterializedView(dialect, "mv"),
             _query(dialect),
@@ -136,7 +136,7 @@ class TestCreateMaterializedView:
         assert sql.index("OPTIONS(") < sql.index(" AS ")
 
     def test_options_rendering(self, dialect):
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect,
             MaterializedView(dialect, "mv"),
             _query(dialect),
@@ -160,14 +160,14 @@ class TestCreateMaterializedView:
         identifier, ```analytics.sales_summary```, which names no object
         BigQuery has.
         """
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect, MaterializedView(dialect, "sales_summary", schema_name="analytics"),
             _query(dialect),
         )
         assert "`analytics`.`sales_summary`" in expr.to_sql()[0]
 
     def test_project_qualified_name(self, dialect):
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect,
             MaterializedView(dialect, "sales_summary", schema_name="analytics", catalog_name="proj"),
             _query(dialect),
@@ -176,7 +176,7 @@ class TestCreateMaterializedView:
 
     def test_project_without_dataset_refused(self, dialect):
         """A BigQuery path is project.dataset.table, so this cannot render."""
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect, MaterializedView(dialect, "sales_summary", catalog_name="proj"),
             _query(dialect),
         )
@@ -184,7 +184,7 @@ class TestCreateMaterializedView:
             expr.to_sql()
 
     def test_raw_query_string_accepted(self, dialect):
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect, MaterializedView(dialect, "mv"), "SELECT 1 AS one"
         )
         assert expr.to_sql()[0].endswith("AS SELECT 1 AS one")
@@ -200,7 +200,7 @@ class TestCreateMaterializedView:
 
     def test_empty_cluster_by_rejected(self, dialect):
         with pytest.raises(ValueError, match="cluster_by"):
-            BigQueryCreateMaterializedViewExpression(
+            BigQueryCreateMaterializedViewStatement(
                 dialect, MaterializedView(dialect, "mv"), _query(dialect), cluster_by=[]
             )
 
@@ -300,24 +300,24 @@ class TestCreateRejectsNonBigQueryClauses:
 
 class TestDropMaterializedView:
     def test_plain(self, dialect):
-        expr = BigQueryDropMaterializedViewExpression(dialect, MaterializedView(dialect, "mv"))
+        expr = BigQueryDropMaterializedViewStatement(dialect, MaterializedView(dialect, "mv"))
         assert expr.to_sql()[0] == "DROP MATERIALIZED VIEW `mv`"
 
     def test_if_exists(self, dialect):
-        expr = BigQueryDropMaterializedViewExpression(
+        expr = BigQueryDropMaterializedViewStatement(
             dialect, MaterializedView(dialect, "mv"), if_exists=True
         )
         assert expr.to_sql()[0] == "DROP MATERIALIZED VIEW IF EXISTS `mv`"
 
     def test_cascade_rejected_at_construction(self, dialect):
         with pytest.raises(ValueError, match="CASCADE"):
-            BigQueryDropMaterializedViewExpression(
+            BigQueryDropMaterializedViewStatement(
                 dialect, MaterializedView(dialect, "mv"), cascade=True
             )
 
     def test_restrict_rejected_at_construction(self, dialect):
         with pytest.raises(ValueError, match="RESTRICT"):
-            BigQueryDropMaterializedViewExpression(
+            BigQueryDropMaterializedViewStatement(
                 dialect, MaterializedView(dialect, "mv"), restrict=True
             )
 
@@ -330,7 +330,7 @@ class TestDropMaterializedView:
 
 class TestAlterMaterializedViewSetOptions:
     def test_basic(self, dialect):
-        expr = BigQueryAlterMaterializedViewSetOptionsExpression(
+        expr = BigQueryAlterMaterializedViewSetOptionsStatement(
             dialect,
             MaterializedView(dialect, "mv"),
             {BigQueryMaterializedViewOption.REFRESH_INTERVAL_MINUTES: 20},
@@ -343,7 +343,7 @@ class TestAlterMaterializedViewSetOptions:
         assert params == ()
 
     def test_if_exists(self, dialect):
-        expr = BigQueryAlterMaterializedViewSetOptionsExpression(
+        expr = BigQueryAlterMaterializedViewSetOptionsStatement(
             dialect,
             MaterializedView(dialect, "mv"),
             {BigQueryMaterializedViewOption.ENABLE_REFRESH: False},
@@ -353,20 +353,20 @@ class TestAlterMaterializedViewSetOptions:
 
     def test_empty_options_rejected(self, dialect):
         with pytest.raises(ValueError, match="options"):
-            BigQueryAlterMaterializedViewSetOptionsExpression(
+            BigQueryAlterMaterializedViewSetOptionsStatement(
                 dialect, MaterializedView(dialect, "mv"), {}
             )
 
     def test_undocumented_option_rejected(self, dialect):
         with pytest.raises(ValueError, match="does not document"):
-            BigQueryAlterMaterializedViewSetOptionsExpression(
+            BigQueryAlterMaterializedViewSetOptionsStatement(
                 dialect, MaterializedView(dialect, "mv"), {"enable_reffresh": True}
             )
 
 
 class TestMaterializedViewReplica:
     def test_basic(self, dialect):
-        expr = BigQueryCreateMaterializedViewReplicaExpression(
+        expr = BigQueryCreateMaterializedViewReplicaStatement(
             dialect,
             MaterializedView(dialect, "mv_replica"),
             MaterializedView(dialect, "mv_source"),
@@ -381,7 +381,7 @@ class TestMaterializedViewReplica:
         A replica normally sits in a different dataset from the view it
         mirrors. Reusing one namespace for both made that inexpressible.
         """
-        expr = BigQueryCreateMaterializedViewReplicaExpression(
+        expr = BigQueryCreateMaterializedViewReplicaStatement(
             dialect,
             MaterializedView(dialect, "mv_replica", schema_name="warehouse"),
             MaterializedView(dialect, "mv_source", schema_name="sales"),
@@ -401,13 +401,13 @@ class TestMaterializedViewReplica:
         a missing one. The formatter now checks the kind before rendering, so the
         refusal names the parameter and says what it wanted instead.
         """
-        expr = BigQueryCreateMaterializedViewReplicaExpression(
+        expr = BigQueryCreateMaterializedViewReplicaStatement(
             dialect, "mv_replica", MaterializedView(dialect, "mv_source")
         )
         with pytest.raises(TypeError) as exc_info:
             expr.to_sql()
         assert (
-            "BigQueryCreateMaterializedViewReplicaExpression.replica must be a "
+            "BigQueryCreateMaterializedViewReplicaStatement.replica must be a "
             "MaterializedView, got str" in str(exc_info.value)
         )
 
@@ -418,18 +418,18 @@ class TestMaterializedViewReplica:
         a different dataset from the view it mirrors -- which is exactly why the
         two are separate parameters and each has to be right.
         """
-        expr = BigQueryCreateMaterializedViewReplicaExpression(
+        expr = BigQueryCreateMaterializedViewReplicaStatement(
             dialect, MaterializedView(dialect, "mv_replica"), "mv_source"
         )
         with pytest.raises(TypeError) as exc_info:
             expr.to_sql()
         assert (
-            "BigQueryCreateMaterializedViewReplicaExpression.source_view must be "
+            "BigQueryCreateMaterializedViewReplicaStatement.source_view must be "
             "a MaterializedView, got str" in str(exc_info.value)
         )
 
     def test_with_interval(self, dialect):
-        expr = BigQueryCreateMaterializedViewReplicaExpression(
+        expr = BigQueryCreateMaterializedViewReplicaStatement(
             dialect,
             MaterializedView(dialect, "mv_replica"),
             MaterializedView(dialect, "mv_source"), replication_interval_seconds=600
@@ -440,14 +440,14 @@ class TestMaterializedViewReplica:
     def test_interval_bounds_enforced(self, dialect, seconds):
         """Documented range is 60..3600 inclusive."""
         with pytest.raises(ValueError, match="replication_interval_seconds"):
-            BigQueryCreateMaterializedViewReplicaExpression(
+            BigQueryCreateMaterializedViewReplicaStatement(
                 dialect,
                 MaterializedView(dialect, "mv_replica"),
                 MaterializedView(dialect, "mv_source"), replication_interval_seconds=seconds
             )
 
     def test_documented_defaults(self):
-        expr_cls = BigQueryCreateMaterializedViewReplicaExpression
+        expr_cls = BigQueryCreateMaterializedViewReplicaStatement
         assert expr_cls.MIN_REPLICATION_INTERVAL_SECONDS == 60
         assert expr_cls.MAX_REPLICATION_INTERVAL_SECONDS == 3600
         assert expr_cls.DEFAULT_REPLICATION_INTERVAL_SECONDS == 300

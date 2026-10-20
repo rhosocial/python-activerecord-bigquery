@@ -64,8 +64,8 @@ from rhosocial.activerecord.backend.expression.statements.dql import (
 )
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
-    BigQueryCreateMaterializedViewExpression,
-    BigQueryDropMaterializedViewExpression,
+    BigQueryCreateMaterializedViewStatement,
+    BigQueryDropMaterializedViewStatement,
 )
 
 
@@ -267,7 +267,7 @@ class TestMaterializedViewCreateClauses:
             self._generic(dialect, with_data=True, no_data=True)
 
     def test_bigquery_subclass_renders_the_plain_form(self, dialect):
-        expr = BigQueryCreateMaterializedViewExpression(
+        expr = BigQueryCreateMaterializedViewStatement(
             dialect, MaterializedView(dialect, "mv"), _query(dialect)
         )
         assert expr.to_sql()[0] == (
@@ -308,16 +308,16 @@ class TestMaterializedViewDropClauses:
 
     def test_bigquery_subclass_refuses_both_at_construction(self, dialect):
         with pytest.raises(ValueError, match="CASCADE"):
-            BigQueryDropMaterializedViewExpression(
+            BigQueryDropMaterializedViewStatement(
                 dialect, MaterializedView(dialect, "mv"), cascade=True
             )
         with pytest.raises(ValueError, match="RESTRICT"):
-            BigQueryDropMaterializedViewExpression(
+            BigQueryDropMaterializedViewStatement(
                 dialect, MaterializedView(dialect, "mv"), restrict=True
             )
 
     def test_bigquery_subclass_renders_the_plain_form(self, dialect):
-        expr = BigQueryDropMaterializedViewExpression(
+        expr = BigQueryDropMaterializedViewStatement(
             dialect, MaterializedView(dialect, "mv")
         )
         assert expr.to_sql()[0] == "DROP MATERIALIZED VIEW `mv`"

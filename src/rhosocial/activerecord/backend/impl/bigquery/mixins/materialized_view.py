@@ -6,13 +6,20 @@ ways that must not be papered over — see
 :mod:`..expression.materialized_view` for the grammar. Anything the generic
 expressions carry that BigQuery cannot express is rejected with
 ``UnsupportedFeatureError`` instead of being silently dropped.
+
+One entry per kind (§2). The core statements and this backend's four derived
+statements are different contracts — the derived ones carry ``OR REPLACE``,
+``IF NOT EXISTS``, ``PARTITION BY``, ``CLUSTER BY``, ``OPTIONS(...)`` and
+``AS REPLICA OF``, which the core nodes declare no field for — so each kind
+names its own entry, ``format_<kind>``, and the two entries over each shared
+shape meet in one private helper. A single entry branching on ``isinstance``
+to decide which contract it was handed is what the split removes.
 """
 from typing import Any, Tuple, TYPE_CHECKING
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression.objects import MaterializedView
 
-from ..expression.materialized_view import BigQueryCreateMaterializedViewExpression
 from ..materialized_view_options import resolve_materialized_view_option
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -22,8 +29,10 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     from ..expression.materialized_view import (
-        BigQueryAlterMaterializedViewSetOptionsExpression,
-        BigQueryCreateMaterializedViewReplicaExpression,
+        BigQueryAlterMaterializedViewSetOptionsStatement,
+        BigQueryCreateMaterializedViewReplicaStatement,
+        BigQueryCreateMaterializedViewStatement,
+        BigQueryDropMaterializedViewStatement,
     )
 
 
@@ -43,7 +52,8 @@ class BigQueryMaterializedViewMixin:
 
         Refresh is scheduled through ``OPTIONS(enable_refresh=…,
         refresh_interval_minutes=…)``; use
-        ``format_alter_materialized_view_set_options_statement`` to change it.
+        ``format_bigquery_alter_materialized_view_set_options_statement`` to
+        change it.
         """
         return False
 
@@ -56,17 +66,22 @@ class BigQueryMaterializedViewMixin:
         return True
 
     # ------------------------------------------------------------------
-    # Formatters
+    # CREATE MATERIALIZED VIEW
     # ------------------------------------------------------------------
 
     def format_create_materialized_view_statement(
         self, expr: "CreateMaterializedViewStatement"
     ) -> Tuple[str, tuple]:
-        """Format ``CREATE [OR REPLACE] MATERIALIZED VIEW [IF NOT EXISTS]``.
+        """Format the core ``CREATE MATERIALIZED VIEW`` statement.
+
+        The core node declares no ``OR REPLACE``, ``IF NOT EXISTS``,
+        ``PARTITION BY``, ``CLUSTER BY`` or ``OPTIONS(...)`` field, and this
+        grammar has no clause for the ones it does declare beyond the view and
+        its query — so the clauses it cannot express are refused and the rest
+        renders.
 
         Args:
-            expr: BigQuery or generic create expression, carrying the view it
-                acts on.
+            expr: The core create statement, carrying the view it acts on.
 
         Returns:
             Tuple of (SQL string, params tuple) from the defining query.
@@ -79,44 +94,54 @@ class BigQueryMaterializedViewMixin:
         """
         self._require_materialized_view(expr, "CreateMaterializedViewStatement")
         self._reject_unsupported_clauses(expr, "CREATE MATERIALIZED VIEW")
+        # The core node declares no OR REPLACE / IF NOT EXISTS / PARTITION BY /
+        # CLUSTER BY / OPTIONS field: its grammar has no such clause, so the
+        # helper is told the answers instead of asking an object that does not
+        # carry them.
+        return self._create_materialized_view_sql(expr)
 
-        # OR REPLACE, IF NOT EXISTS, PARTITION BY, CLUSTER BY and OPTIONS are
-        # BigQueryCreateMaterializedViewExpression's own fields. The generic
-        # statement declares none of them -- its grammar has no such clause to
-        # emit -- so they are read only where they are declared, and the
-        # isinstance dispatch on the declared class is what makes each read a
-        # direct one.
-        is_bigquery_create = isinstance(expr, BigQueryCreateMaterializedViewExpression)
+    def format_bigquery_create_materialized_view_statement(
+        self, expr: "BigQueryCreateMaterializedViewStatement"
+    ) -> Tuple[str, tuple]:
+        """Format ``CREATE [OR REPLACE] MATERIALIZED VIEW [IF NOT EXISTS]``.
 
-        parts = ["CREATE"]
-        if is_bigquery_create and expr.or_replace:
-            parts.append("OR REPLACE")
-        parts.append("MATERIALIZED VIEW")
-        if is_bigquery_create and expr.if_not_exists:
-            parts.append("IF NOT EXISTS")
-        parts.append(self._materialized_view_name_sql(expr))
+        Args:
+            expr: The BigQuery create statement, whose own fields add
+                ``OR REPLACE``, ``IF NOT EXISTS``, ``PARTITION BY``,
+                ``CLUSTER BY`` and ``OPTIONS(...)`` to the shared shape.
 
-        if is_bigquery_create:
-            if expr.partition_by:
-                parts.append(f"PARTITION BY {expr.partition_by}")
-            if expr.cluster_by:
-                cols = ", ".join(str(column) for column in expr.cluster_by)
-                parts.append(f"CLUSTER BY {cols}")
-            options = self._format_materialized_view_options(expr.options)
-            if options:
-                parts.append(f"OPTIONS({options})")
+        Returns:
+            Tuple of (SQL string, params tuple) from the defining query.
 
-        query_sql, query_params = self._materialized_view_query_sql(expr)
-        parts.append(f"AS {query_sql}")
-        return " ".join(parts), query_params
+        Raises:
+            TypeError: ``expr.view`` is not a MaterializedView.
+            UnsupportedFeatureError: for the generic clauses BigQuery does not
+                have.
+        """
+        self._require_materialized_view(
+            expr, "BigQueryCreateMaterializedViewStatement"
+        )
+        self._reject_unsupported_clauses(expr, "CREATE MATERIALIZED VIEW")
+        return self._create_materialized_view_sql(
+            expr,
+            or_replace=expr.or_replace,
+            if_not_exists=expr.if_not_exists,
+            partition_by=expr.partition_by,
+            cluster_by=expr.cluster_by,
+            options=expr.options,
+        )
+
+    # ------------------------------------------------------------------
+    # DROP MATERIALIZED VIEW
+    # ------------------------------------------------------------------
 
     def format_drop_materialized_view_statement(
         self, expr: "DropMaterializedViewStatement"
     ) -> Tuple[str, tuple]:
-        """Format ``DROP MATERIALIZED VIEW [IF EXISTS]``.
+        """Format the core ``DROP MATERIALIZED VIEW [IF EXISTS]`` statement.
 
         Args:
-            expr: BigQuery or generic drop expression, carrying the view.
+            expr: The core drop statement, carrying the view.
 
         Raises:
             TypeError: ``expr.view`` is not a MaterializedView.
@@ -124,22 +149,35 @@ class BigQueryMaterializedViewMixin:
                 ``RESTRICT`` here.
         """
         self._require_materialized_view(expr, "DropMaterializedViewStatement")
-        if expr.cascade:
-            raise UnsupportedFeatureError(
-                self.name, "DROP MATERIALIZED VIEW CASCADE"
-            )
-        if expr.restrict:
-            raise UnsupportedFeatureError(
-                self.name, "DROP MATERIALIZED VIEW RESTRICT"
-            )
-        parts = ["DROP MATERIALIZED VIEW"]
-        if expr.if_exists:
-            parts.append("IF EXISTS")
-        parts.append(self._materialized_view_name_sql(expr))
-        return " ".join(parts), ()
+        return self._drop_materialized_view_sql(expr)
 
-    def format_alter_materialized_view_set_options_statement(
-        self, expr: "BigQueryAlterMaterializedViewSetOptionsExpression"
+    def format_bigquery_drop_materialized_view_statement(
+        self, expr: "BigQueryDropMaterializedViewStatement"
+    ) -> Tuple[str, tuple]:
+        """Format ``DROP MATERIALIZED VIEW [IF EXISTS]``.
+
+        The BigQuery node refuses ``CASCADE`` and ``RESTRICT`` at construction,
+        so this entry sees neither; the refusal is stated once, where the
+        caller writes it, rather than twice.
+
+        Args:
+            expr: The BigQuery drop statement, carrying the view.
+
+        Raises:
+            TypeError: ``expr.view`` is not a MaterializedView.
+            UnsupportedFeatureError: either qualifier reached the node anyway.
+        """
+        self._require_materialized_view(
+            expr, "BigQueryDropMaterializedViewStatement"
+        )
+        return self._drop_materialized_view_sql(expr)
+
+    # ------------------------------------------------------------------
+    # ALTER MATERIALIZED VIEW ... SET OPTIONS
+    # ------------------------------------------------------------------
+
+    def format_bigquery_alter_materialized_view_set_options_statement(
+        self, expr: "BigQueryAlterMaterializedViewSetOptionsStatement"
     ) -> Tuple[str, tuple]:
         """Format ``ALTER MATERIALIZED VIEW [IF EXISTS] ... SET OPTIONS(...)``.
 
@@ -147,7 +185,7 @@ class BigQueryMaterializedViewMixin:
             TypeError: ``expr.view`` is not a MaterializedView.
         """
         self._require_materialized_view(
-            expr, "BigQueryAlterMaterializedViewSetOptionsExpression"
+            expr, "BigQueryAlterMaterializedViewSetOptionsStatement"
         )
         parts = ["ALTER MATERIALIZED VIEW"]
         if expr.if_exists:
@@ -157,8 +195,12 @@ class BigQueryMaterializedViewMixin:
         parts.append(f"SET OPTIONS({options})")
         return " ".join(parts), ()
 
-    def format_create_materialized_view_replica_statement(
-        self, expr: "BigQueryCreateMaterializedViewReplicaExpression"
+    # ------------------------------------------------------------------
+    # CREATE MATERIALIZED VIEW ... AS REPLICA OF
+    # ------------------------------------------------------------------
+
+    def format_bigquery_create_materialized_view_replica_statement(
+        self, expr: "BigQueryCreateMaterializedViewReplicaStatement"
     ) -> Tuple[str, tuple]:
         """Format ``CREATE MATERIALIZED VIEW replica ... AS REPLICA OF source``.
 
@@ -176,7 +218,7 @@ class BigQueryMaterializedViewMixin:
         ):
             if not isinstance(candidate, MaterializedView):
                 raise TypeError(
-                    f"BigQueryCreateMaterializedViewReplicaExpression.{label} must "
+                    f"BigQueryCreateMaterializedViewReplicaStatement.{label} must "
                     f"be a MaterializedView, got {type(candidate).__name__}"
                 )
         replica_sql, _ = expr.replica.to_sql()
@@ -194,12 +236,72 @@ class BigQueryMaterializedViewMixin:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _create_materialized_view_sql(
+        self,
+        expr: "CreateMaterializedViewStatement | BigQueryCreateMaterializedViewStatement",
+        *,
+        or_replace: bool = False,
+        if_not_exists: bool = False,
+        partition_by: Any = None,
+        cluster_by: Any = None,
+        options: Any = None,
+    ) -> Tuple[str, tuple]:
+        """The CREATE statement both kinds share, clause by clause.
+
+        Everything up to and including the name is common; the clauses after it
+        are the ones only some nodes declare, so each entry passes its own
+        fields and the core entry passes the constants its grammar has. Reading
+        them off ``expr`` instead would be a probe of an attribute that exists on
+        one node and not the other (§1, §11.2).
+        """
+        parts = ["CREATE"]
+        if or_replace:
+            parts.append("OR REPLACE")
+        parts.append("MATERIALIZED VIEW")
+        if if_not_exists:
+            parts.append("IF NOT EXISTS")
+        parts.append(self._materialized_view_name_sql(expr))
+
+        if partition_by:
+            parts.append(f"PARTITION BY {partition_by}")
+        if cluster_by:
+            cols = ", ".join(str(column) for column in cluster_by)
+            parts.append(f"CLUSTER BY {cols}")
+        rendered_options = self._format_materialized_view_options(options)
+        if rendered_options:
+            parts.append(f"OPTIONS({rendered_options})")
+
+        query_sql, query_params = self._materialized_view_query_sql(expr)
+        parts.append(f"AS {query_sql}")
+        return " ".join(parts), query_params
+
+    def _drop_materialized_view_sql(
+        self,
+        expr: "DropMaterializedViewStatement | BigQueryDropMaterializedViewStatement",
+    ) -> Tuple[str, tuple]:
+        """The DROP statement both kinds share.
+
+        BigQuery's grammar has neither qualifier, so a node that carries one is
+        refused rather than rendered. The BigQuery node refuses both at
+        construction; the core node can still arrive carrying them, and this is
+        where that is answered.
+        """
+        if expr.cascade:
+            raise UnsupportedFeatureError(self.name, "DROP MATERIALIZED VIEW CASCADE")
+        if expr.restrict:
+            raise UnsupportedFeatureError(self.name, "DROP MATERIALIZED VIEW RESTRICT")
+        parts = ["DROP MATERIALIZED VIEW"]
+        if expr.if_exists:
+            parts.append("IF EXISTS")
+        parts.append(self._materialized_view_name_sql(expr))
+        return " ".join(parts), ()
+
     @staticmethod
     def _require_materialized_view(expr: Any, statement: str) -> None:
         """Refuse a statement whose target is not a materialized view.
 
-        Every one of these four formatters is reached by name -- a view's
-        ``format_method`` says which formatter renders it -- so nothing about the
+        Every one of these entries is reached by name -- a view's
+        ``format_method`` says which entry renders it -- so nothing about the
         dispatch tells them whether the object they were handed is the kind the
         statement acts on. Left unchecked, ``CreateMaterializedViewStatement``
         given a ``Table`` renders ``CREATE MATERIALIZED VIEW`orders` ...``: the

@@ -504,23 +504,23 @@ BigQuery 另外还有 `ALTER SCHEMA` 与 `UNDROP SCHEMA`。核心库里没有对
 `schema_name` 槽位里，project 放在 `catalog_name` 槽位里。
 
 ```python
-BigQueryCreateMaterializedViewExpression(
+BigQueryCreateMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app"), query=inner,
 ).to_sql()[0]
 # CREATE MATERIALIZED VIEW `app`.`mv` AS SELECT `orders`.`id` FROM `app`.`orders`
 
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app"), if_exists=True,
 ).to_sql()[0]
 # DROP MATERIALIZED VIEW IF EXISTS `app`.`mv`
 
-BigQueryAlterMaterializedViewSetOptionsExpression(
+BigQueryAlterMaterializedViewSetOptionsStatement(
     d, MaterializedView("mv", schema_name="app"),
     options={"enable_refresh": True, "refresh_interval_minutes": 30},
 ).to_sql()[0]
 # ALTER MATERIALIZED VIEW `app`.`mv` SET OPTIONS(enable_refresh = true, refresh_interval_minutes = 30)
 
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app", catalog_name="myproject"),
 ).to_sql()[0]
 # DROP MATERIALIZED VIEW `myproject`.`app`.`mv`
@@ -530,7 +530,7 @@ BigQueryDropMaterializedViewExpression(
 `project.table` 不是 BigQuery 能解析的路径：
 
 ```python
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", catalog_name="myproject"),
 ).to_sql()
 # ValueError: BigQuery renders a project only together with a dataset;
@@ -546,7 +546,7 @@ BigQuery 没有 `REFRESH MATERIALIZED VIEW` 语句，因此
 副本通常与它所镜像的视图不在同一个 dataset 里。
 
 ```python
-BigQueryCreateMaterializedViewReplicaExpression(
+BigQueryCreateMaterializedViewReplicaStatement(
     d,
     MaterializedView("mv_replica", schema_name="app"),
     MaterializedView("mv_src", schema_name="s3_dataset"),

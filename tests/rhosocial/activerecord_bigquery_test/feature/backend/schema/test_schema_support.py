@@ -107,14 +107,14 @@ class TestBothNamespacesAreIndependent:
         silently dropped on the way through.
         """
         from rhosocial.activerecord.backend.impl.bigquery.expression import (
-            BigQueryDropMaterializedViewExpression,
+            BigQueryDropMaterializedViewStatement,
         )
 
         dialect = BigQueryDialect()
-        assert BigQueryDropMaterializedViewExpression(
+        assert BigQueryDropMaterializedViewStatement(
             dialect, MaterializedView(dialect, "mv", schema_name="app")
         ).to_sql()[0] == "DROP MATERIALIZED VIEW `app`.`mv`"
-        assert BigQueryDropMaterializedViewExpression(
+        assert BigQueryDropMaterializedViewStatement(
             dialect,
             MaterializedView(dialect, "mv", schema_name="app", catalog_name="myproject"),
         ).to_sql()[0] == "DROP MATERIALIZED VIEW `myproject`.`app`.`mv`"

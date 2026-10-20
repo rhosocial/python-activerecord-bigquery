@@ -155,6 +155,7 @@ from rhosocial.activerecord.backend.expression.objects import (
     View,
 )
 from rhosocial.activerecord.backend.expression.predicates import (
+    LikeOperator,
     ComparisonPredicate,
     ILikePredicate,
     LikePredicate,
@@ -227,7 +228,7 @@ from rhosocial.activerecord.backend.expression.xml import (
     XMLTableExpression,
 )
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
-    BigQueryAlterMaterializedViewSetOptionsExpression,
+    BigQueryAlterMaterializedViewSetOptionsStatement,
 )
 from rhosocial.activerecord_bigquery_test.feature.backend.expression_roundtrip_harness import (
     collect_expression_classes,
@@ -645,7 +646,7 @@ def register_specials():
     # are core's own, copied from the core dummy2 matrix so the two agree.
     register_special_constructor(
         "predicates.LikePredicate",
-        lambda d: LikePredicate(d, "LIKE", Column(d, "a"), Literal(d, "%x%")),
+        lambda d: LikePredicate(d, LikeOperator.LIKE, Column(d, "a"), Literal(d, "%x%")),
     )
     register_special_constructor(
         "predicates.ILikePredicate",
@@ -870,8 +871,8 @@ def register_specials():
     # OPTIONS must be a non-empty mapping, which the introspective guess
     # supplies as ``{}``.
     register_special_constructor(
-        "materialized_view.BigQueryAlterMaterializedViewSetOptionsExpression",
-        lambda d: BigQueryAlterMaterializedViewSetOptionsExpression(
+        "materialized_view.BigQueryAlterMaterializedViewSetOptionsStatement",
+        lambda d: BigQueryAlterMaterializedViewSetOptionsStatement(
             d, MaterializedView(d, "mv"), {"enable_refresh": True}
         ),
     )

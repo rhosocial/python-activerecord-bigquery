@@ -21,8 +21,16 @@ __all__ = [
 ]
 
 
-class BigQueryMaterializedViewOptionValueType(Enum):
-    """Value type of a materialized view option."""
+class BigQueryMaterializedViewOptionValueType(str, Enum):
+    """Value type of a materialized view option.
+
+    A ``str`` enum whose ``__str__`` is ``str.__str__``, like the option
+    catalogue below: a member *is* the word it carries, so it interpolates as
+    that word and would travel as a plain JSON string rather than as
+    ``BigQueryMaterializedViewOptionValueType.BOOLEAN``.
+    """
+
+    __str__ = str.__str__
 
     BOOLEAN = "boolean"
     FLOAT64 = "float64"
@@ -47,6 +55,8 @@ class BigQueryMaterializedViewOption(str, Enum):
         >>> O("refresh_interval_minutes") is O.REFRESH_INTERVAL_MINUTES
         True
     """
+
+    __str__ = str.__str__
 
     ENABLE_REFRESH = "enable_refresh"
     REFRESH_INTERVAL_MINUTES = "refresh_interval_minutes"

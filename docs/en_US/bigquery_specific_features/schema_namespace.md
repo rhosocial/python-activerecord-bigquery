@@ -544,23 +544,23 @@ All four materialized view statements name their target as a
 slot and the project in its `catalog_name`:
 
 ```python
-BigQueryCreateMaterializedViewExpression(
+BigQueryCreateMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app"), query=inner,
 ).to_sql()[0]
 # CREATE MATERIALIZED VIEW `app`.`mv` AS SELECT `orders`.`id` FROM `app`.`orders`
 
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app"), if_exists=True,
 ).to_sql()[0]
 # DROP MATERIALIZED VIEW IF EXISTS `app`.`mv`
 
-BigQueryAlterMaterializedViewSetOptionsExpression(
+BigQueryAlterMaterializedViewSetOptionsStatement(
     d, MaterializedView("mv", schema_name="app"),
     options={"enable_refresh": True, "refresh_interval_minutes": 30},
 ).to_sql()[0]
 # ALTER MATERIALIZED VIEW `app`.`mv` SET OPTIONS(enable_refresh = true, refresh_interval_minutes = 30)
 
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app", catalog_name="myproject"),
 ).to_sql()[0]
 # DROP MATERIALIZED VIEW `myproject`.`app`.`mv`
@@ -570,7 +570,7 @@ Each slot is rendered where it belongs. A project with no dataset is refused,
 because `project.table` is not a path BigQuery can resolve:
 
 ```python
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", catalog_name="myproject"),
 ).to_sql()
 # ValueError: BigQuery renders a project only together with a dataset;
@@ -587,7 +587,7 @@ source choose their datasets independently — a replica normally sits in a
 different dataset from the view it mirrors.
 
 ```python
-BigQueryCreateMaterializedViewReplicaExpression(
+BigQueryCreateMaterializedViewReplicaStatement(
     d,
     MaterializedView("mv_replica", schema_name="app"),
     MaterializedView("mv_src", schema_name="s3_dataset"),

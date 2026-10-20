@@ -2,17 +2,17 @@
 """BigQuery-specific DDL expressions."""
 
 from .materialized_view import (
-    BigQueryAlterMaterializedViewSetOptionsExpression,
-    BigQueryCreateMaterializedViewExpression,
-    BigQueryCreateMaterializedViewReplicaExpression,
-    BigQueryDropMaterializedViewExpression,
+    BigQueryAlterMaterializedViewSetOptionsStatement,
+    BigQueryCreateMaterializedViewStatement,
+    BigQueryCreateMaterializedViewReplicaStatement,
+    BigQueryDropMaterializedViewStatement,
 )
 
 __all__ = [
-    "BigQueryAlterMaterializedViewSetOptionsExpression",
-    "BigQueryCreateMaterializedViewExpression",
-    "BigQueryCreateMaterializedViewReplicaExpression",
-    "BigQueryDropMaterializedViewExpression",
+    "BigQueryAlterMaterializedViewSetOptionsStatement",
+    "BigQueryCreateMaterializedViewStatement",
+    "BigQueryCreateMaterializedViewReplicaStatement",
+    "BigQueryDropMaterializedViewStatement",
 ]
 
 # ``BigQuery`` is one word. The general derivation -- a run of capitals counts as
