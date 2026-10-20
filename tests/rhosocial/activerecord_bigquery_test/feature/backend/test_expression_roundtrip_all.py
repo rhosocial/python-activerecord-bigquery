@@ -1240,43 +1240,30 @@ LEGITIMATE_NOT_IMPLEMENTED = {
 #
 # Every entry here is core's to fix, not this backend's. None of the classes is
 # BigQuery-specific; the artefact contract is the same one every backend reads.
+#
+# Two enum-shaped root causes used to be pinned here. Both were core's, and
+# both are gone:
+#
+# * nine ``(str, Enum)`` word carriers (``DateTimeField``, ``IntervalUnit`` and
+#   the XML vocabulary) lacked ``__str__ = str.__str__``, so the XML channel
+#   wrote ``"DateTimeField.YEAR"`` and the constructor's own normaliser refused
+#   it -- core gave every word-carrying enum that method, and the datetime
+#   family's XML channel now travels;
+# * twelve SQL-word enums were bare ``Enum``, which the writer could not name
+#   at all -- core made them ``(str, Enum)`` with the same ``__str__``, so
+#   ``GeneratedColumnType`` / ``ReferentialAction`` and their family now encode
+#   on every channel.
+#
+# What is left is a different problem in the same place: a value, not a word,
+# sitting in a parameter slot. Neither is an encoding omission, so neither is
+# retired by the enum fix, and both are still reproduced above.
 LEGITIMATE_NON_ROUNDTRIPS = {
-    # -- the datetime family: DateTimeField / IntervalUnit are (str, Enum)
-    #    without ``__str__ = str.__str__``, so the XML channel writes
-    #    ``"DateTimeField.YEAR"``, which the constructor's own normaliser
-    #    refuses. (JSON survives -- it writes the member's underlying string;
-    #    dict survives -- it passes the member through untouched.)
-    "rhosocial.activerecord.backend.expression.datetime._ExtractBase": {
-        "channels": {"xml": ("raises", ValueError, "unsupported datetime field")},
-    },
-    "rhosocial.activerecord.backend.expression.datetime.DatePartExpression": {
-        "channels": {"xml": ("raises", ValueError, "unsupported datetime field")},
-    },
-    "rhosocial.activerecord.backend.expression.datetime.ExtractExpression": {
-        "channels": {"xml": ("raises", ValueError, "unsupported datetime field")},
-    },
-    "rhosocial.activerecord.backend.expression.datetime.ExtractFieldExpression": {
-        "channels": {"xml": ("raises", ValueError, "unsupported datetime field")},
-    },
-    "rhosocial.activerecord.backend.expression.datetime.DateTruncExpression": {
-        "channels": {"xml": ("raises", ValueError, "unsupported datetime field")},
-    },
-    "rhosocial.activerecord.backend.expression.datetime.IntervalExpression": {
-        "channels": {"xml": ("raises", ValueError, "unsupported interval unit")},
-    },
-    "rhosocial.activerecord.backend.expression.datetime.DateTimeAddExpression": {
-        "channels": {"xml": ("raises", ValueError, "unsupported interval unit")},
-    },
-    "rhosocial.activerecord.backend.expression.datetime.DateTimeDiffExpression": {
-        "channels": {"xml": ("raises", ValueError, "unsupported interval unit")},
-    },
-    "rhosocial.activerecord.backend.expression.datetime.DateTimeSubtractExpression": {
-        "channels": {"xml": ("raises", ValueError, "unsupported interval unit")},
-    },
-    # -- ``mode`` is declared ``CreateTableCloneMode`` with a member default;
-    #    the JSON and XML channels write the word (``"CLONE"``), and the
-    #    constructor demands the member -- the isinstance half of the contract
-    #    without the normalise half.
+    # -- ``mode`` is declared ``CreateTableCloneMode`` with a member default.
+    #    That enum is a ``(str, Enum)`` word carrier, so the JSON and XML
+    #    channels encode it fine -- and the constructor then demands the member
+    #    rather than normalising the word, which is the isinstance half of the
+    #    contract without the normalise half. Still core's, still real: this is
+    #    a constructor that refuses its own enum's word, not an encoding gap.
     "rhosocial.activerecord.backend.expression.statements.ddl_table.CreateTableCloneStatement": {
         "channels": {
             "json": ("raises", TypeError, "mode must be a CreateTableCloneMode"),
@@ -1287,31 +1274,14 @@ LEGITIMATE_NON_ROUNDTRIPS = {
     #    parameter slot: the codec writes nodes, scalars and containers of
     #    those two, and a bare ``options or ViewOptions()`` puts one in every
     #    CREATE VIEW. Serialization refuses before any round-trip can start.
+    #    Nothing about ``ViewAlgorithm`` / ``ViewCheckOption`` here -- both are
+    #    ``(str, Enum)`` word carriers now and encode; the refusal is the
+    #    object in the slot, which no enum fix reaches.
     "rhosocial.activerecord.backend.expression.statements.ddl_view.CreateViewStatement": {
         "channels": {
             "dict": ("raises", TypeError, "ViewOptions is not one of the value kinds"),
             "json": ("raises", TypeError, "ViewOptions is not one of the value kinds"),
             "xml": ("raises", TypeError, "ViewOptions is not one of the value kinds"),
-        },
-    },
-    # -- ``storage_type`` defaults to a ``GeneratedColumnType`` member, a plain
-    #    (non-str) enum the artifact cannot name; the constructor above names
-    #    STORED for BigQuery's sake, and that member is the one that travels.
-    "rhosocial.activerecord.backend.expression.statements.ddl_table.ColumnGeneratedConstraint": {
-        "channels": {
-            "dict": ("raises", TypeError, "GeneratedColumnType is not one of the value kinds"),
-            "json": ("raises", TypeError, "GeneratedColumnType is not one of the value kinds"),
-            "xml": ("raises", TypeError, "GeneratedColumnType is not one of the value kinds"),
-        },
-    },
-    # -- ``on_delete`` / ``on_update`` default to ``ReferentialAction`` members,
-    #    a plain (non-str) enum the artifact cannot name. The instances built
-    #    here leave both at their defaults, so every channel meets it.
-    "rhosocial.activerecord.backend.expression.statements.ddl_table.ForeignKeyConstraint": {
-        "channels": {
-            "dict": ("raises", TypeError, "ReferentialAction is not one of the value kinds"),
-            "json": ("raises", TypeError, "ReferentialAction is not one of the value kinds"),
-            "xml": ("raises", TypeError, "ReferentialAction is not one of the value kinds"),
         },
     },
 }
