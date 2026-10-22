@@ -15,7 +15,7 @@ fourth:
                                         MATERIALIZED VIEW
 4  ``supports_transaction_wait()``      the ``wait`` / ``no_wait`` pair on
                                         ``BeginTransactionStatement`` and
-                                        ``SetTransactionExpression``
+                                        ``SetTransactionStatement``
 =  ===================================  ==========================================
 
 A dialect that does not declare one of the first three now refuses what it
@@ -79,7 +79,7 @@ from rhosocial.activerecord.backend.expression.statements.dql import (
 )
 from rhosocial.activerecord.backend.expression.transaction import (
     BeginTransactionStatement,
-    SetTransactionExpression,
+    SetTransactionStatement,
 )
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 
@@ -326,23 +326,23 @@ class TestTransactionWaitPair:
     def test_set_transaction_neither_keeps_the_statement_refusal(self, dialect):
         """The pinned round-trip classification: no SET TRANSACTION at all."""
         with pytest.raises(NotImplementedError, match="does not support SET TRANSACTION"):
-            SetTransactionExpression(dialect).to_sql()
+            SetTransactionStatement(dialect).to_sql()
 
     def test_set_transaction_wait_is_refused_by_name(self, dialect):
         with pytest.raises(UnsupportedFeatureError) as exc:
-            SetTransactionExpression(dialect, wait=True).to_sql()
+            SetTransactionStatement(dialect, wait=True).to_sql()
         assert exc.value.feature_name == "transaction WAIT"
         assert exc.value.dialect_name == "BigQuery"
 
     def test_set_transaction_no_wait_is_refused_by_name(self, dialect):
         with pytest.raises(UnsupportedFeatureError) as exc:
-            SetTransactionExpression(dialect, no_wait=True).to_sql()
+            SetTransactionStatement(dialect, no_wait=True).to_sql()
         assert exc.value.feature_name == "transaction NO WAIT"
         assert exc.value.dialect_name == "BigQuery"
 
     def test_set_transaction_both_parameters_are_api_misuse(self, dialect):
         with pytest.raises(ValueError, match="wait and no_wait are mutually exclusive"):
-            SetTransactionExpression(dialect, wait=True, no_wait=True)
+            SetTransactionStatement(dialect, wait=True, no_wait=True)
 
     def test_probe_and_refusals_agree(self, dialect):
         """The declared probe and the formatter branches cannot drift apart.
@@ -357,8 +357,8 @@ class TestTransactionWaitPair:
         for expr in (
             BeginTransactionStatement(dialect, wait=True),
             BeginTransactionStatement(dialect, no_wait=True),
-            SetTransactionExpression(dialect, wait=True),
-            SetTransactionExpression(dialect, no_wait=True),
+            SetTransactionStatement(dialect, wait=True),
+            SetTransactionStatement(dialect, no_wait=True),
         ):
             with pytest.raises(UnsupportedFeatureError):
                 expr.to_sql()
@@ -391,4 +391,4 @@ class TestTransactionWaitPair:
         # The statement still does not exist, so SET TRANSACTION keeps its
         # refusal even under a subclass that declares the clause.
         with pytest.raises(UnsupportedFeatureError):
-            SetTransactionExpression(waits, wait=True).to_sql()
+            SetTransactionStatement(waits, wait=True).to_sql()

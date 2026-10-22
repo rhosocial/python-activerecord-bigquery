@@ -1215,11 +1215,11 @@ LEGITIMATE_NOT_IMPLEMENTED = {
     "rhosocial.activerecord.backend.expression.statements.dml.InsertDataSource": (
         _NO_DISPATCH
     ),
-    "rhosocial.activerecord.backend.expression.transaction.TransactionExpression": (
+    "rhosocial.activerecord.backend.expression.transaction.TransactionStatement": (
         _NO_DISPATCH
     ),
     # ---- a statement this dialect declines to render ------------------------
-    "rhosocial.activerecord.backend.expression.transaction.SetTransactionExpression": (
+    "rhosocial.activerecord.backend.expression.transaction.SetTransactionStatement": (
         "does not support SET TRANSACTION statement"
     ),
 }
