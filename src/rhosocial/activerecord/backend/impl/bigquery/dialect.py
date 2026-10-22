@@ -100,6 +100,14 @@ from .mixins import (
 
 
 class BigQueryDialect(
+    # The bases below come in bundles: a backend mixin, then the core bundle
+    # it stands in for. The backend's answer has to come first -- a mixin
+    # placed after the class it overrides never wins -- so a new mixin goes
+    # immediately before the core mixin it overrides, and the pairing is read
+    # off the list. Two positions sit outside that pairing and are called out
+    # where they occur: a mixin that overrides a method ``SQLDialectBase``
+    # defines has to precede the base, and a mixin that subclasses a core
+    # mixin has to precede it too (C3: a subclass precedes its base).
     # New BigQuery-specific mixins (BEFORE SQLDialectBase and generic mixins they override)
     BigQueryCapabilityMixin,
     BigQueryTypeSupportMixin,
@@ -208,8 +216,7 @@ class BigQueryDialect(
         """BigQuery Standard SQL uses ``?`` positional bind markers."""
         return "?"
 
-    @staticmethod
-    def _escape_sql_string(value: str) -> str:
+    def escape_sql_string(self, value: str) -> str:
         """GoogleSQL's string escaping: backslashes, not quote doubling.
 
         The base helper doubles single quotes, which is the SQL-standard

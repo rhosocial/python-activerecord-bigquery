@@ -219,7 +219,7 @@ class BigQueryDQLMixin:
         else:
             sql = (
                 f"DATE_DIFF({end_sql}, {start_sql}, "
-                f"{self._escape_sql_string(part)})"
+                f"{self.escape_sql_string(part)})"
             )
         return self.apply_alias(sql, end_params + start_params, expr)
 

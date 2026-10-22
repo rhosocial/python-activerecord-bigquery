@@ -89,7 +89,7 @@ class BigQueryDDLColumnMixin:
         reached from ``CREATE TABLE``'s column loop, where the value is whatever
         clause class the dialect dispatches on.
         """
-        escaped = self._escape_sql_string(clause.comment)
+        escaped = self.escape_sql_string(clause.comment)
         return f" OPTIONS(description='{escaped}')", ()
 
     def format_column_attribute(self, attr: Any) -> Tuple[str, tuple]:

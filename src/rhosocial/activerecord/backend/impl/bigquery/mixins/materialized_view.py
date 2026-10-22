@@ -382,8 +382,8 @@ class BigQueryMaterializedViewMixin:
             if isinstance(value, bool):
                 literal = "true" if value else "false"
             elif isinstance(value, str):
-                # _escape_sql_string escapes the body; the quotes are ours.
-                literal = f"'{self._escape_sql_string(value)}'"
+                # escape_sql_string escapes the body; the quotes are ours.
+                literal = f"'{self.escape_sql_string(value)}'"
             else:
                 literal = str(value)
             rendered.append(f"{key} = {literal}")

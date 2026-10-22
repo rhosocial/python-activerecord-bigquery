@@ -29,7 +29,7 @@ What is overridden, and why
 The kinds BigQuery agrees with the base on -- NULL, booleans (``TRUE`` /
 ``FALSE``), ``INT64``/``FLOAT64`` numeric text, and strings -- keep the
 base's rendering (strings inline correctly because the dialect overrides
-``_escape_sql_string`` for GoogleSQL's backslash escaping; see
+``escape_sql_string`` for GoogleSQL's backslash escaping; see
 :mod:`...impl.bigquery.dialect`). Everything else this grammar spells its
 own way:
 

@@ -29,7 +29,7 @@ class BigQueryCapabilityMixin:
         The generic ``TableMixin.format_table_comment_clause`` adds the leading
         space and appends the fragment after the column list.
         """
-        escaped = self._escape_sql_string(comment)
+        escaped = self.escape_sql_string(comment)
         return f"OPTIONS(description='{escaped}')", ()
 
     def supports_cte(self) -> bool:

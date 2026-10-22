@@ -317,7 +317,7 @@ class TestTheNonFiniteFloats:
 
 
 class TestTheDialectWideEscapePolicy:
-    """``_escape_sql_string`` is the one place GoogleSQL's escaping lives.
+    """``escape_sql_string`` is the one place GoogleSQL's escaping lives.
 
     The escape table documents ``\\'`` for a single quote and makes
     backslashes escape-sequence introducers, so a literal backslash is
