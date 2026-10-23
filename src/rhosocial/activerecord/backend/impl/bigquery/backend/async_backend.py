@@ -139,7 +139,7 @@ class AsyncBigQueryBackend(BigQueryQualifiedNameMixin, AsyncStorageBackend):
                 rows = []
                 for row in rows_iter:
                     row_dict = dict(row.items())
-                    rows.append(self._remap_row_columns(self._adapt_row_types(row_dict, adapters), mapping))
+                    rows.append(self.remap_row_columns(self.adapt_row_types(row_dict, adapters), mapping))
                 affected_rows = len(rows)
                 result_data = rows
             else:

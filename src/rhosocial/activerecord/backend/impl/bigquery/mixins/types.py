@@ -9,7 +9,7 @@ from typing import Dict, Tuple
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
 # Imported for real, not under TYPE_CHECKING: the spelling gates below pass the
-# concept class to ``_check_spelling`` as a *value* (it reads ``SPELLINGS`` off
+# concept class to ``check_spelling`` as a *value* (it reads ``SPELLINGS`` off
 # it), so these names have to exist at runtime. The core types package imports
 # no backend, so this does not close a cycle.
 from rhosocial.activerecord.backend.expression.types import (
@@ -255,7 +255,7 @@ class BigQueryTypeSupportMixin:
         :meth:`_refuse_unsigned_integer`, which is also where the reason for
         the refusal is written down.
         """
-        self._check_spelling(data_type, TinyIntType)
+        self.check_spelling(data_type, TinyIntType)
         self._refuse_unsigned_integer(data_type, "TINYINT")
         return "INT64", ()
 
@@ -272,7 +272,7 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self._check_spelling(data_type, SmallIntType)
+        self.check_spelling(data_type, SmallIntType)
         self._refuse_unsigned_integer(data_type, "SMALLINT")
         return "INT64", ()
 
@@ -289,7 +289,7 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self._check_spelling(data_type, IntegerType)
+        self.check_spelling(data_type, IntegerType)
         self._refuse_unsigned_integer(data_type, "INT")
         return "INT64", ()
 
@@ -307,7 +307,7 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self._check_spelling(data_type, BigIntType)
+        self.check_spelling(data_type, BigIntType)
         self._refuse_unsigned_integer(data_type, "BIGINT")
         return "INT64", ()
 
@@ -579,7 +579,7 @@ class BigQueryTypeSupportMixin:
         about zero and whose field layout has a signed exponent, so there is no
         unsigned double-precision column for the request to have become.
         """
-        self._check_spelling(data_type, DoubleType)
+        self.check_spelling(data_type, DoubleType)
         self._refuse_unsigned_numeric(data_type, "DOUBLE PRECISION")
         return "FLOAT64", ()
 
@@ -745,7 +745,7 @@ class BigQueryTypeSupportMixin:
         type-modifier position, so there is no ``NUMERIC UNSIGNED`` to write.
         """
         self._refuse_unsigned_numeric(data_type, "DECIMAL")
-        self._check_spelling(data_type, DecimalType)
+        self.check_spelling(data_type, DecimalType)
         self._check_numeric_parameters(data_type)
         if data_type.scale is not None and data_type.precision is None:
             ranges = (
@@ -797,7 +797,7 @@ class BigQueryTypeSupportMixin:
         spellings are accepted and normalised, since the concept is the same
         two-valued column either way.
         """
-        self._check_spelling(data_type, BooleanType)
+        self.check_spelling(data_type, BooleanType)
         return "BOOL", ()
 
     # ------------------------------------------------------------------
@@ -887,7 +887,7 @@ class BigQueryTypeSupportMixin:
         A declared length is range-checked against the one bound the reference
         states; see :meth:`_check_string_length`.
         """
-        self._check_spelling(data_type, CharType)
+        self.check_spelling(data_type, CharType)
         length = data_type.length
         self._check_string_length(length)
         # ``is not None`` rather than a truthiness test: a length of 0 is an
@@ -906,7 +906,7 @@ class BigQueryTypeSupportMixin:
         ``STRING(length)`` is. Both spellings render identically, and a declared
         length is range-checked the same way; see :meth:`_check_string_length`.
         """
-        self._check_spelling(data_type, VarCharType)
+        self.check_spelling(data_type, VarCharType)
         length = data_type.length
         self._check_string_length(length)
         return (f"STRING({length})", ()) if length is not None else ("STRING", ())
@@ -923,7 +923,7 @@ class BigQueryTypeSupportMixin:
         would refuse a spelling of a type BigQuery does have, which tells the
         caller less than the widened column does.
         """
-        self._check_spelling(data_type, TextType)
+        self.check_spelling(data_type, TextType)
         return "STRING", ()
 
     # ------------------------------------------------------------------
@@ -1157,7 +1157,7 @@ class BigQueryTypeSupportMixin:
         here at all — see :meth:`suggested_data_types` for why ``BYTES``'s
         declared length is a maximum rather than a width.
         """
-        self._check_spelling(data_type, BlobType)
+        self.check_spelling(data_type, BlobType)
         return "BYTES", ()
 
     # ------------------------------------------------------------------

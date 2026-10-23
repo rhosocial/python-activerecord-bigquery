@@ -341,7 +341,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
                 rows = []
                 for row in rows_iter:
                     row_dict = dict(row.items())
-                    rows.append(self._remap_row_columns(self._adapt_row_types(row_dict, adapters), mapping))
+                    rows.append(self.remap_row_columns(self.adapt_row_types(row_dict, adapters), mapping))
                 affected_rows = len(rows)
                 result_data = rows
             else:
@@ -479,7 +479,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
             adapters = column_adapters or {}
             mapping = column_mapping or {}
             rows = [
-                self._remap_row_columns(self._adapt_row_types(row, adapters), mapping)
+                self.remap_row_columns(self.adapt_row_types(row, adapters), mapping)
                 for row in BigQueryBackend._rest_rows(self, body)
             ]
             # Follow pagination if the emulator ever splits results.
@@ -496,7 +496,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
                     message = (pbody.get("error") or {}).get("message") or page.text
                     BigQueryBackend._raise_http_error(page.status_code, message)
                 rows.extend(
-                    self._remap_row_columns(self._adapt_row_types(row, adapters), mapping)
+                    self.remap_row_columns(self.adapt_row_types(row, adapters), mapping)
                     for row in BigQueryBackend._rest_rows(self, pbody)
                 )
                 page_token = pbody.get("pageToken")
@@ -616,7 +616,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
         # rows, and the BigQuery analyzer rejects an untyped NULL CASE result
         # ("Value of type INT64 cannot be assigned to ..."). Reusing the
         # column itself is also the safe semantics.
-        from rhosocial.activerecord.backend.base.operations import _is_sql_expression
+        from rhosocial.activerecord.backend.base.operations import is_sql_expression
         from rhosocial.activerecord.backend.expression import (
             Column, Literal, UpdateStatement, ComparisonPredicate, InPredicate,
         )
