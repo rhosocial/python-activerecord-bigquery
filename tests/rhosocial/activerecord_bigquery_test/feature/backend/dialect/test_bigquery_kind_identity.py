@@ -20,8 +20,8 @@ import importlib
 import pkgutil
 
 import pytest
-
 from rhosocial.activerecord.backend.expression.core import BaseExpression
+
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 
 BIGQUERY_EXPR_PKG = "rhosocial.activerecord.backend.impl.bigquery.expression"
@@ -59,13 +59,30 @@ def _declared_entry(cls):
 
 
 class TestThreeSourcesAgree:
-    def test_the_package_defines_the_four_materialized_view_statements(self):
-        """A guard on the sweep below: an empty package would pass it silently."""
+    def test_the_package_defines_the_materialized_view_and_introspection_statements(
+        self,
+    ):
+        """A guard on the sweep below: an empty package would pass it silently.
+
+        The set grew once, when the introspection statements arrived: the
+        four materialized-view statements and the nine INFORMATION_SCHEMA
+        questions. A class added without updating this guard is caught here
+        rather than passing the parametrised tests silently.
+        """
         assert set(NODES) == {
             f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryAlterMaterializedViewSetOptionsStatement",
             f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryCreateMaterializedViewReplicaStatement",
             f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryCreateMaterializedViewStatement",
             f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryDropMaterializedViewStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryDatabaseInfoQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryTableListQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryColumnInfoQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryIndexInfoQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryViewListQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryViewInfoQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryDatasetListQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryTableOptionsQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryPartitionListQueryStatement",
         }
 
     @pytest.mark.parametrize("fqn", sorted(NODES))
@@ -75,8 +92,7 @@ class TestThreeSourcesAgree:
         entry = _declared_entry(cls)
         assert entry is not None, f"{fqn} declares no format_method"
         assert entry == "format_" + cls.kind(), (
-            f"{fqn}: class name gives kind {cls.kind()!r}, but the class "
-            f"declares {entry!r}"
+            f"{fqn}: class name gives kind {cls.kind()!r}, but the class " f"declares {entry!r}"
         )
 
     @pytest.mark.parametrize("fqn", sorted(NODES))
@@ -87,7 +103,7 @@ class TestThreeSourcesAgree:
 
     @pytest.mark.parametrize("fqn", sorted(NODES))
     def test_the_class_name_ends_with_its_nature(self, fqn):
-        """§3: these four are statements, and their names say so."""
+        """§3: these are statements, and their names say so."""
         cls = NODES[fqn]
         assert cls.__name__.endswith("Statement"), cls.__name__
         assert cls.kind().endswith("_statement"), cls.kind()
@@ -106,10 +122,8 @@ class TestTheEntryResolvesAheadOfCore:
         ],
     )
     def test_the_bigquery_mixin_owns_the_entry(self, entry):
-        assert (
-            getattr(BigQueryDialect, entry).__qualname__.startswith(
-                "BigQueryMaterializedViewMixin."
-            )
+        assert getattr(BigQueryDialect, entry).__qualname__.startswith(
+            "BigQueryMaterializedViewMixin."
         )
 
     @pytest.mark.parametrize(
@@ -121,8 +135,6 @@ class TestTheEntryResolvesAheadOfCore:
     )
     def test_the_core_statements_still_reach_the_bigquery_mixin(self, entry):
         """Core's own entry names are BigQuery's answers too, not core's."""
-        assert (
-            getattr(BigQueryDialect, entry).__qualname__.startswith(
-                "BigQueryMaterializedViewMixin."
-            )
+        assert getattr(BigQueryDialect, entry).__qualname__.startswith(
+            "BigQueryMaterializedViewMixin."
         )

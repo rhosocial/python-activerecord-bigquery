@@ -1,10 +1,21 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/expression/__init__.py
-"""BigQuery-specific DDL expressions."""
+"""BigQuery-specific DDL and introspection expressions."""
 
+from .introspection import (
+    BigQueryColumnInfoQueryStatement,
+    BigQueryDatabaseInfoQueryStatement,
+    BigQueryDatasetListQueryStatement,
+    BigQueryIndexInfoQueryStatement,
+    BigQueryPartitionListQueryStatement,
+    BigQueryTableListQueryStatement,
+    BigQueryTableOptionsQueryStatement,
+    BigQueryViewInfoQueryStatement,
+    BigQueryViewListQueryStatement,
+)
 from .materialized_view import (
     BigQueryAlterMaterializedViewSetOptionsStatement,
-    BigQueryCreateMaterializedViewStatement,
     BigQueryCreateMaterializedViewReplicaStatement,
+    BigQueryCreateMaterializedViewStatement,
     BigQueryDropMaterializedViewStatement,
 )
 
@@ -13,6 +24,15 @@ __all__ = [
     "BigQueryCreateMaterializedViewStatement",
     "BigQueryCreateMaterializedViewReplicaStatement",
     "BigQueryDropMaterializedViewStatement",
+    "BigQueryDatabaseInfoQueryStatement",
+    "BigQueryTableListQueryStatement",
+    "BigQueryColumnInfoQueryStatement",
+    "BigQueryIndexInfoQueryStatement",
+    "BigQueryViewListQueryStatement",
+    "BigQueryViewInfoQueryStatement",
+    "BigQueryDatasetListQueryStatement",
+    "BigQueryTableOptionsQueryStatement",
+    "BigQueryPartitionListQueryStatement",
 ]
 
 # ``BigQuery`` is one word. The general derivation -- a run of capitals counts as
@@ -30,9 +50,7 @@ __all__ = [
 import importlib as _importlib
 import pkgutil as _pkgutil
 
-from rhosocial.activerecord.backend.expression.core import (
-    BaseExpression as _BaseExpression,
-)
+from rhosocial.activerecord.backend.expression.core import BaseExpression as _BaseExpression
 
 for _module_info in _pkgutil.walk_packages(
     __path__, prefix=__name__ + ".", onerror=lambda _error: None

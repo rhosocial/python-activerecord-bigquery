@@ -94,6 +94,14 @@ class BigQueryNamespaceMixin:
         resolve. A project with no dataset is therefore refused here rather
         than rendered into SQL the server would reject.
 
+        The one documented exception is the project-level
+        ``INFORMATION_SCHEMA.SCHEMATA`` view, whose scope table reads
+        ``[PROJECT_ID.]INFORMATION_SCHEMA.SCHEMATA`` -- a project with no
+        inner namespace, reading the US multi-region. The other
+        ``INFORMATION_SCHEMA`` views all require a dataset or a region
+        qualifier, so they keep the refusal.
+        https://cloud.google.com/bigquery/docs/information-schema-datasets-schemata
+
         The check runs while rendering, not while constructing, because only
         then is the dialect -- and therefore what this dialect can express --
         known. It is reached from core's ``validate_namespace``, which calls it
@@ -106,6 +114,8 @@ class BigQueryNamespaceMixin:
             ValueError: *expr* carries a project but no dataset.
         """
         if expr.catalog_name and not expr.schema_name:
+            if expr.name == "INFORMATION_SCHEMA.SCHEMATA":
+                return
             raise ValueError(
                 f"BigQuery renders a project only together with a dataset; "
                 f"{type(expr).__name__} {expr.name!r} carries "

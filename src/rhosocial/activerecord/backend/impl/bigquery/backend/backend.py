@@ -8,6 +8,9 @@ from rhosocial.activerecord.backend.errors import (
 )
 from rhosocial.activerecord.backend.result import QueryResult
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.introspection.backend_mixin import (
+    IntrospectorBackendMixin,
+)
 
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
@@ -15,8 +18,15 @@ from ..transaction import BigQueryTransactionManager
 from .qualified_names import BigQueryQualifiedNameMixin
 
 
-class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
-    """BigQuery-specific backend (synchronous)."""
+class BigQueryBackend(
+    IntrospectorBackendMixin, BigQueryQualifiedNameMixin, StorageBackend
+):
+    """BigQuery-specific backend (synchronous).
+
+    ``backend.introspector`` answers metadata questions from BigQuery's
+    ``INFORMATION_SCHEMA`` views; see
+    :class:`~...introspection.SyncBigQueryIntrospector`.
+    """
 
     def __init__(self, **kwargs):
         version = kwargs.pop('version', None) or (3, 0, 0)
@@ -360,6 +370,20 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
     @property
     def dialect(self) -> BigQueryDialect:
         return BigQueryDialect(version=self._version)
+
+    def _create_introspector(self) -> Any:
+        """Return the BigQuery introspector with its own executor.
+
+        The executor is BigQuery's: the core one drives a DB-API cursor,
+        which this backend does not have -- statements run through
+        ``backend.execute()`` and come back already dict-shaped.
+        """
+        from ..introspection import (
+            SyncBigQueryIntrospector,
+            SyncBigQueryIntrospectorExecutor,
+        )
+
+        return SyncBigQueryIntrospector(self, SyncBigQueryIntrospectorExecutor(self))
 
         # -- Emulator REST fast path ---------------------------------------------------
 

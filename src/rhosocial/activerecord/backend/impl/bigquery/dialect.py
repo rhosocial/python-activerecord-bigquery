@@ -85,6 +85,10 @@ from .mixins import (
     BigQueryIdentityColumnMixin,
     BigQueryIdentifierMixin,
     BigQueryMaterializedViewMixin,
+    # Introspection: the capability probes and the format_* entries that
+    # render the BigQuery introspection statements. It subclasses core's
+    # IntrospectionMixin, so C3 requires it ahead of it in the base list.
+    BigQueryIntrospectionMixin,
     # Transaction formatting owns the refusals for the lock-wait pair
     # (WAIT / NO WAIT) that BigQuery's grammar does not have; core's generic
     # renderer would drop them silently. Before TransactionControlMixin.
@@ -159,6 +163,10 @@ class BigQueryDialect(
     ArrayMixin, ExplainMixin, MergeMixin,
     UpsertMixin, LateralJoinMixin, JoinMixin,
     ViewMixin, SchemaMixin, IndexMixin, TableMixin, ConstraintMixin,
+    # BigQuery's introspection answers ahead of the core mixin whose
+    # format_* entries (and whose probes) they replace: a mixin placed after
+    # the class it overrides never wins the lookup.
+    BigQueryIntrospectionMixin,
     IntrospectionMixin, TruncateMixin,
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
     SetOperationMixin, DateTimeMixin,

@@ -5,6 +5,9 @@ from rhosocial.activerecord.backend.base import AsyncStorageBackend
 from rhosocial.activerecord.backend.errors import ConnectionError, DatabaseError
 from rhosocial.activerecord.backend.result import QueryResult
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.introspection.backend_mixin import (
+    IntrospectorBackendMixin,
+)
 
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
@@ -12,8 +15,15 @@ from ..async_transaction import AsyncBigQueryTransactionManager
 from .qualified_names import BigQueryQualifiedNameMixin
 
 
-class AsyncBigQueryBackend(BigQueryQualifiedNameMixin, AsyncStorageBackend):
-    """BigQuery native async backend."""
+class AsyncBigQueryBackend(
+    IntrospectorBackendMixin, BigQueryQualifiedNameMixin, AsyncStorageBackend
+):
+    """BigQuery native async backend.
+
+    ``backend.introspector`` answers metadata questions from BigQuery's
+    ``INFORMATION_SCHEMA`` views; see
+    :class:`~...introspection.AsyncBigQueryIntrospector`.
+    """
 
     def __init__(self, **kwargs):
         version = kwargs.pop('version', None) or (3, 0, 0)
@@ -98,6 +108,22 @@ class AsyncBigQueryBackend(BigQueryQualifiedNameMixin, AsyncStorageBackend):
     @property
     def dialect(self) -> BigQueryDialect:
         return BigQueryDialect(version=self._version)
+
+    def _create_introspector(self) -> Any:
+        """Return the BigQuery introspector with its own executor (async).
+
+        The executor is BigQuery's: the core one awaits a DB-API cursor,
+        which this backend does not have -- statements run through
+        ``backend.execute()`` and come back already dict-shaped.
+        """
+        from ..introspection import (
+            AsyncBigQueryIntrospector,
+            AsyncBigQueryIntrospectorExecutor,
+        )
+
+        return AsyncBigQueryIntrospector(
+            self, AsyncBigQueryIntrospectorExecutor(self)
+        )
 
     async def execute(self, sql: str, params: Optional[Tuple] = None, returning: Optional[Any] = None, column_adapters: Optional[Dict] = None, *, options: Optional[Any] = None) -> QueryResult:
         from rhosocial.activerecord.backend.schema import StatementType
