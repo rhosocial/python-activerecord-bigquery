@@ -964,43 +964,43 @@ _NO_FORMATTER = "does not support the"
 LEGITIMATE_NON_RENDERS = {
     # ---- SQL/XML: BigQuery has no SQL/XML functions at all -----------------
     "rhosocial.activerecord.backend.expression.xml.XMLAggExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlagg_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_agg_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLAttributesExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlattributes_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_attributes_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLCommentExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlcomment_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_comment_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLConcatExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlconcat_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_concat_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLElementExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlelement_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_element_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLExistsPredicate": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlexists_predicate'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLForestExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlforest_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_forest_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLPIExpression": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlpi_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLParseExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlparse_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_parse_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLQueryExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlquery_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_query_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLRootExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlroot_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_root_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLSerializeExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlserialize_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_serialize_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLTableExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmltable_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_table_expression'",
     ),
     # SQL/XML PASSING is a clause of the three XML nodes, and the dialect has
     # no SQL/XML at all -- so the clause node core split out in S1-c is a gap by
@@ -1083,7 +1083,7 @@ LEGITIMATE_NON_RENDERS = {
     ),
     # ---- COMMENT ON, PARTITION clause, PIVOT, ILIKE -------------------------
     "rhosocial.activerecord.backend.expression.statements.ddl_comment.CommentOnStatement": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_comment_statement'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_comment_on_statement'",
     ),
     "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionClause": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_partition_clause'",
@@ -1099,7 +1099,7 @@ LEGITIMATE_NON_RENDERS = {
     ),
     # ---- time travel: a BigQuery FROM names no temporal version ------------
     "rhosocial.activerecord.backend.expression.datetime.TemporalOptionsExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_temporal_options'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_temporal_options_expression'",
     ),
     # ---- roots whose incompleteness is structural --------------------------
     # The root of the row-source tree. No concrete source renders through
@@ -1389,19 +1389,19 @@ def _dispatched_formatter(exc):
 #: and TRIM through BigQueryTrimMixin -- so none of the four appears here.
 UNMODELLED_FORMATTERS = {
     "SQL/XML (BigQuery has no SQL/XML functions at all)": (
-        "format_xmlagg_expression",
-        "format_xmlattributes_expression",
-        "format_xmlcomment_expression",
-        "format_xmlconcat_expression",
-        "format_xmlelement_expression",
+        "format_xml_agg_expression",
+        "format_xml_attributes_expression",
+        "format_xml_comment_expression",
+        "format_xml_concat_expression",
+        "format_xml_element_expression",
         "format_xmlexists_predicate",
-        "format_xmlforest_expression",
+        "format_xml_forest_expression",
         "format_xmlpi_expression",
-        "format_xmlparse_expression",
-        "format_xmlquery_expression",
-        "format_xmlroot_expression",
-        "format_xmlserialize_expression",
-        "format_xmltable_expression",
+        "format_xml_parse_expression",
+        "format_xml_query_expression",
+        "format_xml_root_expression",
+        "format_xml_serialize_expression",
+        "format_xml_table_expression",
         "format_passing_clause",
     ),
     "SQL/PGQ property graphs (BigQuery has no CREATE PROPERTY GRAPH, no "
@@ -1439,7 +1439,7 @@ UNMODELLED_FORMATTERS = {
         "format_alter_database_statement",
         "format_drop_database_statement",
     ),
-    "COMMENT ON (BigQuery has no standalone COMMENT ON statement)": ("format_comment_statement",),
+    "COMMENT ON (BigQuery has no standalone COMMENT ON statement)": ("format_comment_on_statement",),
     "the generic DDL PARTITION clause (BigQuery partitions tables through its "
     "own partition options, not this clause)": ("format_partition_clause",),
     "the core PIVOT / UNPIVOT expressions (this backend composes no formatter "
@@ -1452,7 +1452,7 @@ UNMODELLED_FORMATTERS = {
     "LOWER() comparisons)": ("format_ilike_predicate",),
     "the core temporal-options clause (a BigQuery FROM names no temporal "
     "version; time travel is spelled FOR SYSTEM_TIME AS OF, which the dialect "
-    "renders elsewhere)": ("format_temporal_options",),
+    "renders elsewhere)": ("format_temporal_options_expression",),
     "the TableSource root (every concrete row source overrides its formatter; "
     "the root carries nothing but an alias and is never rendered)": ("format_table_source",),
 }

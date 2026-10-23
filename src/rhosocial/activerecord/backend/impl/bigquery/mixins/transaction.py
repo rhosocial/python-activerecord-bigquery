@@ -71,7 +71,7 @@ class BigQueryTransactionMixin:
             parts.append("WAIT" if wait else "NO WAIT")
         return " ".join(parts), ()
 
-    def format_set_transaction(
+    def format_set_transaction_statement(
         self, expr: "SetTransactionStatement"
     ) -> Tuple[str, tuple]:
         """Refuse ``SET TRANSACTION``; name the wait pair when it was requested.
@@ -97,7 +97,7 @@ class BigQueryTransactionMixin:
                 f"{self.name} has no SET TRANSACTION statement, so the "
                 f"{feature} clause cannot be expressed.",
             )
-        return super().format_set_transaction(expr)
+        return super().format_set_transaction_statement(expr)
 
 
 __all__ = ['BigQueryTransactionMixin']

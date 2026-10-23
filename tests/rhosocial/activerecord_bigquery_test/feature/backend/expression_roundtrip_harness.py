@@ -340,9 +340,9 @@ def special_constructors():
         "datetime.DatePartExpression": _datepart_expr,
         "datetime.DateTruncExpression": _datetrunc_expr,
         "datetime.IntervalExpression": _interval_expr,
-        "datetime.DateTimeDiffExpression": _datetime_diff_expr,
-        "datetime.DateTimeSubtractExpression": _datetime_sub_expr,
-        "datetime.DateTimeAddExpression": _datetime_add_expr,
+        "datetime.DatetimeDiffExpression": _datetime_diff_expr,
+        "datetime.DatetimeSubtractExpression": _datetime_sub_expr,
+        "datetime.DatetimeAddExpression": _datetime_add_expr,
     }
 
 
@@ -890,29 +890,29 @@ def _interval_expr(dialect):
 
 def _datetime_diff_expr(dialect):
     from rhosocial.activerecord.backend.expression.core import Column
-    from rhosocial.activerecord.backend.expression.datetime import DateTimeDiffExpression
+    from rhosocial.activerecord.backend.expression.datetime import DatetimeDiffExpression
 
-    return DateTimeDiffExpression(dialect, "day", Column(dialect, "a"), Column(dialect, "b"))
+    return DatetimeDiffExpression(dialect, "day", Column(dialect, "a"), Column(dialect, "b"))
 
 
 def _datetime_sub_expr(dialect):
     from rhosocial.activerecord.backend.expression.core import Column
     from rhosocial.activerecord.backend.expression.datetime import (
-        DateTimeSubtractExpression,
+        DatetimeSubtractExpression,
         IntervalExpression,
     )
 
-    return DateTimeSubtractExpression(dialect, Column(dialect, "a"), IntervalExpression(dialect, 1, "day"))
+    return DatetimeSubtractExpression(dialect, Column(dialect, "a"), IntervalExpression(dialect, 1, "day"))
 
 
 def _datetime_add_expr(dialect):
     from rhosocial.activerecord.backend.expression.core import Column
     from rhosocial.activerecord.backend.expression.datetime import (
-        DateTimeAddExpression,
+        DatetimeAddExpression,
         IntervalExpression,
     )
 
-    return DateTimeAddExpression(dialect, Column(dialect, "a"), IntervalExpression(dialect, 1, "day"))
+    return DatetimeAddExpression(dialect, Column(dialect, "a"), IntervalExpression(dialect, 1, "day"))
 
 
 _SPECIAL_REGISTRY: Dict[str, Callable] = special_constructors()

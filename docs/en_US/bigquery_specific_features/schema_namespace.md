@@ -839,7 +839,7 @@ dialect.get_supported_introspection_scopes() # []
 Every metadata query formatter therefore refuses:
 
 ```python
-TableInfoExpression(d, "orders").to_sql()
+TableInfoQueryStatement(d, "orders").to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support table
 # introspection.
 ```

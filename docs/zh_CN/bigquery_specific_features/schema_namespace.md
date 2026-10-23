@@ -771,7 +771,7 @@ dialect.get_supported_introspection_scopes() # []
 于是每个元数据查询格式化方法都会拒绝：
 
 ```python
-TableInfoExpression(d, "orders").to_sql()
+TableInfoQueryStatement(d, "orders").to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support table
 # introspection.
 ```
