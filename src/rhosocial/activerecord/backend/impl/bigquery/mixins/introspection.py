@@ -98,6 +98,14 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
     relation) and triggers (BigQuery has none).
     """
 
+    def supports_dataset_introspection(self) -> bool:
+        """BigQuery answers for its datasets from ``INFORMATION_SCHEMA.SCHEMATA``.
+
+        The capability for the ``introspect datasets`` family. A dataset
+        is BigQuery's namespace level above a table -- there is no
+        schema under it, so this is the only namespace switch."""
+        return True
+
     # ------------------------------------------------------------------ #
     # Capability declaration
     # ------------------------------------------------------------------ #
