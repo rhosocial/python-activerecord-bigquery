@@ -100,15 +100,6 @@ def create_parser(subparsers):
             help="Output format (default: table)",
         )
         parser.add_argument(
-            "--schema",
-            dest="schema",
-            default=None,
-            help=(
-                "Dataset to introspect (default: --dataset / the "
-                "connection default). A dataset ID, or project.dataset."
-            ),
-        )
-        parser.add_argument(
             "--include-system",
             action="store_true",
             help=("Include system tables (ignored: BigQuery's INFORMATION_SCHEMA " "lists none)"),
@@ -215,8 +206,16 @@ def _one(name: str, args) -> str:
 
 
 def _schema_arg(args):
-    """The dataset a question is scoped to: ``--schema`` over ``--dataset``."""
-    return args.schema if args.schema is not None else args.dataset
+    """The dataset a question is scoped to.
+
+    One flag, ``--dataset``, which the connection already takes: BigQuery has
+    no schema under a dataset, so the dataset is the only namespace level a
+    question can be scoped to. An earlier version also accepted ``--schema``
+    and fell back to ``--dataset`` when it was absent, which spelled the same
+    level under a word BigQuery does not use -- and made the fallback order the
+    thing a reader had to work out.
+    """
+    return args.dataset
 
 
 # ---------------------------------------------------------------------------

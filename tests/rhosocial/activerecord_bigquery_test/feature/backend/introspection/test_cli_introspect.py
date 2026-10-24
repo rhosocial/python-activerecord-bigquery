@@ -242,20 +242,28 @@ def test_tables_scopes_to_the_dataset_given(built, capsys):
     assert built[0].introspector.calls == [("list_tables", "my_dataset", False)]
 
 
-def test_schema_flag_overrides_the_dataset_flag(built, capsys):
-    _run(
-        [
-            "tables",
-            "--dataset",
-            "my_dataset",
-            "--schema",
-            "other_dataset",
-            "-o",
-            "json",
-        ]
-    )
+def test_one_flag_names_the_dataset(built, capsys):
+    """``--dataset`` is the only namespace flag, and it is the scope.
+
+    BigQuery has no schema under a dataset, so there is one level to name
+    and one flag to name it with. An earlier version also accepted
+    ``--schema`` and made it override this one, which spelled the same
+    level under a word BigQuery does not use and made the precedence the
+    thing a reader had to work out.
+    """
+    _run(["tables", "--dataset", "my_dataset", "-o", "json"])
     capsys.readouterr()
-    assert built[0].introspector.calls == [("list_tables", "other_dataset", False)]
+    assert built[0].introspector.calls == [("list_tables", "my_dataset", False)]
+
+
+def test_the_second_spelling_is_not_accepted(built, capsys):
+    """``--schema`` is gone, not aliased.
+
+    An alias would let a caller keep naming a level that does not exist
+    here, which is the confusion the single flag removes.
+    """
+    with pytest.raises(SystemExit):
+        _run(["tables", "--dataset", "my_dataset", "--schema", "other"])
 
 
 def test_tables_as_csv(built, capsys):
