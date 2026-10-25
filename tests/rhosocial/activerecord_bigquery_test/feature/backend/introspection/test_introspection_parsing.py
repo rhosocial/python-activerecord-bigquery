@@ -1,7 +1,7 @@
 # tests/rhosocial/activerecord_bigquery_test/feature/backend/introspection/test_introspection_parsing.py
 """Row -> dataclass parsing, fed the documented column names and values.
 
-No connection and no SQL: these tests call the ``_parse_*`` methods with
+No connection and no SQL: these tests call the ``parse_*`` methods with
 rows spelled exactly as the documentation spells them (lowercase column
 names, ``YES``/``NO`` flags, the documented ``table_type`` words), which is
 what BigQuery returns. The parsing rules pinned here are the ones a server
@@ -119,7 +119,7 @@ def test_tables_parse_the_documented_type_words(introspector):
             "table_type": "EXTERNAL",
         },
     ]
-    tables = introspector._parse_tables(rows, "my_dataset")
+    tables = introspector.parse_tables(rows, "my_dataset")
     assert [t.name for t in tables] == [
         "orders",
         "orders_clone",
@@ -148,14 +148,14 @@ def test_tables_parse_the_documented_type_words(introspector):
 
 
 def test_tables_default_unknown_spellings_to_base_table(introspector):
-    tables = introspector._parse_tables([{"table_name": "t", "table_type": "SOMETHING NEW"}], "ds")
+    tables = introspector.parse_tables([{"table_name": "t", "table_type": "SOMETHING NEW"}], "ds")
     assert tables[0].table_type is TableType.BASE_TABLE
     assert tables[0].extra["bigquery_table_type"] == "SOMETHING NEW"
 
 
 def test_tables_accept_uppercase_row_keys(introspector):
     """A driver or fixture that preserves the catalog's own spelling."""
-    tables = introspector._parse_tables(
+    tables = introspector.parse_tables(
         [{"TABLE_NAME": "orders", "TABLE_TYPE": "BASE TABLE"}], "my_dataset"
     )
     assert tables[0].name == "orders"
@@ -197,7 +197,7 @@ def _column_row(**overrides):
 
 
 def test_columns_parse_nullability_type_and_position(introspector):
-    columns = introspector._parse_columns(
+    columns = introspector.parse_columns(
         [
             _column_row(),
             _column_row(
@@ -233,7 +233,7 @@ def test_columns_parse_nullability_type_and_position(introspector):
 
 
 def test_columns_drop_pseudo_columns(introspector):
-    columns = introspector._parse_columns(
+    columns = introspector.parse_columns(
         [
             _column_row(),
             _column_row(
@@ -251,7 +251,7 @@ def test_columns_drop_pseudo_columns(introspector):
 
 
 def test_columns_parse_identity_columns_under_the_documented_names(introspector):
-    columns = introspector._parse_columns(
+    columns = introspector.parse_columns(
         [
             _column_row(
                 column_name="order_id",
@@ -278,7 +278,7 @@ def test_columns_parse_identity_columns_under_the_documented_names(introspector)
 
 
 def test_columns_parse_partitioning_and_clustering_flags(introspector):
-    columns = introspector._parse_columns(
+    columns = introspector.parse_columns(
         [
             _column_row(
                 column_name="created",
@@ -316,7 +316,7 @@ def test_columns_parse_partitioning_and_clustering_flags(introspector):
 
 def test_an_unreadable_type_degrades_one_column_with_a_warning(introspector):
     with pytest.warns(RuntimeWarning, match="STRUCT<id INT64>"):
-        columns = introspector._parse_columns(
+        columns = introspector.parse_columns(
             [
                 _column_row(),
                 _column_row(column_name="payload", data_type="STRUCT<id INT64>"),
@@ -337,7 +337,7 @@ def test_an_unreadable_type_degrades_one_column_with_a_warning(introspector):
 
 
 def test_indexes_group_constraint_rows_by_name(introspector):
-    indexes = introspector._parse_indexes(
+    indexes = introspector.parse_indexes(
         [
             {
                 "constraint_name": "pk_orders",
@@ -369,7 +369,7 @@ def test_indexes_group_constraint_rows_by_name(introspector):
 
 
 def test_a_foreign_key_constraint_row_parses_as_not_primary(introspector):
-    indexes = introspector._parse_indexes(
+    indexes = introspector.parse_indexes(
         [
             {
                 "constraint_name": "fk_orders",
@@ -385,7 +385,7 @@ def test_a_foreign_key_constraint_row_parses_as_not_primary(introspector):
 
 
 def test_views_parse_the_definition_and_standard_sql_flag(introspector):
-    views = introspector._parse_views(
+    views = introspector.parse_views(
         [
             {
                 "table_catalog": "my-project",
@@ -407,11 +407,11 @@ def test_views_parse_the_definition_and_standard_sql_flag(introspector):
 
 
 def test_single_view_info_returns_none_for_no_rows(introspector):
-    assert introspector._parse_view_info([], "missing", "my_dataset") is None
+    assert introspector.parse_view_info([], "missing", "my_dataset") is None
 
 
 def test_single_view_info_parses_the_first_row(introspector):
-    info = introspector._parse_view_info(
+    info = introspector.parse_view_info(
         [
             {
                 "table_name": "v",
@@ -429,7 +429,7 @@ def test_single_view_info_parses_the_first_row(introspector):
 
 def test_datasets_parse_the_schemata_columns(introspector):
     created = datetime(2026, 10, 24, 12, 0, 0)
-    datasets = introspector._parse_datasets(
+    datasets = introspector.parse_datasets(
         [
             {
                 "catalog_name": "my-project",
@@ -454,7 +454,7 @@ def test_datasets_parse_the_schemata_columns(introspector):
 
 
 def test_table_options_parse_one_row_per_option(introspector):
-    options = introspector._parse_table_options(
+    options = introspector.parse_table_options(
         [
             {
                 "table_name": "orders",
@@ -481,7 +481,7 @@ def test_table_options_parse_one_row_per_option(introspector):
 
 def test_partitions_parse_counts_and_tiers(introspector):
     modified = datetime(2026, 10, 24, 12, 0, 0)
-    partitions = introspector._parse_partitions(
+    partitions = introspector.parse_partitions(
         [
             {
                 "table_name": "orders",
@@ -519,7 +519,7 @@ def test_partitions_parse_counts_and_tiers(introspector):
 
 
 def test_database_info_reports_the_project_and_the_backend_level(introspector):
-    info = introspector._parse_database_info([{"catalog_name": "my-project"}])
+    info = introspector.parse_database_info([{"catalog_name": "my-project"}])
     assert info.name == "my-project"
     assert info.vendor == "BigQuery"
     assert info.version_tuple == (3, 0, 0)
@@ -529,7 +529,7 @@ def test_database_info_reports_the_project_and_the_backend_level(introspector):
 
 
 def test_database_info_falls_back_to_the_configured_project(introspector):
-    info = introspector._parse_database_info([])
+    info = introspector.parse_database_info([])
     assert info.name == "my-project"
 
 
@@ -539,7 +539,7 @@ def test_database_info_falls_back_to_the_configured_project(introspector):
 
 
 def test_storage_shape_composes_options_partitions_and_columns(introspector):
-    columns = introspector._parse_columns(
+    columns = introspector.parse_columns(
         [
             _column_row(
                 column_name="created",
@@ -559,7 +559,7 @@ def test_storage_shape_composes_options_partitions_and_columns(introspector):
     storage = BigQueryTableStorageInfo(
         table_name="orders",
         schema="my_dataset",
-        options=introspector._parse_table_options(
+        options=introspector.parse_table_options(
             [
                 {
                     "table_name": "orders",
@@ -569,7 +569,7 @@ def test_storage_shape_composes_options_partitions_and_columns(introspector):
                 }
             ]
         ),
-        partitions=introspector._parse_partitions(
+        partitions=introspector.parse_partitions(
             [{"table_name": "orders", "partition_id": "20260101", "total_rows": 5}]
         ),
         partitioning_columns=introspector._partitioning_columns(columns),

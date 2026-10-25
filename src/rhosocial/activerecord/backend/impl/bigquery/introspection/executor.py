@@ -26,7 +26,7 @@ def _rows_from_result(result: Any) -> List[Dict[str, Any]]:
     ``QueryResult.data`` is ``None`` for a statement that returned no result
     set. An introspection statement always selects, so that should not
     happen; returning an empty list keeps a surprising result from turning
-    into an ``AttributeError`` deep inside a ``_parse_*`` method.
+    into an ``AttributeError`` deep inside a ``parse_*`` method.
     """
     data = getattr(result, "data", None)
     if not data:

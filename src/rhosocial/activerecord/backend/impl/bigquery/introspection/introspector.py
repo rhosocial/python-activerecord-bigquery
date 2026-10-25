@@ -197,7 +197,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
     The ``_build_*_sql`` overrides resolve *which* dataset and project a
     question is about and construct the matching statement object from
     :mod:`...expression.introspection`; rendering is the dialect's job. The
-    ``_parse_*`` methods are pure Python: rows in, core introspection
+    ``parse_*`` methods are pure Python: rows in, core introspection
     dataclasses out, shared by both managers.
     """
 
@@ -205,7 +205,8 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
     # Names and qualifiers
     # ------------------------------------------------------------------ #
 
-    def _get_default_schema(self) -> str:
+    @property
+    def default_schema(self) -> str:
         """Return the configured dataset ID, or ``""`` when there is none.
 
         The core ``schema`` parameter is BigQuery's dataset. A connection
@@ -248,7 +249,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             ValueError: When no dataset is available, or when the argument
                 has more than one dot.
         """
-        raw = schema if schema is not None else self._get_default_schema()
+        raw = schema if schema is not None else self.default_schema
         raw = (raw or "").strip()
         if raw.startswith("`") and raw.endswith("`") and len(raw) >= 2:
             raw = raw[1:-1].strip()
@@ -271,7 +272,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         still carries whatever the query already selected, and the caller
         that asked for it supplied the qualifier in the first place.
         """
-        raw = schema if schema is not None else self._get_default_schema()
+        raw = schema if schema is not None else self.default_schema
         raw = (raw or "").strip().strip("`")
         if not raw:
             return ""
@@ -440,7 +441,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
     # Parsing
     # ------------------------------------------------------------------ #
 
-    def _parse_database_info(self, rows: List[Dict[str, Any]]) -> IntrospectionDatabaseInfo:
+    def parse_database_info(self, rows: List[Dict[str, Any]]) -> IntrospectionDatabaseInfo:
         row = rows[0] if rows else {}
         version = self._get_version()
         config = getattr(self._backend, "config", None)
@@ -458,7 +459,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             },
         )
 
-    def _parse_tables(
+    def parse_tables(
         self, rows: List[Dict[str, Any]], schema: Optional[str]
     ) -> List[IntrospectionTableInfo]:
         label = self._schema_label(schema)
@@ -482,7 +483,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             )
         return tables
 
-    def _parse_data_type(self, raw: str, column_name: str) -> Optional[Any]:
+    def parse_data_type(self, raw: str, column_name: str) -> Optional[Any]:
         """Read one catalog type string, degrading one column on failure.
 
         ``parsed_data_type`` is ``None`` for exactly one reason: the catalog
@@ -507,7 +508,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             )
             return None
 
-    def _parse_columns(
+    def parse_columns(
         self, rows: List[Dict[str, Any]], table_name: str, schema: str
     ) -> List[IntrospectionColumnInfo]:
         label = self._schema_label(schema)
@@ -536,7 +537,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
                     data_type=str(raw_type).lower(),
                     data_type_full=str(raw_type) or None,
                     parsed_data_type=(
-                        self._parse_data_type(str(raw_type), column_name) if raw_type else None
+                        self.parse_data_type(str(raw_type), column_name) if raw_type else None
                     ),
                     nullable=nullable,
                     default_value=_row_get(row, "column_default"),
@@ -573,7 +574,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             )
         return columns
 
-    def _parse_indexes(
+    def parse_indexes(
         self, rows: List[Dict[str, Any]], table_name: str, schema: str
     ) -> List[IndexInfo]:
         """Parse primary-key constraint rows into ``IndexInfo`` objects.
@@ -610,14 +611,14 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
                 )
         return list(indexes.values())
 
-    def _parse_foreign_keys(
+    def parse_foreign_keys(
         self, rows: List[Dict[str, Any]], table_name: str, schema: str
     ) -> List[IntrospectionForeignKeyInfo]:
         """Always empty: the catalog cannot name the referenced relation."""
         del rows, table_name, schema
         return []
 
-    def _parse_views(self, rows: List[Dict[str, Any]], schema: str) -> List[IntrospectionViewInfo]:
+    def parse_views(self, rows: List[Dict[str, Any]], schema: str) -> List[IntrospectionViewInfo]:
         label = self._schema_label(schema)
         return [
             IntrospectionViewInfo(
@@ -632,21 +633,21 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             for row in rows
         ]
 
-    def _parse_view_info(
+    def parse_view_info(
         self, rows: List[Dict[str, Any]], view_name: str, schema: str
     ) -> Optional[IntrospectionViewInfo]:
         if not rows:
             return None
-        return self._parse_views(rows[:1], schema)[0]
+        return self.parse_views(rows[:1], schema)[0]
 
-    def _parse_triggers(
+    def parse_triggers(
         self, rows: List[Dict[str, Any]], schema: str
     ) -> List[IntrospectionTriggerInfo]:
         """Always empty: BigQuery has no triggers."""
         del rows, schema
         return []
 
-    def _parse_datasets(self, rows: List[Dict[str, Any]]) -> List[BigQueryDatasetInfo]:
+    def parse_datasets(self, rows: List[Dict[str, Any]]) -> List[BigQueryDatasetInfo]:
         return [
             BigQueryDatasetInfo(
                 schema_name=_row_get(row, "schema_name") or "",
@@ -662,7 +663,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             for row in rows
         ]
 
-    def _parse_table_options(self, rows: List[Dict[str, Any]]) -> List[BigQueryTableOptionInfo]:
+    def parse_table_options(self, rows: List[Dict[str, Any]]) -> List[BigQueryTableOptionInfo]:
         return [
             BigQueryTableOptionInfo(
                 table_name=_row_get(row, "table_name") or "",
@@ -675,7 +676,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             for row in rows
         ]
 
-    def _parse_partitions(self, rows: List[Dict[str, Any]]) -> List[BigQueryPartitionInfo]:
+    def parse_partitions(self, rows: List[Dict[str, Any]]) -> List[BigQueryPartitionInfo]:
         return [
             BigQueryPartitionInfo(
                 table_name=_row_get(row, "table_name") or "",
@@ -786,7 +787,7 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
         if cached is not None:
             return cached
         sql, params = self._build_dataset_list_sql()
-        result = self._parse_datasets(self._executor.execute(sql, params))
+        result = self.parse_datasets(self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
 
@@ -801,7 +802,7 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
         if cached is not None:
             return cached
         sql, params = self._build_table_options_sql(table_name, schema)
-        result = self._parse_table_options(self._executor.execute(sql, params))
+        result = self.parse_table_options(self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
 
@@ -816,7 +817,7 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
         if cached is not None:
             return cached
         sql, params = self._build_partition_list_sql(table_name, schema)
-        result = self._parse_partitions(self._executor.execute(sql, params))
+        result = self.parse_partitions(self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
 
@@ -909,7 +910,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         if cached is not None:
             return cached
         sql, params = self._build_dataset_list_sql()
-        result = self._parse_datasets(await self._executor.execute(sql, params))
+        result = self.parse_datasets(await self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
 
@@ -924,7 +925,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         if cached is not None:
             return cached
         sql, params = self._build_table_options_sql(table_name, schema)
-        result = self._parse_table_options(await self._executor.execute(sql, params))
+        result = self.parse_table_options(await self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
 
@@ -939,7 +940,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         if cached is not None:
             return cached
         sql, params = self._build_partition_list_sql(table_name, schema)
-        result = self._parse_partitions(await self._executor.execute(sql, params))
+        result = self.parse_partitions(await self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
 
