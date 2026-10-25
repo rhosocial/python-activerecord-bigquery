@@ -79,7 +79,7 @@ names and value spellings directly.
 import copy
 import warnings
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.introspection.base import (
@@ -194,7 +194,7 @@ def _as_bool(value: Any) -> Optional[bool]:
 class BigQueryIntrospectorMixin(IntrospectorMixin):
     """SQL building and row parsing shared by the sync and async managers.
 
-    The ``_build_*_sql`` overrides resolve *which* dataset and project a
+    The ``*_statement`` factories resolve *which* dataset and project a
     question is about and construct the matching statement object from
     :mod:`...expression.introspection`; rendering is the dialect's job. The
     ``parse_*`` methods are pure Python: rows in, core introspection
@@ -287,21 +287,22 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         return self._resolve_dataset(schema)
 
     # ------------------------------------------------------------------ #
-    # SQL building — statement objects, rendered by the dialect
+    # Statement factories — rendered by the dialect
     # ------------------------------------------------------------------ #
 
-    def _build_database_info_sql(self):
-        """``SELECT @@project_id AS catalog_name``, as a statement object."""
-        return BigQueryDatabaseInfoQueryStatement(self.dialect).to_sql()
+    def database_info_statement(self) -> "BigQueryDatabaseInfoQueryStatement":
+        """Return ``SELECT @@project_id AS catalog_name``, as a statement object."""
+        return BigQueryDatabaseInfoQueryStatement(self.dialect)
 
-    def _build_table_list_sql(
+    def table_list_statement(
         self,
+        *,
         schema: Optional[str],
         include_system: bool,
         include_views: bool = True,
         table_type: Optional[str] = None,
-    ):
-        """Build the ``INFORMATION_SCHEMA.TABLES`` statement.
+    ) -> "BigQueryTableListQueryStatement":
+        """Return the ``INFORMATION_SCHEMA.TABLES`` statement.
 
         ``include_system`` has no effect: BigQuery does not list system
         tables in this view. It is accepted so the core signature keeps
@@ -325,10 +326,12 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             catalog=catalog,
             include_views=include_views,
             table_type=table_type,
-        ).to_sql()
+        )
 
-    def _build_column_info_sql(self, table_name: str, schema: Optional[str]):
-        """Build the ``INFORMATION_SCHEMA.COLUMNS`` statement.
+    def column_info_statement(
+        self, *, table_name: str, schema: Optional[str]
+    ) -> "BigQueryColumnInfoQueryStatement":
+        """Return the ``INFORMATION_SCHEMA.COLUMNS`` statement.
 
         ``ordinal_position`` is selected because it orders the result; the
         other columns are the documented ones this backend maps onto
@@ -344,10 +347,12 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             table_name=table_name,
             schema=dataset,
             catalog=catalog,
-        ).to_sql()
+        )
 
-    def _build_index_info_sql(self, table_name: str, schema: Optional[str]):
-        """Build the primary-key statement over constraints.
+    def index_info_statement(
+        self, *, table_name: str, schema: Optional[str]
+    ) -> "BigQueryIndexInfoQueryStatement":
+        """Return the primary-key statement over constraints.
 
         ``TABLE_CONSTRAINTS`` documents ``constraint_type`` as either
         ``PRIMARY KEY`` or ``FOREIGN KEY``; only the former maps onto an
@@ -361,13 +366,13 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             table_name=table_name,
             schema=dataset,
             catalog=catalog,
-        ).to_sql()
+        )
 
-    def _build_foreign_key_sql(self, table_name: str, schema: Optional[str]):
+    def foreign_key_statement(self, *, table_name: str, schema: Optional[str]) -> "NoReturn":
         """Refuse: the catalog does not expose the referenced relation.
 
         See the module docstring. The public ``list_foreign_keys`` returns
-        an empty list instead of calling this; the builder still refuses so
+        an empty list instead of calling this; the factory still refuses so
         a future caller cannot mistake it for an unanswered query.
         """
         del table_name, schema
@@ -380,8 +385,10 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             "returns an empty list.",
         )
 
-    def _build_view_list_sql(self, schema: Optional[str], include_system: bool):
-        """Build the ``INFORMATION_SCHEMA.VIEWS`` statement.
+    def view_list_statement(
+        self, *, schema: Optional[str], include_system: bool
+    ) -> "BigQueryViewListQueryStatement":
+        """Return the ``INFORMATION_SCHEMA.VIEWS`` statement.
 
         ``include_system`` is ignored: every row of this view is a user
         view. ``VIEWS`` is dataset-qualified, unlike ``SCHEMATA``.
@@ -389,20 +396,22 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         """
         del include_system
         catalog, dataset = self._dataset_scoped(schema)
-        return BigQueryViewListQueryStatement(
-            self.dialect, schema=dataset, catalog=catalog
-        ).to_sql()
+        return BigQueryViewListQueryStatement(self.dialect, schema=dataset, catalog=catalog)
 
-    def _build_view_info_sql(self, view_name: str, schema: Optional[str]):
-        """Build one view's ``INFORMATION_SCHEMA.VIEWS`` statement."""
+    def view_info_statement(
+        self, *, view_name: str, schema: Optional[str]
+    ) -> "BigQueryViewInfoQueryStatement":
+        """Return one view's ``INFORMATION_SCHEMA.VIEWS`` statement."""
         catalog, dataset = self._dataset_scoped(schema)
         return BigQueryViewInfoQueryStatement(
             self.dialect, view_name=view_name, schema=dataset, catalog=catalog
-        ).to_sql()
+        )
 
-    def _build_trigger_list_sql(self, table_name: Optional[str], schema: Optional[str]):
+    def trigger_list_statement(
+        self, *, schema: Optional[str], table_name: Optional[str] = None
+    ) -> "NoReturn":
         """Refuse: BigQuery has no triggers and no trigger catalog view."""
-        del table_name, schema
+        del schema, table_name
         raise UnsupportedFeatureError(
             self.dialect.name,
             "trigger introspection",
@@ -410,23 +419,27 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             "list_triggers() returns an empty list.",
         )
 
-    def _build_dataset_list_sql(self):
-        """Build the ``INFORMATION_SCHEMA.SCHEMATA`` statement (project/region)."""
+    def dataset_list_statement(self) -> "BigQueryDatasetListQueryStatement":
+        """Return the ``INFORMATION_SCHEMA.SCHEMATA`` statement (project/region)."""
         config = getattr(self._backend, "config", None)
         location = getattr(config, "location", None) if config is not None else None
         return BigQueryDatasetListQueryStatement(
             self.dialect, catalog=self._project(), location=location
-        ).to_sql()
+        )
 
-    def _build_table_options_sql(self, table_name: str, schema: Optional[str]):
-        """Build the ``INFORMATION_SCHEMA.TABLE_OPTIONS`` statement."""
+    def table_options_statement(
+        self, *, table_name: str, schema: Optional[str]
+    ) -> "BigQueryTableOptionsQueryStatement":
+        """Return the ``INFORMATION_SCHEMA.TABLE_OPTIONS`` statement."""
         catalog, dataset = self._dataset_scoped(schema)
         return BigQueryTableOptionsQueryStatement(
             self.dialect, table_name=table_name, schema=dataset, catalog=catalog
-        ).to_sql()
+        )
 
-    def _build_partition_list_sql(self, table_name: str, schema: Optional[str]):
-        """Build the ``INFORMATION_SCHEMA.PARTITIONS`` statement.
+    def partition_list_statement(
+        self, *, table_name: str, schema: Optional[str]
+    ) -> "BigQueryPartitionListQueryStatement":
+        """Return the ``INFORMATION_SCHEMA.PARTITIONS`` statement.
 
         Unlike ``SCHEMATA`` this view takes a dataset qualifier only, never
         a region qualifier.
@@ -435,7 +448,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         catalog, dataset = self._dataset_scoped(schema)
         return BigQueryPartitionListQueryStatement(
             self.dialect, table_name=table_name, schema=dataset, catalog=catalog
-        ).to_sql()
+        )
 
     # ------------------------------------------------------------------ #
     # Parsing
@@ -786,7 +799,7 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        sql, params = self._build_dataset_list_sql()
+        sql, params = self.dataset_list_statement().to_sql()
         result = self.parse_datasets(self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
@@ -801,7 +814,7 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        sql, params = self._build_table_options_sql(table_name, schema)
+        sql, params = self.table_options_statement(table_name=table_name, schema=schema).to_sql()
         result = self.parse_table_options(self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
@@ -816,7 +829,7 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        sql, params = self._build_partition_list_sql(table_name, schema)
+        sql, params = self.partition_list_statement(table_name=table_name, schema=schema).to_sql()
         result = self.parse_partitions(self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
@@ -909,7 +922,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        sql, params = self._build_dataset_list_sql()
+        sql, params = self.dataset_list_statement().to_sql()
         result = self.parse_datasets(await self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
@@ -924,7 +937,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        sql, params = self._build_table_options_sql(table_name, schema)
+        sql, params = self.table_options_statement(table_name=table_name, schema=schema).to_sql()
         result = self.parse_table_options(await self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
@@ -939,7 +952,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        sql, params = self._build_partition_list_sql(table_name, schema)
+        sql, params = self.partition_list_statement(table_name=table_name, schema=schema).to_sql()
         result = self.parse_partitions(await self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result

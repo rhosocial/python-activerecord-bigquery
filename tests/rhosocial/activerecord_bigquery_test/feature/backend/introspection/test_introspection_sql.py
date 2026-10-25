@@ -2,7 +2,7 @@
 """The SQL shape each introspection question renders to.
 
 No connection: the statements render through ``BigQueryDialect`` on their
-own, and the ``_build_*_sql`` overrides run against a backend stand-in that
+own, and the ``*_statement`` factories run against a backend stand-in that
 carries the three attributes the introspector reads (``dialect``,
 ``config``, ``_version``).
 
@@ -284,42 +284,54 @@ def test_no_statement_writes_sql_text_of_its_own(dialect):
 
 def test_builders_use_the_configured_project_and_dataset(introspector):
     introspector, executor = introspector
-    sql, params = introspector._build_table_list_sql("other_ds", False)
+    sql, params = introspector.table_list_statement(
+        schema="other_ds", include_system=False
+    ).to_sql()
     assert "FROM `my-project`.`other_ds`.INFORMATION_SCHEMA.TABLES" in sql
     assert params == ()
 
     # No schema argument: the connection's default dataset is used.
-    sql, _params = introspector._build_table_list_sql(None, False)
+    sql, _params = introspector.table_list_statement(schema=None, include_system=False).to_sql()
     assert "FROM `my-project`.`my_dataset`.INFORMATION_SCHEMA.TABLES" in sql
 
     # A project.dataset pair overrides the configured project.
-    sql, _params = introspector._build_table_list_sql("other-project.other_ds", False)
+    sql, _params = introspector.table_list_statement(
+        schema="other-project.other_ds", include_system=False
+    ).to_sql()
     assert "FROM `other-project`.`other_ds`.INFORMATION_SCHEMA.TABLES" in sql
 
 
 def test_every_builder_binds_caller_data_only(introspector):
     introspector, _executor = introspector
-    _sql, params = introspector._build_column_info_sql("orders", "my_dataset")
+    _sql, params = introspector.column_info_statement(
+        table_name="orders", schema="my_dataset"
+    ).to_sql()
     assert params == ("orders",)
-    _sql, params = introspector._build_view_info_sql("a view", "my_dataset")
+    _sql, params = introspector.view_info_statement(
+        view_name="a view", schema="my_dataset"
+    ).to_sql()
     assert params == ("a view",)
-    _sql, params = introspector._build_table_options_sql("orders", "my_dataset")
+    _sql, params = introspector.table_options_statement(
+        table_name="orders", schema="my_dataset"
+    ).to_sql()
     assert params == ("orders",)
-    _sql, params = introspector._build_partition_list_sql("orders", "my_dataset")
+    _sql, params = introspector.partition_list_statement(
+        table_name="orders", schema="my_dataset"
+    ).to_sql()
     assert params == ("orders",)
 
 
 def test_the_foreign_key_builder_refuses(introspector):
     introspector, _executor = introspector
     with pytest.raises(UnsupportedFeatureError) as exc_info:
-        introspector._build_foreign_key_sql("orders", "my_dataset")
+        introspector.foreign_key_statement(table_name="orders", schema="my_dataset")
     assert "REFERENTIAL_CONSTRAINTS" in str(exc_info.value)
 
 
 def test_the_trigger_builder_refuses(introspector):
     introspector, _executor = introspector
     with pytest.raises(UnsupportedFeatureError):
-        introspector._build_trigger_list_sql("orders", "my_dataset")
+        introspector.trigger_list_statement(table_name="orders", schema="my_dataset")
 
 
 def test_no_dataset_anywhere_is_refused_with_the_instruction(introspector):
@@ -329,14 +341,14 @@ def test_no_dataset_anywhere_is_refused_with_the_instruction(introspector):
 
     project_only = _Sync(_BackendStandIn(project="my-project", dataset=None), _RecordingExecutor())
     with pytest.raises(ValueError) as exc_info:
-        project_only._build_table_list_sql(None, False)
+        project_only.table_list_statement(schema=None, include_system=False)
     assert "pass schema=" in str(exc_info.value)
 
     with pytest.raises(ValueError):
-        project_only._build_column_info_sql("orders", None)
+        project_only.column_info_statement(table_name="orders", schema=None)
 
 
 def test_a_malformed_schema_argument_is_refused(introspector):
     introspector, _executor = introspector
     with pytest.raises(ValueError):
-        introspector._build_table_list_sql("a.b.c", False)
+        introspector.table_list_statement(schema="a.b.c", include_system=False)
