@@ -180,7 +180,6 @@ def test_every_subcommand_is_registered():
     assert set(COMMAND_NAMES) == {
         "tables",
         "views",
-        "table",
         "columns",
         "datasets",
     }
@@ -304,22 +303,6 @@ def test_datasets_lists_datasets_as_json(built, capsys):
     assert built[0].introspector.calls == [("list_datasets",)]
 
 
-def test_table_prints_columns_and_the_primary_key(built, capsys):
-    _run(["table", "orders", "--dataset", "my_dataset", "-o", "json"])
-    out = capsys.readouterr().out
-    # Two displays: the columns, then the primary key. Each is a
-    # pretty-printed JSON array, back to back, so decode them in order.
-    decoder = json.JSONDecoder()
-    columns, index = decoder.raw_decode(out.lstrip())
-    rest = out.lstrip()[decoder.raw_decode(out.lstrip())[1] :].lstrip()
-    indexes, _end = decoder.raw_decode(rest)
-    assert [row["name"] for row in columns] == ["id"]
-    assert [row["name"] for row in indexes] == ["pk_orders"]
-    assert indexes[0]["is_primary"] is True
-    assert indexes[0]["extra"] == {"constraint_type": "PRIMARY KEY"}
-    assert built[0].introspector.calls == [("get_table_info", "orders", "my_dataset")]
-
-
 def test_columns_lists_one_tables_columns_as_json(built, capsys):
     _run(["columns", "orders", "--dataset", "my_dataset", "-o", "json"])
     payload = json.loads(capsys.readouterr().out)
@@ -333,14 +316,6 @@ def test_columns_lists_one_tables_columns_as_json(built, capsys):
 # ---------------------------------------------------------------------------
 
 
-def test_table_without_a_name_exits_non_zero(capsys):
-    with pytest.raises(SystemExit) as exc_info:
-        _run(["table", "-o", "json"])
-    # The positional name is required, so argparse refuses before the
-    # handler runs -- a different refusal from a table that does not exist.
-    assert exc_info.value.code == 2
-    assert "required" in capsys.readouterr().err
-
 
 def test_columns_without_a_name_exits_non_zero(capsys):
     with pytest.raises(SystemExit) as exc_info:
@@ -348,12 +323,6 @@ def test_columns_without_a_name_exits_non_zero(capsys):
     assert exc_info.value.code == 2
     assert "required" in capsys.readouterr().err
 
-
-def test_an_unknown_table_exits_non_zero(built, capsys):
-    with pytest.raises(SystemExit) as exc_info:
-        _run(["table", "missing", "-o", "json"])
-    assert exc_info.value.code == 1
-    assert "not found" in capsys.readouterr().err
 
 
 def test_a_value_error_from_the_introspector_exits_non_zero(built, capsys, monkeypatch):

@@ -1,6 +1,6 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/cli/introspect.py
-"""The introspection subcommands: ``tables``, ``views``, ``table``,
-``columns`` and ``datasets``.
+"""The introspection subcommands: ``tables``, ``views``, ``columns`` and
+``datasets``.
 
 Each one wires ``backend.introspector`` to an output format:
 
@@ -9,8 +9,6 @@ Command                          Introspector question
 ===============================  ======================================
 ``tables``                       ``list_tables()``
 ``views``                        ``list_views()``
-``table NAME``                   ``get_table_info()`` -- columns and
-                                 primary key of one table
 ``columns NAME``                 ``list_columns()``
 ``datasets``                     ``list_datasets()`` (the SCHEMATA view)
 ===============================  ======================================
@@ -43,11 +41,11 @@ OUTPUT_CHOICES = ["table", "json", "csv", "tsv"]
 
 #: The subcommands this module owns. ``cli.get_handler`` routes each name
 #: here; nothing else registers one of them.
-INTROSPECT_SUBCOMMANDS = ("tables", "views", "table", "columns", "datasets")
+INTROSPECT_SUBCOMMANDS = ("tables", "views", "columns", "datasets")
 
-#: The two subcommands that act on one named table, so they carry the
-#: positional name the other three do not.
-_NAME_COMMANDS = ("table", "columns")
+#: The one subcommand that acts on a named table, so it carries the
+#: positional name the others do not.
+_NAME_COMMANDS = ("columns",)
 
 _EPILOG = """Examples:
   # Every dataset in the project
@@ -57,8 +55,7 @@ _EPILOG = """Examples:
   %(prog)s tables --project my-project --dataset my_dataset
   %(prog)s views --project my-project --dataset my_dataset
 
-  # One table's columns and primary key
-  %(prog)s table orders --project my-project --dataset my_dataset
+  # One table's columns
   %(prog)s columns orders --project my-project --dataset my_dataset
 
   # JSON output, and the environment-variable form
@@ -86,8 +83,8 @@ def create_parser(subparsers):
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
         if name in _NAME_COMMANDS:
-            # Only these two act on one named table; the others list
-            # everything and take no positional.
+            # It acts on one named table; the others list everything and
+            # take no positional.
             parser.add_argument(
                 "name",
                 help=_POSITIONAL_HELP[name],
@@ -115,13 +112,13 @@ def create_parser(subparsers):
 _HELP = {
     "tables": "List the tables and views in a dataset",
     "views": "List the views in a dataset",
-    "table": "Show one table's columns and primary key",
+
     "columns": "List one table's columns",
     "datasets": "List the project's datasets",
 }
 
 _POSITIONAL_HELP = {
-    "table": "Table name (required)",
+
     "columns": "Table name (required)",
 }
 
@@ -231,9 +228,7 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
             schema=schema, include_system=args.include_system
         ),
         "views": lambda introspector: introspector.list_views(schema=schema),
-        "table": lambda introspector: introspector.get_table_info(
-            _one("table", args), schema=schema
-        ),
+
         "columns": lambda introspector: introspector.list_columns(
             _one("columns", args), schema=schema
         ),
@@ -254,24 +249,10 @@ def _async_questions(args) -> Dict[str, Callable[[Any], Any]]:
 def _report(result: Any, args, provider) -> None:
     """Print one question's result.
 
-    ``table`` answers a whole object, so its columns and primary key are
-    two tables under their own titles -- the shape the question has. A
-    missing table is an exit, not an empty table.
+    One result, one table of rows. The two answers ``table`` used to print
+    together -- columns and primary key -- are now the ``columns`` command
+    and the key columns it reports.
     """
-    if args.command == "table":
-        if result is None:
-            print(f"Error: table '{args.name}' was not found", file=sys.stderr)
-            sys.exit(1)
-        provider.display_results(
-            _serialize_for_output(result.columns),
-            title=f"Columns of {args.name}",
-        )
-        if result.indexes:
-            provider.display_results(
-                _serialize_for_output(result.indexes),
-                title=f"Primary key of {args.name}",
-            )
-        return
     title = "Datasets" if args.command == "datasets" else args.command.title()
     provider.display_results(_serialize_for_output(list(result)), title=title)
 

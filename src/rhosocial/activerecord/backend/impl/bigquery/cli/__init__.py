@@ -3,7 +3,7 @@
 
 The package's shape follows the other backends' small CLIs: ``__main__.py``
 parses, this module registers and routes, and each subcommand module owns
-its parser and its handler. The five introspection subcommands all live in
+its parser and its handler. The four introspection subcommands all live in
 :mod:`~.introspect`, so this module routes their names there directly.
 """
 
@@ -12,7 +12,6 @@ its parser and its handler. The five introspection subcommands all live in
 COMMAND_NAMES = [
     "tables",
     "views",
-    "table",
     "columns",
     "datasets",
 ]
