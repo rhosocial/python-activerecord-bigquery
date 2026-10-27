@@ -28,6 +28,7 @@ BigQuery instance was reachable while writing them:
 
 import pytest
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.introspection.types import IntrospectionScope
 
 from rhosocial.activerecord.backend.impl.bigquery.config import (
     BigQueryConnectionConfig,
@@ -141,9 +142,16 @@ def test_base_table_type_expands_onto_the_catalog_spellings(dialect):
     assert params == ("BASE TABLE", "CLONE", "SNAPSHOT")
 
 
-def test_view_type_expands_onto_both_view_spellings(dialect):
+def test_view_type_matches_only_views(dialect):
     _sql, params = BigQueryTableListQueryStatement(dialect, schema="ds", table_type="VIEW").to_sql()
-    assert params == ("VIEW", "MATERIALIZED VIEW")
+    assert params == ("VIEW",)
+
+
+def test_materialized_view_type_matches_only_materialized_views(dialect):
+    _sql, params = BigQueryTableListQueryStatement(
+        dialect, schema="ds", table_type="MATERIALIZED_VIEW"
+    ).to_sql()
+    assert params == ("MATERIALIZED VIEW",)
 
 
 def test_external_type_filters_on_the_catalog_spelling(dialect):
@@ -352,3 +360,20 @@ def test_a_malformed_schema_argument_is_refused(introspector):
     introspector, _executor = introspector
     with pytest.raises(ValueError):
         introspector.table_list_statement(schema="a.b.c", include_system=False)
+
+
+# ---------------------------------------------------------------------------
+# The capability claims are facts about the catalog
+# ---------------------------------------------------------------------------
+
+
+def test_index_introspection_is_declined(dialect):
+    """BigQuery has no index catalogue, so the family is not claimed.
+
+    The primary-key constraint read is still available as a constraint
+    question; claiming the index family would advertise a CLI type that has
+    no view to run.
+    """
+    assert dialect.supports_index_introspection() is False
+    scopes = dialect.get_supported_introspection_scopes()
+    assert IntrospectionScope.INDEX not in scopes

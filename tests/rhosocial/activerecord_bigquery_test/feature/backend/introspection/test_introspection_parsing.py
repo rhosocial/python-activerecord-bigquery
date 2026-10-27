@@ -133,7 +133,7 @@ def test_tables_parse_the_documented_type_words(introspector):
         TableType.BASE_TABLE,  # a clone is a table for "can I select from it"
         TableType.BASE_TABLE,  # a snapshot too
         TableType.VIEW,
-        TableType.VIEW,  # a materialized view is reported as a view
+        TableType.MATERIALIZED_VIEW,  # the catalog distinguishes it
         TableType.EXTERNAL,
     ]
     orders = tables[0]
@@ -580,3 +580,13 @@ def test_storage_shape_composes_options_partitions_and_columns(introspector):
     assert [p.partition_id for p in storage.partitions] == ["20260101"]
     assert storage.partitioning_columns == ["created"]
     assert storage.clustering_columns == ["tier"]
+
+
+# ---------------------------------------------------------------------------
+# Both managers share the dialect's capability answers
+# ---------------------------------------------------------------------------
+
+
+def test_async_introspector_declines_index_introspection(async_introspector):
+    """The capability is declared once and the async manager inherits it."""
+    assert async_introspector.dialect.supports_index_introspection() is False

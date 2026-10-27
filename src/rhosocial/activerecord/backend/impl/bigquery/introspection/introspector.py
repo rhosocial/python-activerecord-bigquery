@@ -10,7 +10,8 @@ Question                Catalog view
 database info           ``SELECT @@project_id`` (system variable)
 tables                  ``INFORMATION_SCHEMA.TABLES``
 columns                 ``INFORMATION_SCHEMA.COLUMNS``
-indexes (primary keys)  ``TABLE_CONSTRAINTS`` + ``KEY_COLUMN_USAGE``
+indexes                 none -- BigQuery has no index catalogue
+primary key             ``TABLE_CONSTRAINTS`` + ``KEY_COLUMN_USAGE``
 views                   ``INFORMATION_SCHEMA.VIEWS``
 datasets                ``INFORMATION_SCHEMA.SCHEMATA``
 table options           ``INFORMATION_SCHEMA.TABLE_OPTIONS``
@@ -47,9 +48,11 @@ rather than fabricating the other side.
 *Triggers.* BigQuery has no triggers, so :meth:`list_triggers` returns an
 empty list and the builder refuses instead of inventing a catalog view.
 
-*Indexes.* BigQuery has no user-created indexes. Primary-key constraints
-are reported as :class:`IndexInfo` values so ``get_primary_key()`` works;
-``IndexType`` is ``UNKNOWN`` because there is no index structure behind it.
+*Indexes.* BigQuery has no user-created indexes and its catalog exposes no
+index view, so :meth:`supports_index_introspection` answers ``False`` and
+no CLI type offers the family. Primary-key constraints are still reported
+as :class:`IndexInfo` values so ``get_primary_key()`` works; ``IndexType``
+is ``UNKNOWN`` because there is no index structure behind it.
 
 Documentation:
 
@@ -136,7 +139,7 @@ _TABLE_TYPE_MAP = {
     "SNAPSHOT": TableType.BASE_TABLE,
     "EXTERNAL": TableType.EXTERNAL,
     "VIEW": TableType.VIEW,
-    "MATERIALIZED VIEW": TableType.VIEW,
+    "MATERIALIZED VIEW": TableType.MATERIALIZED_VIEW,
 }
 
 #: The views that are not tables, used when ``include_views=False``.
@@ -316,7 +319,8 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
                 exclude views and materialized views.
             table_type: A core ``TableType`` value or a catalog spelling.
                 ``BASE_TABLE`` expands to base tables, clones and snapshots;
-                ``VIEW`` expands to views and materialized views.
+                ``VIEW`` and ``MATERIALIZED_VIEW`` each match their own
+                catalog spelling.
         """
         catalog, dataset = self._dataset_scoped(schema)
         del include_system  # BigQuery's catalog has no system tables here.

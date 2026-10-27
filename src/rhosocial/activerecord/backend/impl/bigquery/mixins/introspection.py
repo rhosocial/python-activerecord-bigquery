@@ -92,10 +92,12 @@ _VIEW_TYPES = ("VIEW", "MATERIALIZED VIEW")
 class BigQueryIntrospectionMixin(IntrospectionMixin):
     """BigQuery's answers to the core introspection questions.
 
-    ``supports_*`` declares them, ``format_*`` renders them. Two questions
-    have no answer at all and say so instead of guessing: foreign keys
-    (the catalog reports *that* one exists without naming the referenced
-    relation) and triggers (BigQuery has none).
+    ``supports_*`` declares them, ``format_*`` renders them. Three questions
+    have no answer at all and say so instead of guessing: indexes (BigQuery
+    has no index catalogue), foreign keys (the catalog reports *that* one
+    exists without naming the referenced relation) and triggers (BigQuery
+    has none). The introspector can still read a primary key from its
+    constraints; that is a constraint question, not the index family.
     """
 
     def supports_dataset_introspection(self) -> bool:
@@ -127,8 +129,16 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         return True
 
     def supports_index_introspection(self) -> bool:
-        """No physical indexes exist; PRIMARY KEY constraints stand in."""
-        return True
+        """Declined: BigQuery has no index catalogue to ask.
+
+        BigQuery creates no user-visible indexes, and
+        ``INFORMATION_SCHEMA`` documents no index view at all, so there is
+        no question this dialect can answer. The primary key is a
+        constraint rather than an index and stays reachable through the
+        introspector's constraint read, but claiming the index family here
+        would offer a CLI type that has nothing to run.
+        """
+        return False
 
     def supports_foreign_key_introspection(self) -> bool:
         """Declined: the catalog never names the referenced relation.
@@ -154,13 +164,12 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         return True
 
     def get_supported_introspection_scopes(self) -> List[IntrospectionScope]:
-        """The scopes this dialect can answer, less the two it declines."""
+        """The scopes this dialect can answer, less the three it declines."""
         return [
             IntrospectionScope.DATABASE,
             IntrospectionScope.SCHEMA,
             IntrospectionScope.TABLE,
             IntrospectionScope.COLUMN,
-            IntrospectionScope.INDEX,
             IntrospectionScope.VIEW,
         ]
 
@@ -260,10 +269,10 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
 
         A core ``TableType`` spelling is expanded onto the catalog's:
         ``BASE_TABLE`` covers base tables, clones and snapshots, and
-        ``VIEW`` covers views and materialized views. A catalog spelling
-        is passed through unchanged, and a spelling this backend does not
-        know resolves to nothing -- which the caller renders as the
-        no-match predicate rather than guessing.
+        ``VIEW`` and ``MATERIALIZED_VIEW`` keep the distinction the catalog
+        draws. A catalog spelling is passed through unchanged, and a
+        spelling this backend does not know resolves to nothing -- which the
+        caller renders as the no-match predicate rather than guessing.
         """
         if not table_type:
             return ()
@@ -271,7 +280,9 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         if raw in ("BASE TABLE", "BASE"):
             return _BASE_TABLE_TYPES
         if raw == "VIEW":
-            return _VIEW_TYPES
+            return ("VIEW",)
+        if raw == "MATERIALIZED VIEW":
+            return ("MATERIALIZED VIEW",)
         if raw in ("SYSTEM TABLE", "TEMPORARY"):
             return ()
         return (raw,)

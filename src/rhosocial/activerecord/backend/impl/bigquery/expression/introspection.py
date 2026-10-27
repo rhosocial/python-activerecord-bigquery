@@ -127,8 +127,9 @@ class BigQueryTableListQueryStatement(IntrospectionExpression):
             system tables, so there is nothing for the flag to include; it
             is accepted so the core signature keeps working.
         table_type: One core ``TableType`` spelling (``BASE_TABLE``,
-            ``VIEW``, ``EXTERNAL`` ...), or one catalog spelling. The
-            dialect expands the core spellings onto the catalog ones.
+            ``VIEW``, ``MATERIALIZED_VIEW``, ``EXTERNAL`` ...), or one
+            catalog spelling. The dialect expands the core spellings onto
+            the catalog ones.
 
     https://cloud.google.com/bigquery/docs/information-schema-tables
     """
