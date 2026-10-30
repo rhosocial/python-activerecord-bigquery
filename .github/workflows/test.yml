@@ -44,7 +44,7 @@ env:
   # The previous pin, the fix/schema-name-propagation-gaps branch, predates all
   # of that layer, so the imports this backend now makes do not resolve against
   # it.
-  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@fix/column-constraint-gates"
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@release/v1.0.0.dev30"
   TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@fix/column-constraint-gates"
 
 jobs:
