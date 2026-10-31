@@ -71,11 +71,24 @@ from .mixins import (
     BigQuerySchemaMixin,
     BigQueryNamespaceMixin,
     BigQueryDDLColumnMixin,
+    # Constraint capability switches, all declared locally and all read off the
+    # official ``column_schema`` / ``constraint_definition`` / ``ALTER TABLE``
+    # grammar (grammar-only: no BigQuery instance is reachable and the CI
+    # emulator implements neither ALTER constraint statement).  Before this
+    # mixin the backend declared none of them and inherited core's, whose
+    # defaults say ``True`` for CHECK, UNIQUE, MATCH, DEFERRABLE and both
+    # referential actions -- all of which BigQuery's grammar rejects.  Ahead of
+    # core's ConstraintMixin and DDLColumnMixin so those defaults cannot answer.
+    BigQueryConstraintMixin,
     BigQueryCapabilityMixin,
     BigQueryColumnTypeMixin,
     BigQueryIdentityColumnMixin,
     BigQueryIdentifierMixin,
     BigQueryMaterializedViewMixin,
+    # Introspection: the capability probes and the format_* entries that
+    # render the BigQuery introspection statements. It subclasses core's
+    # IntrospectionMixin, so C3 requires it ahead of it in the base list.
+    BigQueryIntrospectionMixin,
     # Transaction formatting owns the refusals for the lock-wait pair
     # (WAIT / NO WAIT) that BigQuery's grammar does not have; core's generic
     # renderer would drop them silently. Before TransactionControlMixin.
@@ -83,12 +96,22 @@ from .mixins import (
     # TRIM is the one of the four string nodes BigQuery spells differently:
     # the direction lives in the function name, so BigQueryTrimMixin must
     # outrank core's TrimMixin in the MRO. LPAD, RPAD and REPEAT are the
-    # shared spellings verbatim here.
+    # shared spellings verbatim here, and BigQueryLiteralValueMixin follows
+    # the same pattern (see its position below).
     BigQueryTrimMixin,
+    BigQueryLiteralValueMixin,
 )
 
 
 class BigQueryDialect(
+    # The bases below come in bundles: a backend mixin, then the core bundle
+    # it stands in for. The backend's answer has to come first -- a mixin
+    # placed after the class it overrides never wins -- so a new mixin goes
+    # immediately before the core mixin it overrides, and the pairing is read
+    # off the list. Two positions sit outside that pairing and are called out
+    # where they occur: a mixin that overrides a method ``SQLDialectBase``
+    # defines has to precede the base, and a mixin that subclasses a core
+    # mixin has to precede it too (C3: a subclass precedes its base).
     # New BigQuery-specific mixins (BEFORE SQLDialectBase and generic mixins they override)
     BigQueryCapabilityMixin,
     BigQueryTypeSupportMixin,
@@ -97,6 +120,13 @@ class BigQueryDialect(
     BigQueryDQLMixin,
     BigQuerySchemaMixin,
     BigQueryDDLColumnMixin,
+    # Constraint capability switches. Ahead of core's ConstraintMixin and
+    # DDLColumnMixin below: every constraint answer BigQuery gives is declared
+    # in this package with the official grammar it rests on, so a moved core
+    # default cannot silently become BigQuery's contract.  Several values
+    # differ from those defaults -- CHECK, UNIQUE, MATCH, DEFERRABLE, ON DELETE,
+    # ON UPDATE are all False here and True there.
+    BigQueryConstraintMixin,
     # Identity is a parameterised column clause, so its spelling lives with the
     # column DDL mixin and ahead of core's IdentityColumnMixin. BigQuery's
     # grammar makes the option parentheses literal; the probes come from the
@@ -113,6 +143,12 @@ class BigQueryDialect(
     # REPEAT are the shared spellings verbatim here, so the generic mixins
     # answer for those three unchanged.
     BigQueryTrimMixin,
+    # Value literals: BigQuery's spellings ahead of SQLDialectBase, whose
+    # portable forms this dialect keeps for the kinds this grammar agrees
+    # with. A mixin that overrides format_literal and is placed after the
+    # class that defines it never wins the lookup, so this position is
+    # structural rather than stylistic.
+    BigQueryLiteralValueMixin,
     # The backend's one naming-side mixin: both levels rendered, and
     # validate_catalog_name narrowed, because a BigQuery path is
     # project.dataset.object and a project with no dataset is not a name.
@@ -127,6 +163,10 @@ class BigQueryDialect(
     ArrayMixin, ExplainMixin, MergeMixin,
     UpsertMixin, LateralJoinMixin, JoinMixin,
     ViewMixin, SchemaMixin, IndexMixin, TableMixin, ConstraintMixin,
+    # BigQuery's introspection answers ahead of the core mixin whose
+    # format_* entries (and whose probes) they replace: a mixin placed after
+    # the class it overrides never wins the lookup.
+    BigQueryIntrospectionMixin,
     IntrospectionMixin, TruncateMixin,
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
     SetOperationMixin, DateTimeMixin,
@@ -184,6 +224,22 @@ class BigQueryDialect(
         """BigQuery Standard SQL uses ``?`` positional bind markers."""
         return "?"
 
+    def escape_sql_string(self, value: str) -> str:
+        """GoogleSQL's string escaping: backslashes, not quote doubling.
+
+        The base helper doubles single quotes, which is the SQL-standard
+        convention. GoogleSQL documents the backslash escape ``\\'`` for a
+        single quote -- and, because backslashes introduce escape sequences
+        there at all, a literal backslash must itself become ``\\\\`` --
+        while quote doubling appears nowhere in its escape table (lexical
+        structure and syntax: "Escape sequences for string and bytes
+        literals"; not server-verified, read 2026-10-17). The backslash is
+        escaped first, then the quote, so neither can eat the other's
+        escape. This is the dialect-wide policy: every inline string this
+        dialect renders goes through it.
+        """
+        return value.replace("\\", "\\\\").replace("'", "\\'")
+
     def get_type_mappings(self) -> Dict[str, Any]:
         return {
             "INTEGER": "INT64",
@@ -195,7 +251,7 @@ class BigQueryDialect(
             "DECIMAL": "BIGNUMERIC",
         }
 
-    # -- CREATE TABLE diff (CreateTableExpressionDiffSupport hooks) -----------
+    # -- CREATE TABLE diff (the ALTER TABLE probes core consults) -------------
 
     def supports_alter_column_type(self) -> bool:
         """BigQuery cannot change a column type in place."""

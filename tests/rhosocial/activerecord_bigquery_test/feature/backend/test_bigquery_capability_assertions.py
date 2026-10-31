@@ -10,19 +10,19 @@ import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression import (
-    BinaryArithmeticExpression,
+    ArithmeticOperation,
     Column,
-    CreateTableExpression,
-    CreateViewExpression,
-    QueryExpression,
+    CreateTableStatement,
+    CreateViewStatement,
+    QueryStatement,
 )
 from rhosocial.activerecord.backend.expression.objects import Table, View
 from rhosocial.activerecord.backend.expression.statements import (
     ColumnDefinition,
-    DropTableExpression,
-    GeneratedColumnExpression,
+    ColumnGeneratedConstraint,
+    DropTableStatement,
     GeneratedColumnType,
-    TruncateExpression,
+    TruncateStatement,
 )
 from rhosocial.activerecord.backend.expression.types import IntegerType
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
@@ -77,13 +77,13 @@ def test_generated_stored_column_renders(dialect):
         dialect,
         "total",
         IntegerType(dialect),
-        generated_expression=GeneratedColumnExpression(
+        generated_expression=ColumnGeneratedConstraint(
             dialect,
-            BinaryArithmeticExpression(dialect, "+", Column(dialect, "a"), Column(dialect, "b")),
+            ArithmeticOperation(dialect, "add", Column(dialect, "a"), Column(dialect, "b")),
             storage_type=GeneratedColumnType.STORED,
         ),
     )
-    sql, _ = CreateTableExpression(dialect, Table(dialect, "t"), [column]).to_sql()
+    sql, _ = CreateTableStatement(dialect, Table(dialect, "t"), [column]).to_sql()
     assert "GENERATED ALWAYS AS (`a` + `b`) STORED" in sql
 
 
@@ -92,14 +92,14 @@ def test_virtual_generated_column_rejected(dialect):
         dialect,
         "total",
         IntegerType(dialect),
-        generated_expression=GeneratedColumnExpression(
+        generated_expression=ColumnGeneratedConstraint(
             dialect,
             Column(dialect, "a"),
             storage_type=GeneratedColumnType.VIRTUAL,
         ),
     )
     with pytest.raises(UnsupportedFeatureError, match="VIRTUAL"):
-        CreateTableExpression(dialect, Table(dialect, "t"), [column]).to_sql()
+        CreateTableStatement(dialect, Table(dialect, "t"), [column]).to_sql()
 
 
 def test_truncate_and_drop_table(dialect):
@@ -107,22 +107,22 @@ def test_truncate_and_drop_table(dialect):
     assert dialect.supports_if_exists_table() is True
     # The dataset rides in the table object's own slot, so an unqualified
     # truncate and a dataset-qualified one are one construction each.
-    assert TruncateExpression(dialect, Table(dialect, "t")).to_sql()[0] == (
+    assert TruncateStatement(dialect, Table(dialect, "t")).to_sql()[0] == (
         "TRUNCATE TABLE `t`"
     )
-    assert TruncateExpression(
+    assert TruncateStatement(
         dialect, Table(dialect, "t", schema_name="app")
     ).to_sql()[0] == "TRUNCATE TABLE `app`.`t`"
-    assert DropTableExpression(dialect, Table(dialect, "t"), if_exists=True).to_sql()[0] == (
+    assert DropTableStatement(dialect, Table(dialect, "t"), if_exists=True).to_sql()[0] == (
         "DROP TABLE IF EXISTS `t`"
     )
 
 
 def test_views_supported_and_render(dialect):
     assert dialect.supports_views() is True
-    query = QueryExpression(
+    query = QueryStatement(
         dialect, select=[Column(dialect, "id")], from_=Table(dialect, "t")
     )
-    sql, _ = CreateViewExpression(dialect, view=View(dialect, "v"), query=query).to_sql()
+    sql, _ = CreateViewStatement(dialect, view=View(dialect, "v"), query=query).to_sql()
     assert sql.startswith("CREATE VIEW `v`")
     assert "SELECT `id` FROM `t`" in sql

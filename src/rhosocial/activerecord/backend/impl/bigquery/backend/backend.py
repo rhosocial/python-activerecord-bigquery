@@ -8,6 +8,9 @@ from rhosocial.activerecord.backend.errors import (
 )
 from rhosocial.activerecord.backend.result import QueryResult
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.introspection.backend_mixin import (
+    IntrospectorBackendMixin,
+)
 
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
@@ -15,8 +18,15 @@ from ..transaction import BigQueryTransactionManager
 from .qualified_names import BigQueryQualifiedNameMixin
 
 
-class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
-    """BigQuery-specific backend (synchronous)."""
+class BigQueryBackend(
+    IntrospectorBackendMixin, BigQueryQualifiedNameMixin, StorageBackend
+):
+    """BigQuery-specific backend (synchronous).
+
+    ``backend.introspector`` answers metadata questions from BigQuery's
+    ``INFORMATION_SCHEMA`` views; see
+    :class:`~...introspection.SyncBigQueryIntrospector`.
+    """
 
     def __init__(self, **kwargs):
         version = kwargs.pop('version', None) or (3, 0, 0)
@@ -341,7 +351,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
                 rows = []
                 for row in rows_iter:
                     row_dict = dict(row.items())
-                    rows.append(self._remap_row_columns(self._adapt_row_types(row_dict, adapters), mapping))
+                    rows.append(self.remap_row_columns(self.adapt_row_types(row_dict, adapters), mapping))
                 affected_rows = len(rows)
                 result_data = rows
             else:
@@ -360,6 +370,20 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
     @property
     def dialect(self) -> BigQueryDialect:
         return BigQueryDialect(version=self._version)
+
+    def _create_introspector(self) -> Any:
+        """Return the BigQuery introspector with its own executor.
+
+        The executor is BigQuery's: the core one drives a DB-API cursor,
+        which this backend does not have -- statements run through
+        ``backend.execute()`` and come back already dict-shaped.
+        """
+        from ..introspection import (
+            SyncBigQueryIntrospector,
+            SyncBigQueryIntrospectorExecutor,
+        )
+
+        return SyncBigQueryIntrospector(self, SyncBigQueryIntrospectorExecutor(self))
 
         # -- Emulator REST fast path ---------------------------------------------------
 
@@ -479,7 +503,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
             adapters = column_adapters or {}
             mapping = column_mapping or {}
             rows = [
-                self._remap_row_columns(self._adapt_row_types(row, adapters), mapping)
+                self.remap_row_columns(self.adapt_row_types(row, adapters), mapping)
                 for row in BigQueryBackend._rest_rows(self, body)
             ]
             # Follow pagination if the emulator ever splits results.
@@ -496,7 +520,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
                     message = (pbody.get("error") or {}).get("message") or page.text
                     BigQueryBackend._raise_http_error(page.status_code, message)
                 rows.extend(
-                    self._remap_row_columns(self._adapt_row_types(row, adapters), mapping)
+                    self.remap_row_columns(self.adapt_row_types(row, adapters), mapping)
                     for row in BigQueryBackend._rest_rows(self, pbody)
                 )
                 page_token = pbody.get("pageToken")
@@ -538,9 +562,8 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
         from rhosocial.activerecord.backend.schema import StatementType
 
         key = (schema_name, table, pk_column)
-        qualified = self._render_relation(table, schema_name)
-        sql = f"SELECT COALESCE(MAX(`{pk_column}`), 0) + 1 AS next_id FROM {qualified}"
-        result = self.execute(sql, options=ExecutionOptions(stmt_type=StatementType.DQL))
+        sql, params = self._next_pk_expression(table, schema_name, pk_column).to_sql()
+        result = self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
         row = result.data[0]
         value = row.get("next_id") if isinstance(row, dict) else row[0]
         # Stay monotonic across deletes: MAX(pk)+1 reuses the id of a just
@@ -617,9 +640,9 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
         # rows, and the BigQuery analyzer rejects an untyped NULL CASE result
         # ("Value of type INT64 cannot be assigned to ..."). Reusing the
         # column itself is also the safe semantics.
-        from rhosocial.activerecord.backend.base.operations import _is_sql_expression
+        from rhosocial.activerecord.backend.base.operations import is_sql_expression
         from rhosocial.activerecord.backend.expression import (
-            Column, Literal, UpdateExpression, ComparisonPredicate, InPredicate,
+            Column, Literal, UpdateStatement, ComparisonPredicate, InPredicate,
         )
         from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
         from rhosocial.activerecord.backend.expression.objects import Table
@@ -640,7 +663,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
 
         pk_literals = Literal(self.dialect, options.pk_values)
         where_predicate = InPredicate(self.dialect, pk_col, pk_literals)
-        update_expr = UpdateExpression(
+        update_expr = UpdateStatement(
             dialect=self.dialect,
             # One construction whether or not a dataset was given. The
             # conditional branch here existed only to avoid passing
@@ -682,12 +705,7 @@ class BigQueryBackend(BigQueryQualifiedNameMixin, StorageBackend):
         from rhosocial.activerecord.backend.options import ExecutionOptions
         from rhosocial.activerecord.backend.schema import StatementType
 
-        where_sql, params = where.to_sql()
-        stripped = where_sql.strip()
-        if stripped.upper().startswith("WHERE "):
-            where_sql = stripped[5:].strip()
-        qualified = self._render_relation(table, schema_name)
-        sql = f"SELECT COUNT(*) AS n FROM {qualified} WHERE {where_sql}"
+        sql, params = self._count_expression(table, schema_name, where).to_sql()
         result = self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
         if not result.data:
             return None

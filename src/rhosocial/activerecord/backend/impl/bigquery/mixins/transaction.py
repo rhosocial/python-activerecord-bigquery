@@ -14,8 +14,8 @@ from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeature
 
 if TYPE_CHECKING:  # pragma: no cover
     from rhosocial.activerecord.backend.expression.transaction import (
-        BeginTransactionExpression,
-        SetTransactionExpression,
+        BeginTransactionStatement,
+        SetTransactionStatement,
     )
 
 
@@ -32,8 +32,8 @@ class BigQueryTransactionMixin:
         ``False``: the transactions reference documents ``BEGIN TRANSACTION``,
         ``COMMIT TRANSACTION`` and ``ROLLBACK TRANSACTION``; the string
         ``WAIT`` does not occur on it, and neither does ``SET TRANSACTION``.
-        The pair is carried by ``BeginTransactionExpression`` and
-        ``SetTransactionExpression`` all the same, so both spellings are
+        The pair is carried by ``BeginTransactionStatement`` and
+        ``SetTransactionStatement`` all the same, so both spellings are
         refused by name below rather than dropped.
 
         Reference (fetched 2026-10-08):
@@ -41,8 +41,8 @@ class BigQueryTransactionMixin:
         """
         return False
 
-    def format_begin_transaction(
-        self, expr: "BeginTransactionExpression"
+    def format_begin_transaction_statement(
+        self, expr: "BeginTransactionStatement"
     ) -> Tuple[str, tuple]:
         """Format a BEGIN statement, refusing the wait pair by name.
 
@@ -71,8 +71,8 @@ class BigQueryTransactionMixin:
             parts.append("WAIT" if wait else "NO WAIT")
         return " ".join(parts), ()
 
-    def format_set_transaction(
-        self, expr: "SetTransactionExpression"
+    def format_set_transaction_statement(
+        self, expr: "SetTransactionStatement"
     ) -> Tuple[str, tuple]:
         """Refuse ``SET TRANSACTION``; name the wait pair when it was requested.
 
@@ -97,7 +97,7 @@ class BigQueryTransactionMixin:
                 f"{self.name} has no SET TRANSACTION statement, so the "
                 f"{feature} clause cannot be expressed.",
             )
-        return super().format_set_transaction(expr)
+        return super().format_set_transaction_statement(expr)
 
 
 __all__ = ['BigQueryTransactionMixin']

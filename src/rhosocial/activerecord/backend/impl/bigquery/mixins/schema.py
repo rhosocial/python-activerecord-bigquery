@@ -8,8 +8,8 @@ from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeature
 
 if TYPE_CHECKING:
     from rhosocial.activerecord.backend.expression.statements.ddl_schema import (
-        CreateSchemaExpression,
-        DropSchemaExpression,
+        CreateSchemaStatement,
+        DropSchemaStatement,
     )
 
 from rhosocial.activerecord.backend.expression.objects import Schema
@@ -74,7 +74,7 @@ class BigQuerySchemaMixin:
         """
         return True
 
-    def format_create_schema_statement(self, expr: CreateSchemaExpression) -> Tuple[str, tuple]:
+    def format_create_schema_statement(self, expr: CreateSchemaStatement) -> Tuple[str, tuple]:
         """Format ``CREATE SCHEMA`` (GoogleSQL: ``CREATE DATASET``).
 
         Raises:
@@ -84,7 +84,7 @@ class BigQuerySchemaMixin:
         """
         if not isinstance(expr.schema, Schema):
             raise TypeError(
-                f"CreateSchemaExpression.schema must be a Schema, "
+                f"CreateSchemaStatement.schema must be a Schema, "
                 f"got {type(expr.schema).__name__}"
             )
         if expr.if_not_exists and not self.supports_schema_if_not_exists():
@@ -100,7 +100,7 @@ class BigQuerySchemaMixin:
         if_not_exists_part = "IF NOT EXISTS " if expr.if_not_exists else ""
         return f"CREATE SCHEMA {if_not_exists_part}{expr.schema.to_sql()[0]}", ()
 
-    def format_drop_schema_statement(self, expr: DropSchemaExpression) -> Tuple[str, tuple]:
+    def format_drop_schema_statement(self, expr: DropSchemaStatement) -> Tuple[str, tuple]:
         """Format ``DROP SCHEMA`` (GoogleSQL: ``DROP DATASET``).
 
         Raises:
@@ -109,7 +109,7 @@ class BigQuerySchemaMixin:
         """
         if not isinstance(expr.schema, Schema):
             raise TypeError(
-                f"DropSchemaExpression.schema must be a Schema, "
+                f"DropSchemaStatement.schema must be a Schema, "
                 f"got {type(expr.schema).__name__}"
             )
         if expr.if_exists and not self.supports_schema_if_exists():

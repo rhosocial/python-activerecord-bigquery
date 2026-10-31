@@ -164,33 +164,30 @@ dataset 限定 `FROM` 里的范围，到此为止。列引用是「表名或别�
 
 [from-clause]: https://cloud.google.com/bigquery/docs/reference/standard-sql/query-syntax#from_clause
 
-`BigQueryDialect` 的做法是覆盖 `format_column`，不让核心渲染器去限定列；
-`format_wildcard` 对 `table.*` 做的是同一件事：
+`BigQueryDialect` 的做法是覆盖 `format_column`，不让核心渲染器去限定列；通配符
+本身就是核心的默认拼写，`format_all_columns_wildcard` 对 `table.*` 做的是同一件事
+（`rel.*` 的限定骑在 relation 对象上，渲染出的就是查询所用的名字）：
 
 ```python
 Column(d, "id", table="orders").to_sql()[0]
 # `orders`.`id`
 
-WildcardExpression(d, table="orders").to_sql()[0]
+AllColumnsWildcard(d, relation=NamedRelationRef(d, Table(d, "orders"))).to_sql()[0]
 # `orders`.*
 
-WildcardExpression(d).to_sql()[0]
+AllColumnsWildcard(d).to_sql()[0]
 # *
 ```
 
-`format_wildcard` 是唯一一个既不渲染 `schema_name` 也不校验它的格式化方法，空串
-也一样放过：
+通配符按文法位置分成两个节点（规范 4.10）：选择列表与 RETURNING 位是
+`AllColumnsWildcard`，`COUNT` 的参数位是 `RowCountWildcard`，二者不可互换。
+`AllColumnsWildcard` 的 relation 是一个 `NamedRelationRef`，它的名字与限定符都从
+relation 对象上取，因此 query 里用的别名就是渲染出来的别名——BigQuery 不需要在这里
+丢弃或校验 dataset。
 
-```python
-WildcardExpression(d, table="orders", schema_name="app").to_sql()[0]
-# `orders`.*
-
-WildcardExpression(d, table="orders", schema_name="").to_sql()[0]
-# `orders`.*
-```
-
-输出并没有因此少掉什么：通配符本来就不带 dataset。值得记下的是它与
-`format_column` 的不对称——后者会拒绝空串。
+BigQuery 还有一处后端专属的星号写法**不进入核心**：通配符表（`dataset.*`）。它是
+Table 位置上的一个数据集展开，不是列展开，也不是行计数，语义与上面两个节点都不同，
+因此保持后端侧形态，不由核心的任一通配符节点承担。
 
 覆盖带来的另外两点后果也需要讲清楚，因为它们与核心渲染器不同：
 
@@ -314,18 +311,18 @@ CTE 是给余下这条查询起名字，不是给数据库起名字，因此它�
 查询仍然带着模型的 dataset：
 
 ```python
-inner = QueryExpression(
+inner = QueryStatement(
     dialect=d,
     select=[Column(d, "id", table="orders", schema_name="app")],
     from_=[TableExpression(d, "orders", schema_name="app")],
 )
-main = QueryExpression(
+main = QueryStatement(
     dialect=d,
     select=[Column(d, "id", table="recent_orders")],
     from_=[TableExpression(d, "recent_orders")],
 )
 
-WithQueryExpression(d, [CTEExpression(d, "recent_orders", inner)], main).to_sql()[0]
+WithStatement(d, [CTEClause(d, "recent_orders", inner)], main).to_sql()[0]
 # WITH `recent_orders` AS (SELECT `orders`.`id` FROM `app`.`orders`)
 #   SELECT `recent_orders`.`id` FROM `recent_orders`
 ```
@@ -392,16 +389,16 @@ Dotted.query().select(Dotted.c.id).to_sql()[0]
 参数：
 
 ```python
-CreateTableExpression(
+CreateTableStatement(
     d, TableExpression(d, "orders", schema_name="app"), columns=cols
 ).to_sql()[0]
 # CREATE TABLE `app`.`orders` (`id` INT64)
 
-DropTableExpression(d, TableExpression(d, "orders", schema_name="app"),
+DropTableStatement(d, TableExpression(d, "orders", schema_name="app"),
                     if_exists=True).to_sql()[0]
 # DROP TABLE IF EXISTS `app`.`orders`
 
-CreateViewExpression(d, "v_orders", query, schema_name="app").to_sql()[0]
+CreateViewStatement(d, "v_orders", query, schema_name="app").to_sql()[0]
 # CREATE VIEW `app`.`v_orders`  AS SELECT `orders`.`id` FROM `app`.`orders`
 ```
 
@@ -411,18 +408,18 @@ DML 语句接受带限定的 `TableExpression`，限定方式一致。不带 `WH
 范围本身，这也是看清「谓词里没有 dataset」最短的一条路：
 
 ```python
-InsertExpression(
+InsertStatement(
     d, TableExpression(d, "users", schema_name="app"),
     ValuesSource(d, [[Literal(d, "x")]]), columns=["name"],
 ).to_sql()
 # ('INSERT INTO `app`.`users` (`name`) VALUES (?)', ('x',))
 
-UpdateExpression(
+UpdateStatement(
     d, TableExpression(d, "users", schema_name="app"), {"name": Literal(d, "x")}
 ).to_sql()
 # ('UPDATE `app`.`users` SET `name` = ?', ('x',))
 
-DeleteExpression(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
+DeleteStatement(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
 # ('DELETE FROM `app`.`users`', ())
 ```
 
@@ -437,11 +434,11 @@ DeleteExpression(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
 有两条 DDL 是被拒绝而不是被限定，因为 BigQuery 没有对应的子句：
 
 ```python
-DropViewExpression(d, "v_orders", schema_name="app", if_exists=True).to_sql()
+DropViewStatement(d, "v_orders", schema_name="app", if_exists=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support DROP VIEW IF
 # EXISTS. Suggestion: BigQuery does not support DROP VIEW IF EXISTS.
 
-CreateViewExpression(d, "v_orders", query, schema_name="app", if_not_exists=True).to_sql()
+CreateViewStatement(d, "v_orders", query, schema_name="app", if_not_exists=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support CREATE VIEW IF
 # NOT EXISTS. Suggestion: BigQuery does not support CREATE VIEW IF NOT EXISTS.
 ```
@@ -453,25 +450,25 @@ CreateViewExpression(d, "v_orders", query, schema_name="app", if_not_exists=True
 两条语句都把 dataset 名渲染成单个带引号的标识符：
 
 ```python
-CreateSchemaExpression(d, "sales").to_sql()[0]
+CreateSchemaStatement(d, "sales").to_sql()[0]
 # CREATE SCHEMA `sales`
 
-CreateSchemaExpression(d, "sales", if_not_exists=True).to_sql()[0]
+CreateSchemaStatement(d, "sales", if_not_exists=True).to_sql()[0]
 # CREATE SCHEMA IF NOT EXISTS `sales`
 
-DropSchemaExpression(d, "sales", if_exists=True).to_sql()[0]
+DropSchemaStatement(d, "sales", if_exists=True).to_sql()[0]
 # DROP SCHEMA IF EXISTS `sales`
 ```
 
 `authorization=` 被拒绝，`cascade=True` 同样被拒绝：
 
 ```python
-CreateSchemaExpression(d, "sales", authorization="app_user").to_sql()
+CreateSchemaStatement(d, "sales", authorization="app_user").to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support CREATE SCHEMA
 # AUTHORIZATION. Suggestion: BigQuery does not support CREATE SCHEMA
 # AUTHORIZATION.
 
-DropSchemaExpression(d, "sales", cascade=True).to_sql()
+DropSchemaStatement(d, "sales", cascade=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support DROP SCHEMA
 # CASCADE. Suggestion: BigQuery does not support DROP SCHEMA CASCADE.
 ```
@@ -507,23 +504,23 @@ BigQuery 另外还有 `ALTER SCHEMA` 与 `UNDROP SCHEMA`。核心库里没有对
 `schema_name` 槽位里，project 放在 `catalog_name` 槽位里。
 
 ```python
-BigQueryCreateMaterializedViewExpression(
+BigQueryCreateMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app"), query=inner,
 ).to_sql()[0]
 # CREATE MATERIALIZED VIEW `app`.`mv` AS SELECT `orders`.`id` FROM `app`.`orders`
 
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app"), if_exists=True,
 ).to_sql()[0]
 # DROP MATERIALIZED VIEW IF EXISTS `app`.`mv`
 
-BigQueryAlterMaterializedViewSetOptionsExpression(
+BigQueryAlterMaterializedViewSetOptionsStatement(
     d, MaterializedView("mv", schema_name="app"),
     options={"enable_refresh": True, "refresh_interval_minutes": 30},
 ).to_sql()[0]
 # ALTER MATERIALIZED VIEW `app`.`mv` SET OPTIONS(enable_refresh = true, refresh_interval_minutes = 30)
 
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app", catalog_name="myproject"),
 ).to_sql()[0]
 # DROP MATERIALIZED VIEW `myproject`.`app`.`mv`
@@ -533,7 +530,7 @@ BigQueryDropMaterializedViewExpression(
 `project.table` 不是 BigQuery 能解析的路径：
 
 ```python
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", catalog_name="myproject"),
 ).to_sql()
 # ValueError: BigQuery renders a project only together with a dataset;
@@ -549,7 +546,7 @@ BigQuery 没有 `REFRESH MATERIALIZED VIEW` 语句，因此
 副本通常与它所镜像的视图不在同一个 dataset 里。
 
 ```python
-BigQueryCreateMaterializedViewReplicaExpression(
+BigQueryCreateMaterializedViewReplicaStatement(
     d,
     MaterializedView("mv_replica", schema_name="app"),
     MaterializedView("mv_src", schema_name="s3_dataset"),
@@ -580,9 +577,9 @@ sequence 相关的 DDL 在本后端没有实现，因此它上面的 `schema_nam
 渲染器：
 
 ```python
-CreateSequenceExpression(d, "s_orders", schema_name="app").to_sql()
+CreateSequenceStatement(d, "s_orders", schema_name="app").to_sql()
 # AttributeError: BigQueryDialect has no formatting method
-# 'format_create_sequence_statement' (required by CreateSequenceExpression).
+# 'format_create_sequence_statement' (required by CreateSequenceStatement).
 ```
 
 `ALTER TABLE ... ADD/DROP INDEX` 在能力标志层面被拒绝
@@ -591,22 +588,22 @@ CreateSequenceExpression(d, "s_orders", schema_name="app").to_sql()
 `TableExpression` 限定，而给那个表传裸字符串会在构造期被拒绝：
 
 ```python
-CreateIndexExpression(
+CreateIndexStatement(
     d, "idx_orders_id", TableExpression(d, "orders", schema_name="app"), ["id"],
     schema_name="app",
 ).to_sql()[0]
 # CREATE INDEX `app`.`idx_orders_id` ON `app`.`orders` (`id`)
 
-CreateIndexExpression(
+CreateIndexStatement(
     d, "idx_shared", TableExpression(d, "orders", schema_name="sales"), ["user_id"],
     schema_name="app",
 ).to_sql()[0]
 # CREATE INDEX `app`.`idx_shared` ON `sales`.`orders` (`user_id`)
 
-CreateIndexExpression(d, "idx_orders_id", "orders", ["id"], schema_name="app")
+CreateIndexStatement(d, "idx_orders_id", "orders", ["id"], schema_name="app")
 # TypeError: table must be a TableExpression, got str
 
-DropIndexExpression(d, "idx_orders_id", schema_name="app").to_sql()[0]
+DropIndexStatement(d, "idx_orders_id", schema_name="app").to_sql()[0]
 # DROP INDEX `app`.`idx_orders_id`
 ```
 
@@ -710,12 +707,12 @@ BigQuery 的全限定表名由三段组成，参考文档把段数写明了：
 **本库目前只带其中一级。** 说清楚：
 
 > **本后端的表、视图、列、索引表达式只接受 `schema_name`，不接受它上面的任何一级。
-> `TableExpression`、`Column`、`WildcardExpression` 都没有 project 字段，
+> `TableExpression`、`Column` 与两个通配符节点都没有 project 字段，
 > 也没有可以补上的方言钩子。
 > dataset 一律渲染成恰好一个带引号的段加一个点号，因此写进去的点号会留在这一段
-> 内部。**（`Column` 与 `WildcardExpression` 会把这个值丢弃，见
-> [列引用永远不带 dataset](#列引用永远不带-dataset)；索引语句上的 `schema_name`
-> 只管索引名，表引用自带自己的 dataset。）
+> 内部。**（通配符的限定符骑在它的 `NamedRelationRef` 上；`Column` 会校验后丢弃这个
+> 值，见 [列引用永远不带 dataset](#列引用永远不带-dataset)；索引语句上的
+> `schema_name` 只管索引名，表引用自带自己的 dataset。）
 
 ```python
 TableExpression(d, "orders", schema_name="myproj.app").to_sql()[0]
@@ -774,7 +771,7 @@ dialect.get_supported_introspection_scopes() # []
 于是每个元数据查询格式化方法都会拒绝：
 
 ```python
-TableInfoExpression(d, "orders").to_sql()
+TableInfoQueryStatement(d, "orders").to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support table
 # introspection.
 ```

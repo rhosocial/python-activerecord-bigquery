@@ -179,34 +179,33 @@ documented table-name forms are `mytable`, `dataset.mytable` and
 [from-clause]: https://cloud.google.com/bigquery/docs/reference/standard-sql/query-syntax#from_clause
 
 `BigQueryDialect` enforces this by overriding `format_column` rather than
-letting the core renderer qualify the column, and `format_wildcard` does the
-same for `table.*`:
+letting the core renderer qualify the column; the wildcard itself is core's
+default spelling, and `format_all_columns_wildcard` does the same for
+`table.*` (the qualifier rides the relation object, so what is rendered is the
+name the query itself uses):
 
 ```python
 Column(d, "id", table="orders").to_sql()[0]
 # `orders`.`id`
 
-WildcardExpression(d, table="orders").to_sql()[0]
+AllColumnsWildcard(d, relation=NamedRelationRef(d, Table(d, "orders"))).to_sql()[0]
 # `orders`.*
 
-WildcardExpression(d).to_sql()[0]
+AllColumnsWildcard(d).to_sql()[0]
 # *
 ```
 
-`format_wildcard` is the one formatter that discards a `schema_name` without
-rendering it and without validating it, an empty string included:
+The asterisk is split by grammar position (spec 4.10): the select list and
+RETURNING take `AllColumnsWildcard`, and `COUNT`'s argument takes
+`RowCountWildcard`. The two are not interchangeable. An
+`AllColumnsWildcard`'s relation is a `NamedRelationRef`, which carries both the
+name and the qualifier, so the alias a query uses is the alias rendered --
+BigQuery need not discard or validate a dataset here.
 
-```python
-WildcardExpression(d, table="orders", schema_name="app").to_sql()[0]
-# `orders`.*
-
-WildcardExpression(d, table="orders", schema_name="").to_sql()[0]
-# `orders`.*
-```
-
-Nothing is lost from the output, since a wildcard carries no dataset to begin
-with. The asymmetry is worth noting next to `format_column`, which does refuse an
-empty dataset.
+One BigQuery-specific asterisk spelling does **not** enter core: the wildcard
+table (`dataset.*`). It is a dataset expansion in a Table position, not a
+column expansion and not a row count, so it keeps its backend-side form rather
+than being pressed onto either core wildcard node.
 
 Two further consequences of the override are worth stating precisely, because
 they differ from the core renderer. Both follow from one declared capability,
@@ -340,18 +339,18 @@ A CTE is named for the rest of the query, not for the database, so its own name 
 bare. The query inside it still carries the model's dataset:
 
 ```python
-inner = QueryExpression(
+inner = QueryStatement(
     dialect=d,
     select=[Column(d, "id", table="orders", schema_name="app")],
     from_=[TableExpression(d, "orders", schema_name="app")],
 )
-main = QueryExpression(
+main = QueryStatement(
     dialect=d,
     select=[Column(d, "id", table="recent_orders")],
     from_=[TableExpression(d, "recent_orders")],
 )
 
-WithQueryExpression(d, [CTEExpression(d, "recent_orders", inner)], main).to_sql()[0]
+WithStatement(d, [CTEClause(d, "recent_orders", inner)], main).to_sql()[0]
 # WITH `recent_orders` AS (SELECT `orders`.`id` FROM `app`.`orders`)
 #   SELECT `recent_orders`.`id` FROM `recent_orders`
 ```
@@ -421,16 +420,16 @@ is built — a migration has to name the dataset it means — but every statemen
 names a dataset-bearing object accepts a `schema_name` of its own:
 
 ```python
-CreateTableExpression(
+CreateTableStatement(
     d, TableExpression(d, "orders", schema_name="app"), columns=cols
 ).to_sql()[0]
 # CREATE TABLE `app`.`orders` (`id` INT64)
 
-DropTableExpression(d, TableExpression(d, "orders", schema_name="app"),
+DropTableStatement(d, TableExpression(d, "orders", schema_name="app"),
                     if_exists=True).to_sql()[0]
 # DROP TABLE IF EXISTS `app`.`orders`
 
-CreateViewExpression(d, "v_orders", query, schema_name="app").to_sql()[0]
+CreateViewStatement(d, "v_orders", query, schema_name="app").to_sql()[0]
 # CREATE VIEW `app`.`v_orders`  AS SELECT `orders`.`id` FROM `app`.`orders`
 ```
 
@@ -441,18 +440,18 @@ Without a `WHERE` clause they render the range and nothing else, which is also
 the shortest way to see that no dataset reaches a predicate:
 
 ```python
-InsertExpression(
+InsertStatement(
     d, TableExpression(d, "users", schema_name="app"),
     ValuesSource(d, [[Literal(d, "x")]]), columns=["name"],
 ).to_sql()
 # ('INSERT INTO `app`.`users` (`name`) VALUES (?)', ('x',))
 
-UpdateExpression(
+UpdateStatement(
     d, TableExpression(d, "users", schema_name="app"), {"name": Literal(d, "x")}
 ).to_sql()
 # ('UPDATE `app`.`users` SET `name` = ?', ('x',))
 
-DeleteExpression(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
+DeleteStatement(d, [TableExpression(d, "users", schema_name="app")]).to_sql()
 # ('DELETE FROM `app`.`users`', ())
 ```
 
@@ -471,11 +470,11 @@ Two DDL statements are refused rather than qualified, because BigQuery does not
 have the clause:
 
 ```python
-DropViewExpression(d, "v_orders", schema_name="app", if_exists=True).to_sql()
+DropViewStatement(d, "v_orders", schema_name="app", if_exists=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support DROP VIEW IF
 # EXISTS. Suggestion: BigQuery does not support DROP VIEW IF EXISTS.
 
-CreateViewExpression(d, "v_orders", query, schema_name="app", if_not_exists=True).to_sql()
+CreateViewStatement(d, "v_orders", query, schema_name="app", if_not_exists=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support CREATE VIEW IF
 # NOT EXISTS. Suggestion: BigQuery does not support CREATE VIEW IF NOT EXISTS.
 ```
@@ -488,25 +487,25 @@ Both statements are rendered through the dataset name as a single quoted
 identifier:
 
 ```python
-CreateSchemaExpression(d, "sales").to_sql()[0]
+CreateSchemaStatement(d, "sales").to_sql()[0]
 # CREATE SCHEMA `sales`
 
-CreateSchemaExpression(d, "sales", if_not_exists=True).to_sql()[0]
+CreateSchemaStatement(d, "sales", if_not_exists=True).to_sql()[0]
 # CREATE SCHEMA IF NOT EXISTS `sales`
 
-DropSchemaExpression(d, "sales", if_exists=True).to_sql()[0]
+DropSchemaStatement(d, "sales", if_exists=True).to_sql()[0]
 # DROP SCHEMA IF EXISTS `sales`
 ```
 
 `authorization=` is refused, and `cascade=True` is refused as well:
 
 ```python
-CreateSchemaExpression(d, "sales", authorization="app_user").to_sql()
+CreateSchemaStatement(d, "sales", authorization="app_user").to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support CREATE SCHEMA
 # AUTHORIZATION. Suggestion: BigQuery does not support CREATE SCHEMA
 # AUTHORIZATION.
 
-DropSchemaExpression(d, "sales", cascade=True).to_sql()
+DropSchemaStatement(d, "sales", cascade=True).to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support DROP SCHEMA
 # CASCADE. Suggestion: BigQuery does not support DROP SCHEMA CASCADE.
 ```
@@ -545,23 +544,23 @@ All four materialized view statements name their target as a
 slot and the project in its `catalog_name`:
 
 ```python
-BigQueryCreateMaterializedViewExpression(
+BigQueryCreateMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app"), query=inner,
 ).to_sql()[0]
 # CREATE MATERIALIZED VIEW `app`.`mv` AS SELECT `orders`.`id` FROM `app`.`orders`
 
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app"), if_exists=True,
 ).to_sql()[0]
 # DROP MATERIALIZED VIEW IF EXISTS `app`.`mv`
 
-BigQueryAlterMaterializedViewSetOptionsExpression(
+BigQueryAlterMaterializedViewSetOptionsStatement(
     d, MaterializedView("mv", schema_name="app"),
     options={"enable_refresh": True, "refresh_interval_minutes": 30},
 ).to_sql()[0]
 # ALTER MATERIALIZED VIEW `app`.`mv` SET OPTIONS(enable_refresh = true, refresh_interval_minutes = 30)
 
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", schema_name="app", catalog_name="myproject"),
 ).to_sql()[0]
 # DROP MATERIALIZED VIEW `myproject`.`app`.`mv`
@@ -571,7 +570,7 @@ Each slot is rendered where it belongs. A project with no dataset is refused,
 because `project.table` is not a path BigQuery can resolve:
 
 ```python
-BigQueryDropMaterializedViewExpression(
+BigQueryDropMaterializedViewStatement(
     d, MaterializedView("mv", catalog_name="myproject"),
 ).to_sql()
 # ValueError: BigQuery renders a project only together with a dataset;
@@ -588,7 +587,7 @@ source choose their datasets independently — a replica normally sits in a
 different dataset from the view it mirrors.
 
 ```python
-BigQueryCreateMaterializedViewReplicaExpression(
+BigQueryCreateMaterializedViewReplicaStatement(
     d,
     MaterializedView("mv_replica", schema_name="app"),
     MaterializedView("mv_src", schema_name="s3_dataset"),
@@ -622,9 +621,9 @@ Sequence DDL is not implemented on this backend, so `schema_name` on it never
 reaches a renderer:
 
 ```python
-CreateSequenceExpression(d, "s_orders", schema_name="app").to_sql()
+CreateSequenceStatement(d, "s_orders", schema_name="app").to_sql()
 # AttributeError: BigQueryDialect has no formatting method
-# 'format_create_sequence_statement' (required by CreateSequenceExpression).
+# 'format_create_sequence_statement' (required by CreateSequenceStatement).
 ```
 
 `ALTER TABLE ... ADD/DROP INDEX` is refused at the capability level
@@ -634,22 +633,22 @@ the table is qualified by its own `TableExpression`, and a bare string for that
 table is refused at construction:
 
 ```python
-CreateIndexExpression(
+CreateIndexStatement(
     d, "idx_orders_id", TableExpression(d, "orders", schema_name="app"), ["id"],
     schema_name="app",
 ).to_sql()[0]
 # CREATE INDEX `app`.`idx_orders_id` ON `app`.`orders` (`id`)
 
-CreateIndexExpression(
+CreateIndexStatement(
     d, "idx_shared", TableExpression(d, "orders", schema_name="sales"), ["user_id"],
     schema_name="app",
 ).to_sql()[0]
 # CREATE INDEX `app`.`idx_shared` ON `sales`.`orders` (`user_id`)
 
-CreateIndexExpression(d, "idx_orders_id", "orders", ["id"], schema_name="app")
+CreateIndexStatement(d, "idx_orders_id", "orders", ["id"], schema_name="app")
 # TypeError: table must be a TableExpression, got str
 
-DropIndexExpression(d, "idx_orders_id", schema_name="app").to_sql()[0]
+DropIndexStatement(d, "idx_orders_id", schema_name="app").to_sql()[0]
 # DROP INDEX `app`.`idx_orders_id`
 ```
 
@@ -765,11 +764,12 @@ count:
 **This library currently carries one of them.** Stated plainly:
 
 > **The table, view, column and index expressions in this backend accept a
-> `schema_name` and nothing above it. `TableExpression`, `Column` and
-> `WildcardExpression` have no project field,
+> `schema_name` and nothing above it. `TableExpression`, `Column` and the
+> wildcard nodes have no project field,
 > and no dialect hook adds one. A dataset is always rendered as exactly one
 > quoted segment followed by one dot, so a dotted value stays inside that
-> segment.** (`Column` and `WildcardExpression` discard the value; see
+> segment.** (A wildcard's qualifier rides its `NamedRelationRef`, and `Column`
+> checks then discards the value; see
 > [Columns never carry the dataset](#columns-never-carry-the-dataset). On an index
 > statement `schema_name` covers the index name only — the table reference has its
 > own dataset.)
@@ -839,7 +839,7 @@ dialect.get_supported_introspection_scopes() # []
 Every metadata query formatter therefore refuses:
 
 ```python
-TableInfoExpression(d, "orders").to_sql()
+TableInfoQueryStatement(d, "orders").to_sql()
 # UnsupportedFeatureError: 'BigQuery' dialect does not support table
 # introspection.
 ```

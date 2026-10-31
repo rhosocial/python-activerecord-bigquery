@@ -46,7 +46,7 @@ from typing import ClassVar, Optional
 from rhosocial.activerecord.base import FieldProxy
 from rhosocial.activerecord.backend.impl.bigquery.backend import BigQueryBackend
 from rhosocial.activerecord.backend.impl.bigquery.config import BigQueryConnectionConfig
-from rhosocial.activerecord.backend.expression import CreateTableExpression
+from rhosocial.activerecord.backend.expression import CreateTableStatement
 from rhosocial.activerecord.backend.expression.statements import ColumnDefinition
 from rhosocial.activerecord.backend.expression.types import IntegerType, VarCharType
 from rhosocial.activerecord.model import ActiveRecord
@@ -73,7 +73,7 @@ User.configure(
 )
 
 dialect = User.__backend__.dialect
-User.__backend__.execute(*CreateTableExpression(
+User.__backend__.execute(*CreateTableStatement(
     dialect,
     "users",
     columns=[

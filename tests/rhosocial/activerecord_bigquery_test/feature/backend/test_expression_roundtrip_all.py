@@ -20,9 +20,10 @@ never learned that their dialect renders 143 of them and refuses 49 outright.
 Why ``to_sql()`` is classified rather than caught
 =================================================
 
-The shared testsuite helper this matrix replaces wraps the first render in
-``try/except Exception: return`` (``testsuite/utils/expression.py``, in
-``sql_consistent``). That makes every render failure a green tick: the three
+The shared-harness helper this matrix does not use for classification wraps
+the first render in ``try/except Exception: return`` (``sql_consistent``, in
+the locally vendored ``expression_roundtrip_harness.py``). That makes every
+render failure a green tick: the three
 SQL comparisons after it never run, so a formatter reading a field that no
 longer exists is indistinguishable from a formatter for a feature this dialect
 does not support. Core measured what that costs on its own matrix -- 74 errors
@@ -80,8 +81,8 @@ Discovery is not the registry
 =============================
 
 Classes are found by walking the two packages with
-``collect_expression_classes``, never by reading
-``ExpressionRegistry._registry``. The registry is process-global: it grows as
+``collect_expression_classes``, never by reading the default registry's kind
+whitelist. The registry is process-global: it grows as
 any sibling test module imports another backend, so a matrix built from it
 holds whatever the import order happened to produce -- core measured three
 different counts for the same tree that way. Walking the packages is
@@ -103,6 +104,7 @@ import inspect
 import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.expression import declared
 from rhosocial.activerecord.backend.expression import graph as graph_mod
 from rhosocial.activerecord.backend.expression.advanced_functions import (
     CaseExpression,
@@ -110,12 +112,23 @@ from rhosocial.activerecord.backend.expression.advanced_functions import (
     WindowDefinition,
     WindowSpecification,
 )
-from rhosocial.activerecord.backend.expression.bases import BaseExpression
 from rhosocial.activerecord.backend.expression.core import Column, Literal
+from rhosocial.activerecord.backend.expression.operators import ArithmeticOperation
+from rhosocial.activerecord.backend.expression.operators import RawSQL
+from rhosocial.activerecord.backend.expression.query_sources import SetOperation
 from rhosocial.activerecord.backend.expression.datetime import (
+    ExtractFieldExpression,
     TemporalOptionsExpression,
+    _ExtractBase,
 )
-from rhosocial.activerecord.backend.expression.operators import RawSQLExpression
+from rhosocial.activerecord.backend.expression.functions.string import (
+    ChrFunction,
+    LeftFunction,
+    OverlayExpression,
+    RightFunction,
+    SpaceFunction,
+    SubstringExpression,
+)
 from rhosocial.activerecord.backend.expression.objects import (
     Database,
     Domain,
@@ -131,10 +144,15 @@ from rhosocial.activerecord.backend.expression.objects import (
     Trigger,
     View,
 )
-from rhosocial.activerecord.backend.expression.predicates import ComparisonPredicate
+from rhosocial.activerecord.backend.expression.predicates import (
+    LikeOperator,
+    ComparisonPredicate,
+    ILikePredicate,
+    LikePredicate,
+)
 from rhosocial.activerecord.backend.expression.query_parts import JoinClause
 from rhosocial.activerecord.backend.expression.serialization import (
-    ExpressionRegistry,
+    default_registry,
     deserialize,
     deserialize_json,
     deserialize_xml,
@@ -167,12 +185,13 @@ from rhosocial.activerecord.backend.expression.statements.ddl_domain import (
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_table import (
     ColumnConstraint,
-    ColumnConstraintType,
+    ColumnNotNullConstraint,
     ForeignKeyConstraint,
     IndexDefinition,
     ReferencesClause,
+    TableCheckConstraint,
     TableConstraint,
-    TableConstraintType,
+    TableUniqueConstraint,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_trigger import (
     TriggerEvent,
@@ -182,7 +201,7 @@ from rhosocial.activerecord.backend.expression.statements.dml import (
     MergeAction,
     MergeActionType,
 )
-from rhosocial.activerecord.backend.expression.statements.dql import QueryExpression
+from rhosocial.activerecord.backend.expression.statements.dql import QueryStatement
 from rhosocial.activerecord.backend.expression.types import (
     ArrayType,
     IntegerType,
@@ -199,9 +218,9 @@ from rhosocial.activerecord.backend.expression.xml import (
     XMLTableExpression,
 )
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
-    BigQueryAlterMaterializedViewSetOptionsExpression,
+    BigQueryAlterMaterializedViewSetOptionsStatement,
 )
-from rhosocial.activerecord.testsuite.utils.expression import (
+from rhosocial.activerecord_bigquery_test.feature.backend.expression_roundtrip_harness import (
     collect_expression_classes,
     make_instance,
     register_all,
@@ -275,7 +294,7 @@ def _column_predicate(dialect):
 
 def _one_column_query(dialect):
     """A single-column ``SELECT`` over a table."""
-    return QueryExpression(dialect, select=[Column(dialect, "id")], from_=_table(dialect))
+    return QueryStatement(dialect, select=[Column(dialect, "id")], from_=_table(dialect))
 
 
 def _integer_column(dialect, name="col"):
@@ -290,6 +309,24 @@ def _integer_column(dialect, name="col"):
 
 def register_specials():
     """Replace every introspective guess that would cost a real assertion."""
+    # -- nodes whose ``op`` is a closed word set, not a free string ----------
+    # Both refuse an ``op`` outside their set at construction, so the
+    # introspective guess (which supplies a placeholder string) cannot build
+    # them at all. Naming one real word is what lets the matrix exercise them.
+    register_special_constructor(
+        "operators.ArithmeticOperation",
+        lambda d: ArithmeticOperation(d, "add", Column(d, "a"), Literal(d, 1)),
+    )
+    register_special_constructor(
+        "query_sources.SetOperation",
+        lambda d: SetOperation(
+            d,
+            op="union",
+            left=_one_column_query(d),
+            right=_one_column_query(d),
+        ),
+    )
+
     # -- the FROM side ------------------------------------------------------
     register_special_constructor(
         "sources.relation.NamedRelationRef",
@@ -307,34 +344,34 @@ def register_specials():
 
     # -- tables -------------------------------------------------------------
     register_special_constructor(
-        "statements.ddl_table.CreateTableExpression",
-        lambda d: ddl_table.CreateTableExpression(d, _table(d), [_integer_column(d)]),
+        "statements.ddl_table.CreateTableStatement",
+        lambda d: ddl_table.CreateTableStatement(d, _table(d), [_integer_column(d)]),
     )
     register_special_constructor(
-        "statements.ddl_table.DropTableExpression",
-        lambda d: ddl_table.DropTableExpression(d, _table(d)),
+        "statements.ddl_table.DropTableStatement",
+        lambda d: ddl_table.DropTableStatement(d, _table(d)),
     )
     register_special_constructor(
-        "statements.ddl_table.CreateTableLikeExpression",
-        lambda d: ddl_table.CreateTableLikeExpression(d, _table(d), Table(d, "other")),
+        "statements.ddl_table.CreateTableLikeStatement",
+        lambda d: ddl_table.CreateTableLikeStatement(d, _table(d), Table(d, "other")),
     )
     register_special_constructor(
-        "statements.ddl_table.CreateTableCloneExpression",
-        lambda d: ddl_table.CreateTableCloneExpression(d, _table(d), Table(d, "other")),
+        "statements.ddl_table.CreateTableCloneStatement",
+        lambda d: ddl_table.CreateTableCloneStatement(d, _table(d), Table(d, "other")),
     )
     register_special_constructor(
-        "statements.ddl_table.CreateTableAsExpression",
-        lambda d: ddl_table.CreateTableAsExpression(d, _table(d), _one_column_query(d)),
+        "statements.ddl_table.CreateTableAsStatement",
+        lambda d: ddl_table.CreateTableAsStatement(d, _table(d), _one_column_query(d)),
     )
     register_special_constructor(
-        "statements.ddl_table.CreateTableFromTemplateExpression",
-        lambda d: ddl_table.CreateTableFromTemplateExpression(
+        "statements.ddl_table.CreateTableFromTemplateStatement",
+        lambda d: ddl_table.CreateTableFromTemplateStatement(
             d, _table(d), _one_column_query(d)
         ),
     )
     register_special_constructor(
-        "statements.ddl_truncate.TruncateExpression",
-        lambda d: ddl_truncate.TruncateExpression(d, _table(d)),
+        "statements.ddl_truncate.TruncateStatement",
+        lambda d: ddl_truncate.TruncateStatement(d, _table(d)),
     )
     # Overrides the shared testsuite factory, which binds no dialect to its type.
     register_special_constructor(
@@ -342,17 +379,18 @@ def register_specials():
     )
 
     # -- constraints, which need member columns and real enum values ---------
-    # The generic guess passes the constraint *type* as the string "x", which
-    # every one of these refuses; and it passes no columns at all, which is a
-    # FOREIGN KEY and a REFERENCES clause without an end.
+    # The clause's kind is a branch node now, not a tag: the constraint cannot
+    # be built without saying what kind it is, and the branches whose payload
+    # is a column list or a referenced table need real values the heuristic
+    # guess has nothing to supply.
     register_special_constructor(
         "statements.ddl_table.ColumnConstraint",
-        lambda d: ColumnConstraint(d, ColumnConstraintType.NOT_NULL, name="c"),
+        lambda d: ColumnConstraint(d, branch=ColumnNotNullConstraint(d), name="c"),
     )
     register_special_constructor(
         "statements.ddl_table.TableConstraint",
         lambda d: TableConstraint(
-            d, TableConstraintType.PRIMARY_KEY, name="c", columns=["a"]
+            d, branch=TableUniqueConstraint(d, ["a"]), name="c"
         ),
     )
     register_special_constructor(
@@ -372,95 +410,99 @@ def register_specials():
 
     # -- indexes, and the ALTER TABLE actions over them ---------------------
     register_special_constructor(
-        "statements.ddl_index.CreateIndexExpression",
-        lambda d: ddl_index.CreateIndexExpression(
+        "statements.ddl_index.CreateIndexStatement",
+        lambda d: ddl_index.CreateIndexStatement(
             d, index=Index(d, "i"), table=_table(d), columns=["a"]
         ),
     )
     register_special_constructor(
-        "statements.ddl_index.DropIndexExpression",
-        lambda d: ddl_index.DropIndexExpression(d, index=Index(d, "i")),
+        "statements.ddl_index.DropIndexStatement",
+        lambda d: ddl_index.DropIndexStatement(d, index=Index(d, "i")),
     )
     register_special_constructor(
-        "statements.ddl_index.CreateFulltextIndexExpression",
-        lambda d: ddl_index.CreateFulltextIndexExpression(
+        "statements.ddl_index.CreateFulltextIndexStatement",
+        lambda d: ddl_index.CreateFulltextIndexStatement(
             d, index=Index(d, "i"), table=_table(d), columns=["a"]
         ),
     )
     register_special_constructor(
-        "statements.ddl_index.DropFulltextIndexExpression",
-        lambda d: ddl_index.DropFulltextIndexExpression(
+        "statements.ddl_index.DropFulltextIndexStatement",
+        lambda d: ddl_index.DropFulltextIndexStatement(
             d, index=Index(d, "i"), table=_table(d)
         ),
     )
     register_special_constructor(
-        "statements.ddl_alter.DropIndex", lambda d: ddl_alter.DropIndex(d, Index(d, "i"))
+        "statements.ddl_alter.DropIndexAction",
+        lambda d: ddl_alter.DropIndexAction(d, Index(d, "i")),
     )
     register_special_constructor(
-        "statements.ddl_alter.AddIndex",
-        lambda d: ddl_alter.AddIndex(d, IndexDefinition(d, "i", ["a"])),
+        "statements.ddl_alter.AddIndexAction",
+        lambda d: ddl_alter.AddIndexAction(d, IndexDefinition(d, "i", ["a"])),
     )
     register_special_constructor(
-        "statements.ddl_alter.AddColumn",
-        lambda d: ddl_alter.AddColumn(d, _integer_column(d)),
+        "statements.ddl_alter.AddColumnAction",
+        lambda d: ddl_alter.AddColumnAction(d, _integer_column(d)),
     )
     register_special_constructor(
-        "statements.ddl_alter.AddTableConstraint",
-        lambda d: ddl_alter.AddTableConstraint(
+        "statements.ddl_alter.AddTableConstraintAction",
+        lambda d: ddl_alter.AddTableConstraintAction(
             d,
             TableConstraint(
-                d, TableConstraintType.PRIMARY_KEY, name="c", columns=["a"]
+                d, branch=TableUniqueConstraint(d, ["a"]), name="c"
             ),
         ),
     )
     # Both constraint modifiers hide their required arguments behind defaulted
     # positionals, so the introspective constructor skips them and the action
     # arrives incomplete. The enforcement keyword is mandatory in
-    # AlterConstraint's grammar (exactly one of enforced / not_enforced), so
-    # the constructor names one of them.
+    # AlterConstraintAction's grammar (exactly one of enforced / not_enforced),
+    # so the constructor names one of them.
     register_special_constructor(
-        "statements.ddl_alter.AlterConstraint",
-        lambda d: ddl_alter.AlterConstraint(
-            d, "c", enforced=True, constraint_type=TableConstraintType.CHECK
+        "statements.ddl_alter.AlterConstraintAction",
+        lambda d: ddl_alter.AlterConstraintAction(
+            d, "c", enforced=True, constraint_kind=TableCheckConstraint
         ),
     )
     register_special_constructor(
-        "statements.ddl_alter.ValidateConstraint",
-        lambda d: ddl_alter.ValidateConstraint(d, name="c"),
+        "statements.ddl_alter.ValidateConstraintAction",
+        # The action names its constraint positionally now; the keyword-only
+        # ``name`` must repeat it exactly, so naming it twice says less than
+        # naming it once.
+        lambda d: ddl_alter.ValidateConstraintAction(d, "c"),
     )
 
     # -- schemas, sequences, databases, domains, types ---------------------
     register_special_constructor(
-        "statements.ddl_schema.CreateSchemaExpression",
-        lambda d: ddl_schema.CreateSchemaExpression(d, Schema(d, "s")),
+        "statements.ddl_schema.CreateSchemaStatement",
+        lambda d: ddl_schema.CreateSchemaStatement(d, Schema(d, "s")),
     )
     register_special_constructor(
-        "statements.ddl_schema.DropSchemaExpression",
-        lambda d: ddl_schema.DropSchemaExpression(d, Schema(d, "s")),
+        "statements.ddl_schema.DropSchemaStatement",
+        lambda d: ddl_schema.DropSchemaStatement(d, Schema(d, "s")),
     )
     register_special_constructor(
-        "statements.ddl_sequence.CreateSequenceExpression",
-        lambda d: ddl_sequence.CreateSequenceExpression(d, Sequence(d, "s")),
+        "statements.ddl_sequence.CreateSequenceStatement",
+        lambda d: ddl_sequence.CreateSequenceStatement(d, Sequence(d, "s")),
     )
     register_special_constructor(
-        "statements.ddl_sequence.AlterSequenceExpression",
-        lambda d: ddl_sequence.AlterSequenceExpression(d, Sequence(d, "s"), restart=1),
+        "statements.ddl_sequence.AlterSequenceStatement",
+        lambda d: ddl_sequence.AlterSequenceStatement(d, Sequence(d, "s"), restart=1),
     )
     register_special_constructor(
-        "statements.ddl_sequence.DropSequenceExpression",
-        lambda d: ddl_sequence.DropSequenceExpression(d, Sequence(d, "s")),
+        "statements.ddl_sequence.DropSequenceStatement",
+        lambda d: ddl_sequence.DropSequenceStatement(d, Sequence(d, "s")),
     )
     register_special_constructor(
-        "statements.ddl_database.CreateDatabaseExpression",
-        lambda d: ddl_database.CreateDatabaseExpression(d, Database(d, "db")),
+        "statements.ddl_database.CreateDatabaseStatement",
+        lambda d: ddl_database.CreateDatabaseStatement(d, Database(d, "db")),
     )
     register_special_constructor(
-        "statements.ddl_database.DropDatabaseExpression",
-        lambda d: ddl_database.DropDatabaseExpression(d, Database(d, "db")),
+        "statements.ddl_database.DropDatabaseStatement",
+        lambda d: ddl_database.DropDatabaseStatement(d, Database(d, "db")),
     )
     register_special_constructor(
-        "statements.ddl_database.AlterDatabaseExpression",
-        lambda d: ddl_database.AlterDatabaseExpression(
+        "statements.ddl_database.AlterDatabaseStatement",
+        lambda d: ddl_database.AlterDatabaseStatement(
             d,
             Database(d, "db"),
             action=AlterDatabaseAction.RENAME_TO,
@@ -468,16 +510,16 @@ def register_specials():
         ),
     )
     register_special_constructor(
-        "statements.ddl_domain.CreateDomainExpression",
-        lambda d: ddl_domain.CreateDomainExpression(d, Domain(d, "dom"), IntegerType(d)),
+        "statements.ddl_domain.CreateDomainStatement",
+        lambda d: ddl_domain.CreateDomainStatement(d, Domain(d, "dom"), IntegerType(d)),
     )
     register_special_constructor(
-        "statements.ddl_domain.DropDomainExpression",
-        lambda d: ddl_domain.DropDomainExpression(d, Domain(d, "dom")),
+        "statements.ddl_domain.DropDomainStatement",
+        lambda d: ddl_domain.DropDomainStatement(d, Domain(d, "dom")),
     )
     register_special_constructor(
-        "statements.ddl_domain.AlterDomainExpression",
-        lambda d: ddl_domain.AlterDomainExpression(
+        "statements.ddl_domain.AlterDomainStatement",
+        lambda d: ddl_domain.AlterDomainStatement(
             d, Domain(d, "dom"), [RenameDomainAction(d, "other")]
         ),
     )
@@ -496,18 +538,18 @@ def register_specials():
 
     # -- routines, triggers, comments --------------------------------------
     register_special_constructor(
-        "statements.ddl_function.CreateFunctionExpression",
-        lambda d: ddl_function.CreateFunctionExpression(
+        "statements.ddl_function.CreateFunctionStatement",
+        lambda d: ddl_function.CreateFunctionStatement(
             d, Function(d, "fn"), returns="integer", body="SELECT 1"
         ),
     )
     register_special_constructor(
-        "statements.ddl_function.DropFunctionExpression",
-        lambda d: ddl_function.DropFunctionExpression(d, Function(d, "fn")),
+        "statements.ddl_function.DropFunctionStatement",
+        lambda d: ddl_function.DropFunctionStatement(d, Function(d, "fn")),
     )
     register_special_constructor(
-        "statements.ddl_trigger.CreateTriggerExpression",
-        lambda d: ddl_trigger.CreateTriggerExpression(
+        "statements.ddl_trigger.CreateTriggerStatement",
+        lambda d: ddl_trigger.CreateTriggerStatement(
             d,
             trigger=Trigger(d, "trg"),
             table=_table(d),
@@ -517,52 +559,52 @@ def register_specials():
         ),
     )
     register_special_constructor(
-        "statements.ddl_trigger.DropTriggerExpression",
-        lambda d: ddl_trigger.DropTriggerExpression(d, trigger=Trigger(d, "trg")),
+        "statements.ddl_trigger.DropTriggerStatement",
+        lambda d: ddl_trigger.DropTriggerStatement(d, trigger=Trigger(d, "trg")),
     )
     register_special_constructor(
-        "statements.ddl_comment.CommentOnExpression",
-        lambda d: ddl_comment.CommentOnExpression(d, "table", _table(d), comment="c"),
+        "statements.ddl_comment.CommentOnStatement",
+        lambda d: ddl_comment.CommentOnStatement(d, "table", _table(d), comment="c"),
     )
 
     # -- views --------------------------------------------------------------
     register_special_constructor(
-        "statements.ddl_view.DropViewExpression",
-        lambda d: ddl_view.DropViewExpression(d, View(d, "v")),
+        "statements.ddl_view.DropViewStatement",
+        lambda d: ddl_view.DropViewStatement(d, View(d, "v")),
     )
     register_special_constructor(
-        "statements.ddl_view.CreateMaterializedViewExpression",
-        lambda d: ddl_view.CreateMaterializedViewExpression(
+        "statements.ddl_view.CreateMaterializedViewStatement",
+        lambda d: ddl_view.CreateMaterializedViewStatement(
             d, MaterializedView(d, "mv"), _one_column_query(d)
         ),
     )
     register_special_constructor(
-        "statements.ddl_view.DropMaterializedViewExpression",
-        lambda d: ddl_view.DropMaterializedViewExpression(d, MaterializedView(d, "mv")),
+        "statements.ddl_view.DropMaterializedViewStatement",
+        lambda d: ddl_view.DropMaterializedViewStatement(d, MaterializedView(d, "mv")),
     )
     register_special_constructor(
-        "statements.ddl_view.RefreshMaterializedViewExpression",
-        lambda d: ddl_view.RefreshMaterializedViewExpression(
+        "statements.ddl_view.RefreshMaterializedViewStatement",
+        lambda d: ddl_view.RefreshMaterializedViewStatement(
             d, MaterializedView(d, "mv")
         ),
     )
 
     # -- DML ----------------------------------------------------------------
     register_special_constructor(
-        "statements.dml.InsertExpression",
-        lambda d: dml.InsertExpression(
+        "statements.dml.InsertStatement",
+        lambda d: dml.InsertStatement(
             d, into=_table(d), source=dml.ValuesSource(d, [[Literal(d, 1)]])
         ),
     )
     register_special_constructor(
-        "statements.dml.DeleteExpression",
-        lambda d: dml.DeleteExpression(d, _table(d)),
+        "statements.dml.DeleteStatement",
+        lambda d: dml.DeleteStatement(d, _table(d)),
     )
     # The guess gives MERGE a bare string for its row source and no matched
     # action, and the action itself a sequence with no alias.
     register_special_constructor(
-        "statements.dml.MergeExpression",
-        lambda d: dml.MergeExpression(
+        "statements.dml.MergeStatement",
+        lambda d: dml.MergeStatement(
             d,
             target_table=_table(d),
             source=NamedRelationRef(d, Table(d, "src")),
@@ -588,6 +630,67 @@ def register_specials():
             "matched",
         ),
     )
+
+    # -- predicates whose operands are value nodes --------------------------
+    # ``column`` and ``pattern`` are annotated loosely, so the generic guess
+    # leaves a bare string where the formatter calls ``.to_sql()``. Both shapes
+    # are core's own, copied from the core dummy2 matrix so the two agree.
+    # ``op`` is normalised at construction now (core 9659c483), and the guess
+    # hands the slot a bare string that is neither a member nor a spelling it
+    # accepts -- so the class is constructible but the guess cannot build it.
+    register_special_constructor(
+        "predicates.ComparisonPredicate",
+        lambda d: ComparisonPredicate(d, "=", Column(d, "a"), Column(d, "b")),
+    )
+    register_special_constructor(
+        "predicates.LikePredicate",
+        lambda d: LikePredicate(d, LikeOperator.LIKE, Column(d, "a"), Literal(d, "%x%")),
+    )
+    register_special_constructor(
+        "predicates.ILikePredicate",
+        lambda d: ILikePredicate(d, Column(d, "a"), "%x%"),
+    )
+
+    # -- DDL positions: a CHECK condition takes no bind parameters ----------
+    # The constructor declares the position inline-only and refuses a residual
+    # bind value, so the guess's Literal-bearing comparison cannot render. Two
+    # columns compose the same predicate with nothing that binds in it.
+    register_special_constructor(
+        "statements.ddl_table.TableCheckConstraint",
+        lambda d: TableCheckConstraint(d, _column_predicate(d)),
+    )
+    register_special_constructor(
+        "statements.ddl_table.ColumnGeneratedConstraint",
+        # The node defaults to VIRTUAL, which BigQuery's probe refuses; STORED
+        # is the spelling this dialect supports, so the constructor names it.
+        lambda d: ddl_table.ColumnGeneratedConstraint(
+            d, _column_predicate(d), storage_type=ddl_table.GeneratedColumnType.STORED
+        ),
+    )
+
+    # -- declared-result annotations: the source must be aliasable -----------
+    # ``format_declared_result`` reads the alias of both the annotation and the
+    # node it annotates, and the rewritten Literal is deliberately not
+    # aliasable -- the guess's Literal source reaches the formatter and dies on
+    # ``source.alias``. A Column source is what the node is for: a statement
+    # whose result type the caller declares, rendered unchanged with the
+    # knowledge attached.
+    for _annotation in (
+        "TextAnnotation",
+        "NumberAnnotation",
+        "IntegerAnnotation",
+        "BooleanAnnotation",
+        "TemporalAnnotation",
+        "BinaryAnnotation",
+        "UUIDAnnotation",
+        "JSONAnnotation",
+        "XMLAnnotation",
+        "ArrayAnnotation",
+    ):
+        register_special_constructor(
+            f"declared.{_annotation}",
+            lambda d, _n=_annotation: getattr(declared, _n)(d, Column(d, "c")),
+        )
 
     # -- expressions that must not be empty ---------------------------------
     register_special_constructor(
@@ -623,12 +726,66 @@ def register_specials():
 
     # -- types that need a member type or a member value --------------------
     register_special_constructor(
-        "types.array.ArrayType", lambda d: ArrayType(d, VarCharType(d, 10))
+        # ``element_type`` is keyword-only behind an optional ``dialect`` now,
+        # so a positional member type is not expressible; the keyword is the
+        # only spelling left.
+        "types.array.ArrayType",
+        lambda d: ArrayType(d, element_type=VarCharType(d, 10)),
     )
     # ``values`` is keyword-only behind a defaulted positional, so the guess
     # skips it and the type declares no members.
     register_special_constructor(
         "types.enum_.EnumType", lambda d: EnumType(d, values=["a", "b"])
+    )
+
+    # -- the value node ------------------------------------------------------
+    # One node carries every value kind, so the introspective filler's ``Any``
+    # guess (an int) constructs it and the kind follows the host value. The
+    # kinds an int cannot state are exercised by the literal spelling tests;
+    # here the matrix needs one representative per shape, not twelve.
+    register_special_constructor(
+        "core.Literal", lambda d: Literal(d, 1)
+    )
+
+    # -- scalar string nodes whose operands are forward-ref strings ---------
+    # The operands are annotated as ``'SQLValue'`` forward references, which
+    # the filler cannot resolve structurally, and its name-based fallback hands
+    # a bare ``"x"`` that the nodes' typed-operand coercers refuse. Real
+    # operands construct exactly what each node exists to spell.
+    register_special_constructor(
+        "functions.string.ChrFunction", lambda d: ChrFunction(d, 65)
+    )
+    register_special_constructor(
+        "functions.string.LeftFunction", lambda d: LeftFunction(d, "abc", 2)
+    )
+    register_special_constructor(
+        "functions.string.RightFunction", lambda d: RightFunction(d, "abc", 2)
+    )
+    register_special_constructor(
+        "functions.string.SpaceFunction", lambda d: SpaceFunction(d, 3)
+    )
+    register_special_constructor(
+        "functions.string.SubstringExpression",
+        lambda d: SubstringExpression(d, "abc", 2),
+    )
+    register_special_constructor(
+        "functions.string.OverlayExpression",
+        lambda d: OverlayExpression(d, "abc", "xy", 2),
+    )
+
+    # -- the EXTRACT split ---------------------------------------------------
+    # The extract refactor gave the field a closed word set beside a source,
+    # and the filler's guess for a ``str | DateTimeField`` union is a bare
+    # ``"x"`` the class refuses. A real field and a column source are what
+    # the node spells; both classes render through the shared
+    # ``format_extract_expression``.
+    register_special_constructor(
+        "datetime.ExtractFieldExpression",
+        lambda d: ExtractFieldExpression(d, "YEAR", Column(d, "ts")),
+    )
+    register_special_constructor(
+        "datetime._ExtractBase",
+        lambda d: _ExtractBase(d, "YEAR", Column(d, "ts")),
     )
 
     # -- property graphs ----------------------------------------------------
@@ -651,10 +808,9 @@ def register_specials():
         "graph.VertexTable",
         lambda d: graph_mod.VertexTable(d, node_table(d), key_columns=["id"]),
     )
-    register_special_constructor(
-        "graph.EdgeTable",
-        lambda d: graph_mod.EdgeTable(d, edge_table(d), ["src"], ["dst"]),
-    )
+    # graph.EdgeTable is gone: core renamed the element to EdgeTableDefinition,
+    # which the heuristic constructor builds on its own (a guessed source
+    # element and no edge columns), so no registered factory stands in for it.
     register_special_constructor(
         "graph.QuantifiedPath",
         lambda d: graph_mod.QuantifiedPath(
@@ -681,16 +837,16 @@ def register_specials():
         ),
     )
     register_special_constructor(
-        "graph.CreatePropertyGraphExpression",
-        lambda d: graph_mod.CreatePropertyGraphExpression(
+        "graph.CreatePropertyGraphStatement",
+        lambda d: graph_mod.CreatePropertyGraphStatement(
             d, graph=PropertyGraph(d, "g"), vertex_tables=[graph_mod.VertexTable(d, node_table(d))]
         ),
     )
     # The formatter accepts "add"/"drop" against "vertex tables"/"edge tables"/
     # "tables"; anything else is refused.
     register_special_constructor(
-        "graph.AlterPropertyGraphExpression",
-        lambda d: graph_mod.AlterPropertyGraphExpression(
+        "graph.AlterPropertyGraphStatement",
+        lambda d: graph_mod.AlterPropertyGraphStatement(
             d,
             graph=PropertyGraph(d, "g"),
             action="add",
@@ -699,8 +855,8 @@ def register_specials():
         ),
     )
     register_special_constructor(
-        "graph.DropPropertyGraphExpression",
-        lambda d: graph_mod.DropPropertyGraphExpression(d, graph=PropertyGraph(d, "g")),
+        "graph.DropPropertyGraphStatement",
+        lambda d: graph_mod.DropPropertyGraphStatement(d, graph=PropertyGraph(d, "g")),
     )
 
     # -- SQL/XML ------------------------------------------------------------
@@ -722,7 +878,7 @@ def register_specials():
     register_special_constructor(
         "xml.XMLTableExpression",
         lambda d: XMLTableExpression(
-            d, RawSQLExpression(d, "SELECT 1 AS a"), [XMLTableColumn("a", "int")]
+            d, RawSQL(d, "SELECT 1 AS a"), [XMLTableColumn("a", "int")]
         ),
     )
 
@@ -730,8 +886,8 @@ def register_specials():
     # OPTIONS must be a non-empty mapping, which the introspective guess
     # supplies as ``{}``.
     register_special_constructor(
-        "materialized_view.BigQueryAlterMaterializedViewSetOptionsExpression",
-        lambda d: BigQueryAlterMaterializedViewSetOptionsExpression(
+        "materialized_view.BigQueryAlterMaterializedViewSetOptionsStatement",
+        lambda d: BigQueryAlterMaterializedViewSetOptionsStatement(
             d, MaterializedView(d, "mv"), {"enable_refresh": True}
         ),
     )
@@ -763,16 +919,14 @@ UNCONSTRUCTIBLE = (
     # rather than letting one of them fail it.
     "rhosocial.activerecord.backend.expression.uuid.UUIDConstantExpression",
     "rhosocial.activerecord.backend.expression.uuid.UUIDGenerationExpression",
-    "rhosocial.activerecord.backend.expression.uuid.UUIDCastExpression",
-    # CUSTOM type. `raw` names the SQL type string and defaults to the empty
-    # string, so the filler skips it and the class validates that empty name
-    # and raises InvalidTypeNameError while constructing. A registered
-    # constructor could hand it a real name, but the only honest one here is
-    # the spelling BigQuery refuses -- and substituting NUMERIC would let the
-    # matrix assert a rendering this dialect does not perform. BigQuery has no
-    # custom type, so it is named here rather than pinned as a non-render it
-    # can never reach: such a pin asserts a render nothing can ask for.
-    "rhosocial.activerecord.backend.expression.types.custom.CustomType",
+    "rhosocial.activerecord.backend.expression.uuid.UUIDCastFunction",
+    # CustomType sat here while its ``raw`` parameter was defaulted to the
+    # empty string -- a defaulted parameter the filler skips, and a name the
+    # class refuses as empty. The parameter is required now, so the filler
+    # supplies a real name and the class builds; the entry is gone rather than
+    # pinned as a non-render it can never reach: this dialect spells no custom
+    # type, and a constructed instance refuses through the generic-type probe
+    # the way the other unsupported types do.
 )
 
 #: The dispatch failure -- ``format_method`` named a method this dialect does not
@@ -810,52 +964,58 @@ _NO_FORMATTER = "does not support the"
 LEGITIMATE_NON_RENDERS = {
     # ---- SQL/XML: BigQuery has no SQL/XML functions at all -----------------
     "rhosocial.activerecord.backend.expression.xml.XMLAggExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlagg_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_agg_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLAttributesExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlattributes_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_attributes_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLCommentExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlcomment_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_comment_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLConcatExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlconcat_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_concat_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLElementExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlelement_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_element_expression'",
     ),
-    "rhosocial.activerecord.backend.expression.xml.XMLExistsExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlexists_expression'",
+    "rhosocial.activerecord.backend.expression.xml.XMLExistsPredicate": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlexists_predicate'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLForestExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlforest_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_forest_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLPIExpression": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlpi_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLParseExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlparse_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_parse_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLQueryExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlquery_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_query_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLRootExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlroot_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_root_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLSerializeExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmlserialize_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_serialize_expression'",
     ),
     "rhosocial.activerecord.backend.expression.xml.XMLTableExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xmltable_expression'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_table_expression'",
+    ),
+    # SQL/XML PASSING is a clause of the three XML nodes, and the dialect has
+    # no SQL/XML at all -- so the clause node core split out in S1-c is a gap by
+    # the same omission as the twelve XML expressions above.
+    "rhosocial.activerecord.backend.expression.xml.PassingClause": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_passing_clause'",
     ),
     # ---- SQL/PGQ property graphs: no CREATE PROPERTY GRAPH ------------------
-    "rhosocial.activerecord.backend.expression.graph.CreatePropertyGraphExpression": (
+    "rhosocial.activerecord.backend.expression.graph.CreatePropertyGraphStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_create_property_graph_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.graph.AlterPropertyGraphExpression": (
+    "rhosocial.activerecord.backend.expression.graph.AlterPropertyGraphStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_alter_property_graph_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.graph.DropPropertyGraphExpression": (
+    "rhosocial.activerecord.backend.expression.graph.DropPropertyGraphStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_drop_property_graph_statement'",
     ),
     "rhosocial.activerecord.backend.expression.graph.GraphTableExpression": (
@@ -882,62 +1042,64 @@ LEGITIMATE_NON_RENDERS = {
     "rhosocial.activerecord.backend.expression.graph.VertexTable": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_vertex_table'",
     ),
-    "rhosocial.activerecord.backend.expression.graph.EdgeTable": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_edge_table'",
+    # EdgeTable was renamed EdgeTableDefinition in the graph split; the gap is
+    # the same one, spelled by the new name.
+    "rhosocial.activerecord.backend.expression.graph.EdgeTableDefinition": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_edge_table_definition'",
     ),
     "rhosocial.activerecord.backend.expression.graph.TablePropertiesClause": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_table_properties_clause'",
     ),
     # ---- routines, triggers, sequences, databases: none exist --------------
-    "rhosocial.activerecord.backend.expression.statements.ddl_function.CreateFunctionExpression": (
+    "rhosocial.activerecord.backend.expression.statements.ddl_function.CreateFunctionStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_create_function_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.statements.ddl_function.DropFunctionExpression": (
+    "rhosocial.activerecord.backend.expression.statements.ddl_function.DropFunctionStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_drop_function_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.statements.ddl_trigger.CreateTriggerExpression": (
+    "rhosocial.activerecord.backend.expression.statements.ddl_trigger.CreateTriggerStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_create_trigger_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.statements.ddl_trigger.DropTriggerExpression": (
+    "rhosocial.activerecord.backend.expression.statements.ddl_trigger.DropTriggerStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_drop_trigger_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.statements.ddl_sequence.CreateSequenceExpression": (
+    "rhosocial.activerecord.backend.expression.statements.ddl_sequence.CreateSequenceStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_create_sequence_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.statements.ddl_sequence.AlterSequenceExpression": (
+    "rhosocial.activerecord.backend.expression.statements.ddl_sequence.AlterSequenceStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_alter_sequence_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.statements.ddl_sequence.DropSequenceExpression": (
+    "rhosocial.activerecord.backend.expression.statements.ddl_sequence.DropSequenceStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_drop_sequence_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.statements.ddl_database.CreateDatabaseExpression": (
+    "rhosocial.activerecord.backend.expression.statements.ddl_database.CreateDatabaseStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_create_database_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.statements.ddl_database.AlterDatabaseExpression": (
+    "rhosocial.activerecord.backend.expression.statements.ddl_database.AlterDatabaseStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_alter_database_statement'",
     ),
-    "rhosocial.activerecord.backend.expression.statements.ddl_database.DropDatabaseExpression": (
+    "rhosocial.activerecord.backend.expression.statements.ddl_database.DropDatabaseStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_drop_database_statement'",
     ),
     # ---- COMMENT ON, PARTITION clause, PIVOT, ILIKE -------------------------
-    "rhosocial.activerecord.backend.expression.statements.ddl_comment.CommentOnExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_comment_statement'",
+    "rhosocial.activerecord.backend.expression.statements.ddl_comment.CommentOnStatement": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_comment_on_statement'",
     ),
     "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionClause": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_partition_clause'",
     ),
-    "rhosocial.activerecord.backend.expression.pivot.PivotExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_pivot_expression'",
+    "rhosocial.activerecord.backend.expression.pivot.Pivot": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_pivot'",
     ),
-    "rhosocial.activerecord.backend.expression.pivot.UnpivotExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_unpivot_expression'",
+    "rhosocial.activerecord.backend.expression.pivot.Unpivot": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_unpivot'",
     ),
-    "rhosocial.activerecord.backend.expression.predicates.ILIKEExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_ilike_expression'",
+    "rhosocial.activerecord.backend.expression.predicates.ILikePredicate": (
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_ilike_predicate'",
     ),
     # ---- time travel: a BigQuery FROM names no temporal version ------------
     "rhosocial.activerecord.backend.expression.datetime.TemporalOptionsExpression": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_temporal_options'",
+        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_temporal_options_expression'",
     ),
     # ---- roots whose incompleteness is structural --------------------------
     # The root of the row-source tree. No concrete source renders through
@@ -946,13 +1108,23 @@ LEGITIMATE_NON_RENDERS = {
     "rhosocial.activerecord.backend.expression.sources.base.TableSource": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_table_source'",
     ),
+    # The shared state base of the declared-result annotations. It dispatches
+    # to the one formatter those annotations share, which reads the ``alias``
+    # only a concrete annotation carries, so the bare base -- constructible,
+    # with the guessed source it stores -- fails on the state it does not
+    # have rather than on anything this dialect lacks. AttributeError for the
+    # same reason the DataType root pins TypeError: the class is incomplete
+    # rather than the backend being unable.
+    "rhosocial.activerecord.backend.expression.declared._Annotation": (
+        AttributeError, "has no attribute 'alias'",
+    ),
     # The root of the type tree. Every concrete type declares its own generic
     # `name`, which is what `format_data_type` dispatches on; the root declares
     # none, so there is nothing to dispatch. TypeError, not
     # UnsupportedFeatureError, because the class is incomplete rather than the
     # dialect being unable.
     "rhosocial.activerecord.backend.expression.types._base.DataType": (
-        TypeError, "does not declare a valid generic type name",
+        TypeError, "does not support the generic type None",
     ),
     # ---- generic types this dialect has no formatter for -------------------
     # Each is a type name the dialect declines. BigQuery spells VARBINARY
@@ -1005,8 +1177,8 @@ _NO_DISPATCH = "does not declare its dialect formatting method name"
 LEGITIMATE_NOT_IMPLEMENTED = {
     # ---- bases that name an expression category, not a renderable thing ----
     "rhosocial.activerecord.backend.expression.bases.SQLPredicate": _NO_DISPATCH,
-    "rhosocial.activerecord.backend.expression.bases.SQLValueExpression": _NO_DISPATCH,
-    "rhosocial.activerecord.backend.expression.datetime._TemporalValueExpression": (
+    "rhosocial.activerecord.backend.expression.bases.SQLValue": _NO_DISPATCH,
+    "rhosocial.activerecord.backend.expression.datetime._TemporalValue": (
         _NO_DISPATCH
     ),
     "rhosocial.activerecord.backend.expression.introspection.IntrospectionExpression": (
@@ -1023,6 +1195,18 @@ LEGITIMATE_NOT_IMPLEMENTED = {
         _NO_DISPATCH
     ),
     "rhosocial.activerecord.backend.expression.objects.type_.TypeObject": _NO_DISPATCH,
+    # The roots of the constraint and column-clause trees. Each concrete member
+    # names its own formatter; the branch bases name no kind, so there is
+    # nothing to dispatch to. Added by core's S3 two-level constraint nodes.
+    "rhosocial.activerecord.backend.expression.statements.ddl_table.ColumnClause": (
+        _NO_DISPATCH
+    ),
+    "rhosocial.activerecord.backend.expression.statements.ddl_table.ColumnConstraintBranch": (
+        _NO_DISPATCH
+    ),
+    "rhosocial.activerecord.backend.expression.statements.ddl_table.TableConstraintBranch": (
+        _NO_DISPATCH
+    ),
     # An ALTER TABLE action, an INSERT row source, and the two transaction
     # roots: each concrete member names its own formatter.
     "rhosocial.activerecord.backend.expression.statements.ddl_alter.AlterTableAction": (
@@ -1031,14 +1215,121 @@ LEGITIMATE_NOT_IMPLEMENTED = {
     "rhosocial.activerecord.backend.expression.statements.dml.InsertDataSource": (
         _NO_DISPATCH
     ),
-    "rhosocial.activerecord.backend.expression.transaction.TransactionExpression": (
+    "rhosocial.activerecord.backend.expression.transaction.TransactionStatement": (
         _NO_DISPATCH
     ),
     # ---- a statement this dialect declines to render ------------------------
-    "rhosocial.activerecord.backend.expression.transaction.SetTransactionExpression": (
+    "rhosocial.activerecord.backend.expression.transaction.SetTransactionStatement": (
         "does not support SET TRANSACTION statement"
     ),
 }
+
+
+# ---------------------------------------------------------------------------
+# Channels that cannot round-trip: pinned per class and per channel
+# ---------------------------------------------------------------------------
+#
+# Everything above classifies a class as a whole: it renders or it does not. A
+# third outcome exists and it is neither -- the class renders, and one of the
+# three encodings cannot bring it back. Pinning those as "non-renders" would be
+# a lie, and letting them fail would make a core-side omission look like a
+# BigQuery defect. So each entry names the channels it covers and what happens
+# on them, and :func:`_assert_pinned_channel` asserts it in both directions: a
+# pinned channel that starts working fails the run, because the reason it was
+# pinned is then gone.
+#
+# Every entry here is core's to fix, not this backend's. None of the classes is
+# BigQuery-specific; the artefact contract is the same one every backend reads.
+#
+# Two enum-shaped root causes used to be pinned here. Both were core's, and
+# both are gone:
+#
+# * nine ``(str, Enum)`` word carriers (``DateTimeField``, ``IntervalUnit`` and
+#   the XML vocabulary) lacked ``__str__ = str.__str__``, so the XML channel
+#   wrote ``"DateTimeField.YEAR"`` and the constructor's own normaliser refused
+#   it -- core gave every word-carrying enum that method, and the datetime
+#   family's XML channel now travels;
+# * twelve SQL-word enums were bare ``Enum``, which the writer could not name
+#   at all -- core made them ``(str, Enum)`` with the same ``__str__``, so
+#   ``GeneratedColumnType`` / ``ReferentialAction`` and their family now encode
+#   on every channel.
+#
+# What is left is a different problem in the same place: a value, not a word,
+# sitting in a parameter slot. Neither is an encoding omission, so neither is
+# retired by the enum fix, and both are still reproduced above.
+LEGITIMATE_NON_ROUNDTRIPS = {
+    # -- ``mode`` is declared ``CreateTableCloneMode`` with a member default.
+    #    That enum is a ``(str, Enum)`` word carrier, so the JSON and XML
+    #    channels encode it fine -- and the constructor then demands the member
+    #    rather than normalising the word, which is the isinstance half of the
+    #    contract without the normalise half. Still core's, still real: this is
+    #    a constructor that refuses its own enum's word, not an encoding gap.
+    "rhosocial.activerecord.backend.expression.statements.ddl_table.CreateTableCloneStatement": {
+        "channels": {
+            "json": ("raises", TypeError, "mode must be a CreateTableCloneMode"),
+            "xml": ("raises", TypeError, "mode must be a CreateTableCloneMode"),
+        },
+    },
+    # -- ``options`` is a ``ViewOptions`` *instance*, a plain class in a
+    #    parameter slot: the codec writes nodes, scalars and containers of
+    #    those two, and a bare ``options or ViewOptions()`` puts one in every
+    #    CREATE VIEW. Serialization refuses before any round-trip can start.
+    #    Nothing about ``ViewAlgorithm`` / ``ViewCheckOption`` here -- both are
+    #    ``(str, Enum)`` word carriers now and encode; the refusal is the
+    #    object in the slot, which no enum fix reaches.
+    "rhosocial.activerecord.backend.expression.statements.ddl_view.CreateViewStatement": {
+        "channels": {
+            "dict": ("raises", TypeError, "ViewOptions is not one of the value kinds"),
+            "json": ("raises", TypeError, "ViewOptions is not one of the value kinds"),
+            "xml": ("raises", TypeError, "ViewOptions is not one of the value kinds"),
+        },
+    },
+}
+
+
+def _roundtrip_pin(fqn, channel):
+    """The pin for one class on one channel, or ``None`` when it travels free."""
+    entry = LEGITIMATE_NON_ROUNDTRIPS.get(fqn)
+    if entry is None:
+        return None
+    return entry["channels"].get(channel)
+
+
+def _replay_channel(channel, instance, dialect):
+    """Encode *instance*, decode it back, and hand the result over."""
+    if channel == "dict":
+        return deserialize(serialize(instance), dialect)
+    if channel == "json":
+        return deserialize_json(serialize_json(instance), dialect)
+    return deserialize_xml(serialize_xml(instance), dialect)
+
+
+def _assert_pinned_channel(fqn, channel, instance, dialect, pin):
+    """Assert one pinned channel, in the shape its entry names.
+
+    ``raises`` -- the channel refuses outright, with the pinned type and the
+    pinned message fragment. A channel that stops refusing fails the assertion,
+    so a core fix cannot leave a stale entry behind.
+    """
+    _, expected_type, fragment = pin
+    try:
+        _replay_channel(channel, instance, dialect)
+    except Exception as exc:
+        assert isinstance(exc, expected_type), (
+            f"{fqn}: the {channel} channel was pinned as refusing with "
+            f"{expected_type.__name__}, but it raised {type(exc).__name__}: {exc}"
+        )
+        assert fragment in str(exc), (
+            f"{fqn}: expected the {channel} refusal to mention {fragment!r}, "
+            f"but it said: {exc}"
+        )
+    else:
+        raise AssertionError(
+            f"{fqn}: the {channel} channel is pinned in "
+            f"LEGITIMATE_NON_ROUNDTRIPS but the round-trip now succeeds. The "
+            f"reason it was pinned is gone -- remove the entry rather than "
+            f"leave a lie in the table."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1098,19 +1389,20 @@ def _dispatched_formatter(exc):
 #: and TRIM through BigQueryTrimMixin -- so none of the four appears here.
 UNMODELLED_FORMATTERS = {
     "SQL/XML (BigQuery has no SQL/XML functions at all)": (
-        "format_xmlagg_expression",
-        "format_xmlattributes_expression",
-        "format_xmlcomment_expression",
-        "format_xmlconcat_expression",
-        "format_xmlelement_expression",
-        "format_xmlexists_expression",
-        "format_xmlforest_expression",
+        "format_xml_agg_expression",
+        "format_xml_attributes_expression",
+        "format_xml_comment_expression",
+        "format_xml_concat_expression",
+        "format_xml_element_expression",
+        "format_xmlexists_predicate",
+        "format_xml_forest_expression",
         "format_xmlpi_expression",
-        "format_xmlparse_expression",
-        "format_xmlquery_expression",
-        "format_xmlroot_expression",
-        "format_xmlserialize_expression",
-        "format_xmltable_expression",
+        "format_xml_parse_expression",
+        "format_xml_query_expression",
+        "format_xml_root_expression",
+        "format_xml_serialize_expression",
+        "format_xml_table_expression",
+        "format_passing_clause",
     ),
     "SQL/PGQ property graphs (BigQuery has no CREATE PROPERTY GRAPH, no "
     "GRAPH_TABLE and no Cypher)": (
@@ -1125,7 +1417,7 @@ UNMODELLED_FORMATTERS = {
         "format_match_clause",
         "format_graph_columns_clause",
         "format_vertex_table",
-        "format_edge_table",
+        "format_edge_table_definition",
         "format_table_properties_clause",
     ),
     "the core SQL/PSM routine statements (BigQuery's UDFs render through their "
@@ -1147,20 +1439,20 @@ UNMODELLED_FORMATTERS = {
         "format_alter_database_statement",
         "format_drop_database_statement",
     ),
-    "COMMENT ON (BigQuery has no standalone COMMENT ON statement)": ("format_comment_statement",),
+    "COMMENT ON (BigQuery has no standalone COMMENT ON statement)": ("format_comment_on_statement",),
     "the generic DDL PARTITION clause (BigQuery partitions tables through its "
     "own partition options, not this clause)": ("format_partition_clause",),
     "the core PIVOT / UNPIVOT expressions (this backend composes no formatter "
     "for either; aggregation over rotated rows is spelled by conditional "
     "aggregation)": (
-        "format_pivot_expression",
-        "format_unpivot_expression",
+        "format_pivot",
+        "format_unpivot",
     ),
     "ILIKE (BigQuery has no ILIKE; case-insensitive matching goes through "
-    "LOWER() comparisons)": ("format_ilike_expression",),
+    "LOWER() comparisons)": ("format_ilike_predicate",),
     "the core temporal-options clause (a BigQuery FROM names no temporal "
     "version; time travel is spelled FOR SYSTEM_TIME AS OF, which the dialect "
-    "renders elsewhere)": ("format_temporal_options",),
+    "renders elsewhere)": ("format_temporal_options_expression",),
     "the TableSource root (every concrete row source overrides its formatter; "
     "the root carries nothing but an alias and is never rendered)": ("format_table_source",),
 }
@@ -1174,6 +1466,24 @@ def _unmodelled_methods():
 # ---------------------------------------------------------------------------
 # The local assertion: classify the outcome instead of swallowing it
 # ---------------------------------------------------------------------------
+
+def _bind_params_equal(a, b) -> bool:
+    """Bind-parameter sequences compared as sequences.
+
+    The artifact carries a tuple as an array (§4.8: JSON draws no distinction,
+    the kind does, and a constructor normalises on the way back), so a
+    round-tripped render may hand back a list where the original handed a tuple.
+    ``Subquery`` is the case in the tree: its ``query_params`` arrive as a list
+    on restore and its formatter passes them through. The values are the
+    contract; the container is not. Order still matters -- this is a sequence
+    comparison, not a set comparison.
+    """
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(
+            _bind_params_equal(x, y) for x, y in zip(a, b, strict=True)
+        )
+    return a == b
+
 
 def classify_sql_roundtrip(fqn, instance, dialect):
     """Assert an expression's SQL survives the round-trip, or say precisely why not.
@@ -1247,18 +1557,23 @@ def classify_sql_roundtrip(fqn, instance, dialect):
             f"  Exception: {exc}"
         ) from exc
 
-    for channel, decoded in (
-        ("dict", deserialize(serialize(instance), dialect)),
-        ("json", deserialize_json(serialize_json(instance), dialect)),
-        ("xml", deserialize_xml(serialize_xml(instance), dialect)),
+    for channel, build in (
+        ("dict", lambda: deserialize(serialize(instance), dialect)),
+        ("json", lambda: deserialize_json(serialize_json(instance), dialect)),
+        ("xml", lambda: deserialize_xml(serialize_xml(instance), dialect)),
     ):
+        pin = _roundtrip_pin(fqn, channel)
+        if pin is not None:
+            _assert_pinned_channel(fqn, channel, instance, dialect, pin)
+            continue
+        decoded = build()
         decoded_sql, decoded_params = decoded.to_sql()
         assert decoded_sql == expected_sql, (
             f"{fqn}: {channel} round-trip changed the SQL.\n"
             f"  original: {expected_sql!r}\n"
             f"  {channel}: {decoded_sql!r}"
         )
-        assert decoded_params == expected_params, (
+        assert _bind_params_equal(decoded_params, expected_params), (
             f"{fqn}: {channel} round-trip changed the bind parameters.\n"
             f"  original: {expected_params!r}\n"
             f"  {channel}: {decoded_params!r}"
@@ -1284,7 +1599,6 @@ def expr_case(request, dialect):
             + "rescue it, so there is nothing for the matrix to assert on."
         )
     cls = REGISTERED[fqn]
-    ExpressionRegistry._auto_register_builtins()
     # The four classes this backend defines are not core's built-ins, so the
     # registry cannot find them by name when it decodes a nested one.
     register_all({fqn: cls})
@@ -1317,7 +1631,6 @@ class TestMatrixIntegrity:
         :data:`UNCONSTRUCTIBLE` both ways, so a class that stops building fails
         with its own name and a named class that starts building fails too.
         """
-        ExpressionRegistry._auto_register_builtins()
         actual = tuple(
             sorted(
                 fqn
@@ -1344,6 +1657,7 @@ class TestMatrixIntegrity:
         for table, entries in (
             ("LEGITIMATE_NON_RENDERS", LEGITIMATE_NON_RENDERS),
             ("LEGITIMATE_NOT_IMPLEMENTED", LEGITIMATE_NOT_IMPLEMENTED),
+            ("LEGITIMATE_NON_ROUNDTRIPS", LEGITIMATE_NON_ROUNDTRIPS),
         ):
             unknown = set(entries) - set(REGISTERED)
             assert not unknown, (
@@ -1356,7 +1670,6 @@ class TestMatrixIntegrity:
         Without this an entry could sit in the table for a class that now renders
         perfectly well, and the matrix would be asserting nothing about it.
         """
-        ExpressionRegistry._auto_register_builtins()
         for fqn, (expected_type, fragment) in LEGITIMATE_NON_RENDERS.items():
             instance, source = make_instance(REGISTERED[fqn], dialect)
             assert instance is not None, (
@@ -1370,9 +1683,25 @@ class TestMatrixIntegrity:
                 f"{exc_info.value}"
             )
 
+    def test_pinned_non_roundtrip_refuses_as_pinned(self, dialect):
+        """Each pinned channel still fails the way the table says, for that reason.
+
+        The mirror of the non-render pin, one level down: a class may render and
+        still lose one encoding, and this is where that is stated rather than
+        hidden among the classes that do not render at all.
+        """
+        for fqn, entry in LEGITIMATE_NON_ROUNDTRIPS.items():
+            instance, source = make_instance(REGISTERED[fqn], dialect)
+            assert instance is not None, (
+                f"{fqn} is pinned as a non-roundtrip but could not be "
+                f"constructed ({source})"
+            )
+            register_all({fqn: REGISTERED[fqn]})
+            for channel, pin in entry["channels"].items():
+                _assert_pinned_channel(fqn, channel, instance, dialect, pin)
+
     def test_pinned_not_implementeds_still_raise_what_they_claim(self, dialect):
         """Each pinned entry still raises, and says the reason the table names."""
-        ExpressionRegistry._auto_register_builtins()
         for fqn, fragment in LEGITIMATE_NOT_IMPLEMENTED.items():
             instance, source = make_instance(REGISTERED[fqn], dialect)
             assert instance is not None, (
@@ -1410,7 +1739,6 @@ class TestMatrixIntegrity:
         what would have said so loudly if a fifth node of that family had
         arrived without a BigQuery formatter.
         """
-        ExpressionRegistry._auto_register_builtins()
         register_all(REGISTERED)
         observed = set()
         for fqn in sorted(REGISTERED):
@@ -1449,7 +1777,6 @@ class TestMatrixIntegrity:
         rather than the registry because the registry also holds whatever
         backends other test modules happened to import.
         """
-        ExpressionRegistry._auto_register_builtins()
         expected = set(_collect_matrix_classes())
         assert expected == set(REGISTERED), (
             "the set of classes the two packages define changed after "
@@ -1478,7 +1805,6 @@ class TestMatrixIntegrity:
         surface is narrow enough that most of the core tree is untested without
         this.
         """
-        ExpressionRegistry._auto_register_builtins()
         core = set(_collect_package(CORE_EXPR_PKG))
         bigquery = set(_collect_package(BIGQUERY_EXPR_PKG))
         assert core, "the core package walk found nothing"
@@ -1488,13 +1814,20 @@ class TestMatrixIntegrity:
     def test_every_covered_class_is_registered_for_deserialization(self):
         """A class in the matrix can be found again when deserializing.
 
-        Deserialization looks the class up by name, so a class the matrix
-        renders but the registry cannot resolve would round-trip into the wrong
-        thing or nothing at all.
+        Deserialization resolves a node's kind to its class through the
+        framework's default registry, so a class the matrix renders but the
+        registry cannot resolve would round-trip into the wrong thing or
+        nothing at all. Core and the built-in backends populate that registry
+        on first use; this backend's own classes are what ``register_all``
+        adds, which is why the registration happens here before the check.
         """
-        ExpressionRegistry._auto_register_builtins()
         register_all(REGISTERED)
-        unresolved = sorted(set(REGISTERED) - set(ExpressionRegistry._registry))
+        registry = default_registry()
+        unresolved = sorted(
+            fqn
+            for fqn, cls in REGISTERED.items()
+            if registry.resolve_node(cls.kind()) is not cls
+        )
         assert not unresolved, (
             f"the matrix covers classes the registry cannot resolve: {unresolved}"
         )
@@ -1509,7 +1842,6 @@ class TestMatrixIntegrity:
         after checking that it is named in :data:`UNCONSTRUCTIBLE`, so the
         bucket is never a silent dumping ground.
         """
-        ExpressionRegistry._auto_register_builtins()
         register_all(REGISTERED)
         counts = {}
         for fqn, cls in REGISTERED.items():

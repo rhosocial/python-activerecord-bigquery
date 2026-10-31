@@ -9,7 +9,7 @@ from typing import Dict, Tuple
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
 # Imported for real, not under TYPE_CHECKING: the spelling gates below pass the
-# concept class to ``_check_spelling`` as a *value* (it reads ``SPELLINGS`` off
+# concept class to ``check_spelling`` as a *value* (it reads ``SPELLINGS`` off
 # it), so these names have to exist at runtime. The core types package imports
 # no backend, so this does not close a cycle.
 from rhosocial.activerecord.backend.expression.types import (
@@ -198,8 +198,24 @@ class BigQueryTypeSupportMixin:
         backend writes — all four render ``INT64``, so naming the requested
         width is the only way the message can say *which* of the four was
         refused.
+
+        The shape check comes first because this is the only gate the field
+        passes through: the expression collects ``unsigned`` without judging it
+        — only the formatter knows which backend has to honour it — so a
+        non-boolean reaches here rather than being rejected at construction.  A
+        truth test cannot see it: ``unsigned=0``, ``unsigned=""`` and
+        ``unsigned=None`` are all falsy, so they would pass the test below and
+        render a signed ``INT64`` and report success, which on this backend is
+        the loss of the caller's declaration with no change at all in the DDL
+        to show for it.
         """
-        if not data_type.unsigned:
+        unsigned = data_type.unsigned
+        if not isinstance(unsigned, bool):
+            raise TypeError(
+                f"unsigned must be a bool, got {type(unsigned).__name__}; it "
+                f"becomes a type modifier in the rendered DDL."
+            )
+        if not unsigned:
             return
         raise UnsupportedFeatureError(
             self.name,
@@ -239,7 +255,7 @@ class BigQueryTypeSupportMixin:
         :meth:`_refuse_unsigned_integer`, which is also where the reason for
         the refusal is written down.
         """
-        self._check_spelling(data_type, TinyIntType)
+        self.check_spelling(data_type, TinyIntType)
         self._refuse_unsigned_integer(data_type, "TINYINT")
         return "INT64", ()
 
@@ -256,7 +272,7 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self._check_spelling(data_type, SmallIntType)
+        self.check_spelling(data_type, SmallIntType)
         self._refuse_unsigned_integer(data_type, "SMALLINT")
         return "INT64", ()
 
@@ -273,7 +289,7 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self._check_spelling(data_type, IntegerType)
+        self.check_spelling(data_type, IntegerType)
         self._refuse_unsigned_integer(data_type, "INT")
         return "INT64", ()
 
@@ -291,7 +307,7 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self._check_spelling(data_type, BigIntType)
+        self.check_spelling(data_type, BigIntType)
         self._refuse_unsigned_integer(data_type, "BIGINT")
         return "INT64", ()
 
@@ -416,8 +432,22 @@ class BigQueryTypeSupportMixin:
         grammar cannot express at all, not a wrong value.  The two do not share
         a base class, and the project's cross-backend rule keeps them apart so a
         caller can catch one type for the same refusal everywhere.
+
+        The shape check is first for the reason given in
+        :meth:`_refuse_unsigned_integer`: the field arrives unjudged, and a
+        falsy non-boolean — ``0``, ``""``, ``None``, an empty container — is
+        invisible to the truth test below, so it would render a signed
+        ``NUMERIC`` / ``FLOAT64`` and report success.  ``REAL`` reaches this
+        gate too, through the substitution its own formatter documents, so the
+        shape is checked on the concept and not on the word it renders to.
         """
-        if not data_type.unsigned:
+        unsigned = data_type.unsigned
+        if not isinstance(unsigned, bool):
+            raise TypeError(
+                f"unsigned must be a bool, got {type(unsigned).__name__}; it "
+                f"becomes a type modifier in the rendered DDL."
+            )
+        if not unsigned:
             return
         raise UnsupportedFeatureError(
             self.name,
@@ -549,7 +579,7 @@ class BigQueryTypeSupportMixin:
         about zero and whose field layout has a signed exponent, so there is no
         unsigned double-precision column for the request to have become.
         """
-        self._check_spelling(data_type, DoubleType)
+        self.check_spelling(data_type, DoubleType)
         self._refuse_unsigned_numeric(data_type, "DOUBLE PRECISION")
         return "FLOAT64", ()
 
@@ -715,7 +745,7 @@ class BigQueryTypeSupportMixin:
         type-modifier position, so there is no ``NUMERIC UNSIGNED`` to write.
         """
         self._refuse_unsigned_numeric(data_type, "DECIMAL")
-        self._check_spelling(data_type, DecimalType)
+        self.check_spelling(data_type, DecimalType)
         self._check_numeric_parameters(data_type)
         if data_type.scale is not None and data_type.precision is None:
             ranges = (
@@ -747,8 +777,8 @@ class BigQueryTypeSupportMixin:
                     f"to go"
                 ),
             )
-        if getattr(data_type, "precision", None) is not None:
-            scale = getattr(data_type, "scale", 0) or 0
+        if data_type.precision is not None:
+            scale = data_type.scale or 0
             return f"NUMERIC({data_type.precision}, {scale})", ()
         return "NUMERIC", ()
 
@@ -767,7 +797,7 @@ class BigQueryTypeSupportMixin:
         spellings are accepted and normalised, since the concept is the same
         two-valued column either way.
         """
-        self._check_spelling(data_type, BooleanType)
+        self.check_spelling(data_type, BooleanType)
         return "BOOL", ()
 
     # ------------------------------------------------------------------
@@ -857,8 +887,8 @@ class BigQueryTypeSupportMixin:
         A declared length is range-checked against the one bound the reference
         states; see :meth:`_check_string_length`.
         """
-        self._check_spelling(data_type, CharType)
-        length = getattr(data_type, "length", None)
+        self.check_spelling(data_type, CharType)
+        length = data_type.length
         self._check_string_length(length)
         # ``is not None`` rather than a truthiness test: a length of 0 is an
         # out-of-range value, not an absent one, and it is refused above instead
@@ -876,8 +906,8 @@ class BigQueryTypeSupportMixin:
         ``STRING(length)`` is. Both spellings render identically, and a declared
         length is range-checked the same way; see :meth:`_check_string_length`.
         """
-        self._check_spelling(data_type, VarCharType)
-        length = getattr(data_type, "length", None)
+        self.check_spelling(data_type, VarCharType)
+        length = data_type.length
         self._check_string_length(length)
         return (f"STRING({length})", ()) if length is not None else ("STRING", ())
 
@@ -893,7 +923,7 @@ class BigQueryTypeSupportMixin:
         would refuse a spelling of a type BigQuery does have, which tells the
         caller less than the widened column does.
         """
-        self._check_spelling(data_type, TextType)
+        self.check_spelling(data_type, TextType)
         return "STRING", ()
 
     # ------------------------------------------------------------------
@@ -1127,7 +1157,7 @@ class BigQueryTypeSupportMixin:
         here at all — see :meth:`suggested_data_types` for why ``BYTES``'s
         declared length is a maximum rather than a width.
         """
-        self._check_spelling(data_type, BlobType)
+        self.check_spelling(data_type, BlobType)
         return "BYTES", ()
 
     # ------------------------------------------------------------------
