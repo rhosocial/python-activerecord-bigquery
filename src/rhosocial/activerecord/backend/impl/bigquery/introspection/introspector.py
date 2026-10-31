@@ -454,6 +454,50 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             self.dialect, table_name=table_name, schema=dataset, catalog=catalog
         )
 
+    def partition_totals_statement(
+        self, schema: Optional[str]
+    ) -> "BigQueryPartitionListQueryStatement":
+        """Return the same ``PARTITIONS`` question asked of the whole dataset.
+
+        No table filter, so the answer is every partition row the dataset
+        has. One read for the dataset is what lets the storage reducer fill
+        a whole listing; asking the filtered question once per table would
+        be one round trip per relation.
+        """
+        catalog, dataset = self._dataset_scoped(schema)
+        return BigQueryPartitionListQueryStatement(
+            self.dialect, table_name=None, schema=dataset, catalog=catalog
+        )
+
+    def parse_table_storage(
+        self, tables: List[IntrospectionTableInfo], rows: List[Dict[str, Any]]
+    ) -> List[IntrospectionTableInfo]:
+        """Attribute the dataset's partition rows to the tables they sum to.
+
+        ``PARTITIONS`` answers one row per partition; a table's stored bytes
+        is the sum of its partitions' ``total_billable_bytes``, which lands
+        on ``size_bytes`` -- the common minimum's total. A table with no
+        partition rows (a view has none) keeps ``None``: not an object this
+        engine stores bytes for, which is a different answer from zero.
+
+        The split slots stay ``None`` for a reason that is BigQuery's shape
+        rather than a gap: managed storage has no index side to separate,
+        so there is nothing to attribute ``data_size_bytes`` or
+        ``index_size_bytes`` to (``.claude/rules/introspection.md`` §5).
+        Per-partition rows are already answered by the ``PARTITIONS``
+        family; this reduction is only the common minimum.
+        """
+        billable_by_table: Dict[str, int] = {}
+        for row in rows:
+            table_name = row.get("table_name")
+            total = _as_int(row.get("total_billable_bytes"))
+            if table_name is None or total is None:
+                continue
+            billable_by_table[table_name] = billable_by_table.get(table_name, 0) + total
+        for table in tables:
+            table.size_bytes = billable_by_table.get(table.name)
+        return tables
+
     # ------------------------------------------------------------------ #
     # Parsing
     # ------------------------------------------------------------------ #
@@ -823,6 +867,51 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
         self._cache.set(key, result)
         return result
 
+    def collect_table_storage(self, schema: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The dataset's partition rows, the storage reducer's input.
+
+        One read for the whole dataset, gated on the dialect's
+        ``supports_table_storage_introspection``: a build that cannot answer
+        the family answers an empty list rather than an error, and the
+        reducer keeps every slot ``None``.
+        """
+        if not self.dialect.supports_table_storage_introspection():
+            return []
+        sql, params = self.partition_totals_statement(schema).to_sql()
+        return self._executor.execute(sql, params)
+
+    def list_tables(
+        self,
+        schema: Optional[str] = None,
+        include_system: bool = False,
+        table_type: Optional[str] = None,
+    ) -> List[IntrospectionTableInfo]:
+        """List tables with ``size_bytes`` filled from the partitions.
+
+        The base flow asks one question and parses its rows; this adds the
+        dataset-scoped partition read beside it and reduces it, so a caller
+        of the ordinary listing sees each table's stored bytes on the common
+        minimum instead of only through the ``PARTITIONS`` family.
+        """
+        key = self._cache.key(
+            IntrospectionScope.TABLE,
+            schema=schema,
+            extra=f"{include_system}:{table_type}",
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.table_list_statement(
+            schema=schema,
+            include_system=include_system,
+            include_views=True,
+            table_type=table_type,
+        ).to_sql()
+        tables = self.parse_tables(self._executor.execute(sql, params), schema)
+        tables = self.parse_table_storage(tables, self.collect_table_storage(schema))
+        self._cache.set(key, tables)
+        return tables
+
     def list_partitions(
         self, table_name: str, schema: Optional[str] = None
     ) -> List[BigQueryPartitionInfo]:
@@ -945,6 +1034,47 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         result = self.parse_table_options(await self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
+
+    async def collect_table_storage(self, schema: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The async twin of :meth:`SyncBigQueryIntrospector.collect_table_storage`.
+
+        Same question, awaited, and the same empty-list answer when the
+        dialect cannot answer the family -- so the two reductions see one
+        shape of input and cannot disagree about a table's bytes.
+        """
+        if not self.dialect.supports_table_storage_introspection():
+            return []
+        sql, params = self.partition_totals_statement(schema).to_sql()
+        return await self._executor.execute(sql, params)
+
+    async def list_tables(
+        self,
+        schema: Optional[str] = None,
+        include_system: bool = False,
+        table_type: Optional[str] = None,
+    ) -> List[IntrospectionTableInfo]:
+        """The async twin of :meth:`SyncBigQueryIntrospector.list_tables`.
+
+        Same questions awaited, same reducer, same cache key.
+        """
+        key = self._cache.key(
+            IntrospectionScope.TABLE,
+            schema=schema,
+            extra=f"{include_system}:{table_type}",
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.table_list_statement(
+            schema=schema,
+            include_system=include_system,
+            include_views=True,
+            table_type=table_type,
+        ).to_sql()
+        tables = self.parse_tables(await self._executor.execute(sql, params), schema)
+        tables = self.parse_table_storage(tables, await self.collect_table_storage(schema))
+        self._cache.set(key, tables)
+        return tables
 
     async def list_partitions(
         self, table_name: str, schema: Optional[str] = None

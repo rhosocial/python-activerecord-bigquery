@@ -379,9 +379,16 @@ class BigQueryPartitionListQueryStatement(IntrospectionExpression):
     ``NULL``. Unlike ``SCHEMATA`` this view takes a dataset qualifier only,
     never a region qualifier.
 
+    With *table_name* omitted the same question is asked of the whole
+    dataset -- one row per partition of every table -- which is the reading
+    a per-table total comes from: the reducer sums the rows it answers per
+    table, so the dataset-scoped question stays one query rather than one
+    per table.
+
     Args:
         dialect: The BigQuery dialect that renders this statement.
-        table_name: The table whose partitions are wanted.
+        table_name: The table whose partitions are wanted, or ``None`` for
+            the dataset's partitions as a whole.
         schema: The dataset, or a ``project.dataset`` pair. Required.
         catalog: The project to qualify the dataset with, or ``None``.
 
@@ -391,8 +398,8 @@ class BigQueryPartitionListQueryStatement(IntrospectionExpression):
     def __init__(
         self,
         dialect: "BigQueryDialect",
-        table_name: str,
-        schema: str,
+        table_name: Optional[str] = None,
+        schema: Optional[str] = None,
         catalog: Optional[str] = None,
     ):
         """Initialize the partition list statement."""

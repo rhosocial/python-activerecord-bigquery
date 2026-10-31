@@ -163,6 +163,20 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         """``INFORMATION_SCHEMA.PARTITIONS`` and ``TABLE_OPTIONS`` answer."""
         return True
 
+    def supports_table_storage_introspection(self) -> bool:
+        """``PARTITIONS`` answers a table's stored bytes.
+
+        The capability for the per-table storage family: summing the
+        dataset's partitions answers ``size_bytes`` for every table in one
+        read. BigQuery's storage is managed byte storage -- there is no
+        index to split off, so ``data_size_bytes`` and ``index_size_bytes``
+        stay ``None``, which is the engine's shape rather than a gap. The
+        partition-level rows (per-partition billable bytes, storage tiers)
+        stay on this backend's own ``PARTITIONS`` family, finer than the
+        common minimum asks for (``.claude/rules/introspection.md`` §5).
+        """
+        return True
+
     def get_supported_introspection_scopes(self) -> List[IntrospectionScope]:
         """The scopes this dialect can answer, less the three it declines."""
         return [
@@ -648,11 +662,15 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 "storage_tier",
             ),
             from_=self._information_schema_source("PARTITIONS", expr.catalog, expr.schema),
-            where=ComparisonPredicate(
-                self,
-                ComparisonPredicate.coerce_operator("="),
-                Column(self, "table_name"),
-                Literal(self, expr.table_name),
+            where=(
+                ComparisonPredicate(
+                    self,
+                    ComparisonPredicate.coerce_operator("="),
+                    Column(self, "table_name"),
+                    Literal(self, expr.table_name),
+                )
+                if expr.table_name is not None
+                else None
             ),
             order_by=self._order_by_first("partition_id"),
         )

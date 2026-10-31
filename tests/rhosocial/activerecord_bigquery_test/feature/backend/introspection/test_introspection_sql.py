@@ -377,3 +377,89 @@ def test_index_introspection_is_declined(dialect):
     assert dialect.supports_index_introspection() is False
     scopes = dialect.get_supported_introspection_scopes()
     assert IntrospectionScope.INDEX not in scopes
+
+# ---------------------------------------------------------------------------
+# The per-table storage family: the dataset-scoped PARTITIONS read, and the
+# reduction that lands its sums on the common minimum
+# ---------------------------------------------------------------------------
+
+
+def test_the_probe_declares_the_family(dialect):
+    assert dialect.supports_table_storage_introspection() is True
+
+
+def test_partitions_without_a_table_drop_the_filter(dialect):
+    """The dataset-scoped reading: one row per partition of every table, so
+    the reducer fills a whole listing rather than asking one question per
+    table."""
+    sql, params = BigQueryPartitionListQueryStatement(dialect, schema="my_dataset").to_sql()
+    assert "FROM `my_dataset`.INFORMATION_SCHEMA.PARTITIONS" in sql
+    assert "WHERE" not in sql
+    assert params == ()
+
+
+class _TwoResponseExecutor:
+    """Answers two canned reads and records the SQL they were asked with."""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.statements = []
+
+    def execute(self, sql, params=()):
+        self.statements.append(sql)
+        return self._responses.pop(0) if self._responses else []
+
+
+def test_partition_sums_land_on_size_bytes(introspector):
+    """A table's stored bytes is the sum of its partitions'
+    total_billable_bytes; a view -- which has no partition rows -- keeps
+    None, and so do the split slots, because managed storage has no index
+    side to separate."""
+    introspector_obj, _ = introspector
+    from rhosocial.activerecord.backend.introspection.types import IntrospectionTableInfo
+
+    rows = [
+        {"table_name": "orders", "total_billable_bytes": 1024},
+        {"table_name": "orders", "total_billable_bytes": 2048},
+        {"table_name": "events", "total_billable_bytes": 512},
+        {"table_name": None, "total_billable_bytes": 9},
+        {"table_name": "x", "total_billable_bytes": None},
+    ]
+    tables = [
+        IntrospectionTableInfo(name="orders"),
+        IntrospectionTableInfo(name="events"),
+        IntrospectionTableInfo(name="v_orders"),
+    ]
+    by_name = {t.name: t for t in introspector_obj.parse_table_storage(tables, rows)}
+    assert by_name["orders"].size_bytes == 3072
+    assert by_name["events"].size_bytes == 512
+    assert by_name["v_orders"].size_bytes is None
+    for table in by_name.values():
+        assert table.data_size_bytes is None
+        assert table.index_size_bytes is None
+
+
+def test_list_tables_asks_one_further_question_and_fills_the_slot():
+    """The listing ride-along: the TABLES question, then one dataset-scoped
+    PARTITIONS read, and the parsed tables carry the bytes."""
+    stand_in = _BackendStandIn()
+    executor = _TwoResponseExecutor(
+        [
+            [
+                {
+                    "table_name": "orders",
+                    "table_type": "BASE TABLE",
+                    "creation_time": None,
+                }
+            ],
+            [{"table_name": "orders", "total_billable_bytes": 4096}],
+        ]
+    )
+    introspector_obj = SyncBigQueryIntrospector(stand_in, executor)
+    tables = introspector_obj.list_tables(schema="my_dataset")
+    assert tables[0].size_bytes == 4096
+    assert len(executor.statements) == 2
+    assert "TABLES" in executor.statements[0]
+    assert "PARTITIONS" in executor.statements[1]
+    assert "WHERE" not in executor.statements[1]
+

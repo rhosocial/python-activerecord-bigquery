@@ -217,14 +217,18 @@ def test_a_different_dataset_is_a_different_answer(sync_case):
     introspector, executor = sync_case
     introspector.list_tables("my_dataset")
     introspector.list_tables("other_dataset")
-    assert len(executor.questions) == 2
+    # Two questions per listing: the TABLES read and the dataset-scoped
+    # PARTITIONS read that fills the storage slots.
+    assert len(executor.questions) == 4
 
 
 def test_a_different_table_type_is_a_different_table_answer(sync_case):
     introspector, executor = sync_case
     introspector.list_tables("my_dataset")
     introspector.list_tables("my_dataset", table_type="VIEW")
-    assert len(executor.questions) == 2
+    # Same two questions twice: the partition read rides the listing's cache
+    # key, so a different table_type is a different table answer.
+    assert len(executor.questions) == 4
 
 
 def test_invalidating_drops_what_it_names(sync_case):
@@ -242,7 +246,9 @@ def test_clearing_drops_everything(sync_case):
     introspector.clear_cache()
     introspector.list_datasets()
     introspector.list_tables("my_dataset")
-    assert len(executor.questions) == 4
+    # Datasets once each (2), and the two per-listing questions (TABLES and
+    # the partition read) once each side of the clear (4).
+    assert len(executor.questions) == 6
 
 
 # ---------------------------------------------------------------------------
