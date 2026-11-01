@@ -88,12 +88,12 @@ from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeature
 from rhosocial.activerecord.backend.introspection.base import (
     AsyncAbstractIntrospector,
     IntrospectorMixin,
-    SyncAbstractIntrospector,
+    AbstractIntrospector,
 )
 from rhosocial.activerecord.backend.introspection.cache import IntrospectionCache
 from rhosocial.activerecord.backend.introspection.executor import (
     AsyncIntrospectorExecutor,
-    SyncIntrospectorExecutor,
+    IntrospectorExecutor,
 )
 from rhosocial.activerecord.backend.introspection.types import (
     ColumnNullable,
@@ -782,7 +782,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         return [name for _position, name in sorted(positioned, key=lambda item: item[0])]
 
 
-class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospector):
+class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
     """Synchronous BigQuery introspector.
 
     Access it through ``backend.introspector``::
@@ -795,7 +795,7 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
     def __init__(
         self,
         backend: Any,
-        executor: SyncIntrospectorExecutor,
+        executor: IntrospectorExecutor,
         cache: Optional[IntrospectionCache] = None,
     ) -> None:
         super().__init__(backend, executor, cache)
@@ -1036,7 +1036,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         return result
 
     async def collect_table_storage(self, schema: Optional[str] = None) -> List[Dict[str, Any]]:
-        """The async twin of :meth:`SyncBigQueryIntrospector.collect_table_storage`.
+        """The async twin of :meth:`BigQueryIntrospector.collect_table_storage`.
 
         Same question, awaited, and the same empty-list answer when the
         dialect cannot answer the family -- so the two reductions see one
@@ -1053,7 +1053,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         include_system: bool = False,
         table_type: Optional[str] = None,
     ) -> List[IntrospectionTableInfo]:
-        """The async twin of :meth:`SyncBigQueryIntrospector.list_tables`.
+        """The async twin of :meth:`BigQueryIntrospector.list_tables`.
 
         Same questions awaited, same reducer, same cache key.
         """
@@ -1110,6 +1110,6 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
 
 __all__ = [
     "BigQueryIntrospectorMixin",
-    "SyncBigQueryIntrospector",
+    "BigQueryIntrospector",
     "AsyncBigQueryIntrospector",
 ]

@@ -4,12 +4,12 @@ executed by the executors here, and parsed by the introspectors here."""
 
 from .executor import (
     AsyncBigQueryIntrospectorExecutor,
-    SyncBigQueryIntrospectorExecutor,
+    BigQueryIntrospectorExecutor,
 )
 from .introspector import (
     AsyncBigQueryIntrospector,
     BigQueryIntrospectorMixin,
-    SyncBigQueryIntrospector,
+    BigQueryIntrospector,
 )
 from .types import (
     BigQueryDatasetInfo,
@@ -20,10 +20,10 @@ from .types import (
 
 __all__ = [
     "AsyncBigQueryIntrospectorExecutor",
-    "SyncBigQueryIntrospectorExecutor",
+    "BigQueryIntrospectorExecutor",
     "AsyncBigQueryIntrospector",
     "BigQueryIntrospectorMixin",
-    "SyncBigQueryIntrospector",
+    "BigQueryIntrospector",
     "BigQueryDatasetInfo",
     "BigQueryPartitionInfo",
     "BigQueryTableOptionInfo",

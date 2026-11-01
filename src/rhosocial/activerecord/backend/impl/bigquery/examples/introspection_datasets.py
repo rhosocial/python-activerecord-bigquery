@@ -159,8 +159,8 @@ def main() -> int:
         BigQueryConnectionConfig,
     )
     from rhosocial.activerecord.backend.impl.bigquery.introspection import (
-        SyncBigQueryIntrospector,
-        SyncBigQueryIntrospectorExecutor,
+        BigQueryIntrospector,
+        BigQueryIntrospectorExecutor,
     )
 
     backend = BigQueryBackend(
@@ -176,8 +176,8 @@ def main() -> int:
 
     # The introspector with the counting executor, set on the backend so
     # every question this run asks is measured.
-    counting = CountingExecutor(SyncBigQueryIntrospectorExecutor(backend))
-    backend.set_introspector(SyncBigQueryIntrospector(backend, counting))
+    counting = CountingExecutor(BigQueryIntrospectorExecutor(backend))
+    backend.set_introspector(BigQueryIntrospector(backend, counting))
     executor = counting
 
     print(

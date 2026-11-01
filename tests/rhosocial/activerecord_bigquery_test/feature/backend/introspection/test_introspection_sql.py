@@ -46,7 +46,7 @@ from rhosocial.activerecord.backend.impl.bigquery.expression.introspection impor
     BigQueryViewListQueryStatement,
 )
 from rhosocial.activerecord.backend.impl.bigquery.introspection import (
-    SyncBigQueryIntrospector,
+    BigQueryIntrospector,
 )
 
 
@@ -83,7 +83,7 @@ def dialect():
 @pytest.fixture
 def introspector():
     executor = _RecordingExecutor()
-    return SyncBigQueryIntrospector(_BackendStandIn(), executor), executor
+    return BigQueryIntrospector(_BackendStandIn(), executor), executor
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +344,7 @@ def test_the_trigger_builder_refuses(introspector):
 
 def test_no_dataset_anywhere_is_refused_with_the_instruction(introspector):
     from rhosocial.activerecord.backend.impl.bigquery.introspection import (
-        SyncBigQueryIntrospector as _Sync,
+        BigQueryIntrospector as _Sync,
     )
 
     project_only = _Sync(_BackendStandIn(project="my-project", dataset=None), _RecordingExecutor())
@@ -455,7 +455,7 @@ def test_list_tables_asks_one_further_question_and_fills_the_slot():
             [{"table_name": "orders", "total_billable_bytes": 4096}],
         ]
     )
-    introspector_obj = SyncBigQueryIntrospector(stand_in, executor)
+    introspector_obj = BigQueryIntrospector(stand_in, executor)
     tables = introspector_obj.list_tables(schema="my_dataset")
     assert tables[0].size_bytes == 4096
     assert len(executor.statements) == 2

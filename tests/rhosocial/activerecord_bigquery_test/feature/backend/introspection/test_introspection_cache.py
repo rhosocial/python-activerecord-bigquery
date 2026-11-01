@@ -20,7 +20,7 @@ from rhosocial.activerecord.backend.impl.bigquery.config import (
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.introspection import (
     AsyncBigQueryIntrospector,
-    SyncBigQueryIntrospector,
+    BigQueryIntrospector,
 )
 
 TABLES_ROWS = [
@@ -118,7 +118,7 @@ class _CountingAsyncExecutor(_CountingExecutor):
 @pytest.fixture
 def sync_case():
     executor = _CountingExecutor()
-    introspector = SyncBigQueryIntrospector(_BackendStandIn(), executor)
+    introspector = BigQueryIntrospector(_BackendStandIn(), executor)
     return introspector, executor
 
 

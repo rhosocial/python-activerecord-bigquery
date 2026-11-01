@@ -36,7 +36,7 @@ from rhosocial.activerecord.backend.impl.bigquery.config import (
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.introspection import (
     AsyncBigQueryIntrospector,
-    SyncBigQueryIntrospector,
+    BigQueryIntrospector,
 )
 from rhosocial.activerecord.backend.impl.bigquery.introspection.types import (
     BigQueryTableStorageInfo,
@@ -70,7 +70,7 @@ class _RecordingAsyncExecutor:
 
 @pytest.fixture
 def introspector():
-    return SyncBigQueryIntrospector(_BackendStandIn(), _RecordingExecutor())
+    return BigQueryIntrospector(_BackendStandIn(), _RecordingExecutor())
 
 
 @pytest.fixture
