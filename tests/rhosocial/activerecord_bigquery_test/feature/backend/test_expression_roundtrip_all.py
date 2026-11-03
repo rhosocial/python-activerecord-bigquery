@@ -965,6 +965,17 @@ _NO_FORMATTER = "does not support the"
 #: move them out of here, and each of those moves is a change someone has to make
 #: on purpose.
 LEGITIMATE_NON_RENDERS = {
+    # ---- core data-profile families this dialect does not answer ----
+    #  BigQuery has no per-column statistics catalogue, and profiling means a billed aggregate scan per column. The probes answer False.
+    "rhosocial.activerecord.backend.expression.introspection.ColumnDataProfileQueryStatement": (
+        ProtocolNotImplementedError, 'does not implement ',
+    ),
+    "rhosocial.activerecord.backend.expression.introspection.ColumnValueSampleQueryStatement": (
+        ProtocolNotImplementedError, 'does not implement ',
+    ),
+    "rhosocial.activerecord.backend.expression.introspection.JoinCoverageQueryStatement": (
+        ProtocolNotImplementedError, 'does not implement ',
+    ),
     # ---- core operational families this dialect does not answer ----
     #  BigQuery has no secondary indexes, no dependency catalogue and no per-object DDL retrieval; INFORMATION_SCHEMA describes tables and routines, not use. The probes answer False.
     # Unused indexes and table stats: BigQuery has no secondary indexes at
