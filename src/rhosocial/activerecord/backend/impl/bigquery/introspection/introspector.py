@@ -96,6 +96,7 @@ from rhosocial.activerecord.backend.introspection.executor import (
     IntrospectorExecutor,
 )
 from rhosocial.activerecord.backend.introspection.types import (
+    ColumnDataProfile,
     ColumnNullable,
     IndexColumnInfo,
     IndexInfo,
@@ -635,6 +636,54 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             )
         return columns
 
+    def parse_column_data_profiles(
+        self,
+        rows: List[Dict[str, Any]],
+        schema: str,
+        table_name: str,
+    ) -> List[ColumnDataProfile]:
+        """Pivot the profile's single row back into one row per column.
+
+        The statement projects every column's figures as one wide row -- that is
+        what makes the profile one billed scan rather than one per column -- so
+        the row is reshaped here into the per-column rows core's parser already
+        knows how to read: ``column_name``, ``null_count``, ``distinct_count``,
+        ``min_value``, ``max_value``, ``row_count`` and ``source``.
+
+        Reshaping rather than re-implementing is deliberate. "``None`` means not
+        measured", the derivation of ``null_fraction`` from a count and a row
+        count, and the skipping of a row with no column name are one set of
+        rules, and they live in core. A second parser here would be a second
+        place for the two engines to disagree about what a missing figure means.
+
+        Slots the formatter projected as ``NULL`` -- the distinct count and the
+        bounds of a column whose declared type the aggregates cannot read --
+        arrive as ``None`` and stay ``None``: their absence is a fact about the
+        engine, not a zero it measured.
+        """
+        shaped: List[Dict[str, Any]] = []
+        for row in rows or []:
+            # The catalogue reports lower-case names and this formatter aliases
+            # its slots in lower case; normalising keeps the parser independent
+            # of whether a client folds identifiers.
+            normalized = {str(key).lower(): value for key, value in row.items()}
+            index = 1
+            while f"c{index}_name" in normalized:
+                prefix = f"c{index}_"
+                shaped.append(
+                    {
+                        "column_name": normalized[prefix + "name"],
+                        "null_count": normalized.get(prefix + "null_count"),
+                        "distinct_count": normalized.get(prefix + "distinct_count"),
+                        "min_value": normalized.get(prefix + "min"),
+                        "max_value": normalized.get(prefix + "max"),
+                        "row_count": normalized.get("row_count"),
+                        "source": normalized.get("source"),
+                    }
+                )
+                index += 1
+        return super().parse_column_data_profiles(shaped, schema, table_name)
+
     def parse_indexes(
         self, rows: List[Dict[str, Any]], table_name: str, schema: str
     ) -> List[IndexInfo]:
@@ -837,6 +886,49 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
         del table_name, schema
         return []
 
+    def list_column_data_profiles(
+        self,
+        table_name: str,
+        schema: Optional[str] = None,
+    ) -> List[ColumnDataProfile]:
+        """Profile one table's columns from its rows. **This scans the table.**
+
+        The answer is exact, and it is the most expensive question this backend
+        can be asked: BigQuery bills bytes read, so the cost is proportional to
+        the table rather than to its schema. One scan answers every column --
+        the statement projects all of them in one ``SELECT`` -- but a caller
+        profiling a large table is choosing to read all of it, twice if the
+        query is run again for the same table once the cache expires.
+
+        The column catalogue is read first, and not only for the names: an
+        aggregating dialect needs the names to pivot its aggregates, and this
+        one also needs each column's declared type to know whether the engine
+        will compute a distinct count and bounds for it at all. That is a
+        metadata read, priced in bytes of ``INFORMATION_SCHEMA`` rather than of
+        the table, so it is cheap beside what follows.
+
+        The cache key is core's, so a caller that reaches this method and one
+        that reaches it through the base class share an answer and a bill.
+        """
+        key = self._cache.key(
+            IntrospectionScope.COLUMN, table_name, "data_profile", schema=schema
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        target = schema if schema is not None else self.default_schema
+        columns = self.list_columns(table_name, target)
+        sql, params = self.profile_statement(
+            table_name=table_name, schema=target, columns=columns
+        ).to_sql()
+        result = self.parse_column_data_profiles(
+            self._executor.execute(sql, params),
+            target,
+            table_name,
+        )
+        self._cache.set(key, result)
+        return result
+
     # ------------------------------------------------------------------ #
     # BigQuery-specific questions
     # ------------------------------------------------------------------ #
@@ -1004,6 +1096,37 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         """Return an empty list; BigQuery has no triggers."""
         del table_name, schema
         return []
+
+    async def list_column_data_profiles(
+        self,
+        table_name: str,
+        schema: Optional[str] = None,
+    ) -> List[ColumnDataProfile]:
+        """Profile one table's columns from its rows (async).
+
+        The async twin of :meth:`BigQueryIntrospector.list_column_data_profiles`:
+        same catalogue read, same one-scan statement, same cache key, so the two
+        cannot disagree about which columns carry figures or about what a billed
+        scan buys.
+        """
+        key = self._cache.key(
+            IntrospectionScope.COLUMN, table_name, "data_profile", schema=schema
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        target = schema if schema is not None else self.default_schema
+        columns = await self.list_columns(table_name, target)
+        sql, params = self.profile_statement(
+            table_name=table_name, schema=target, columns=columns
+        ).to_sql()
+        result = self.parse_column_data_profiles(
+            await self._executor.execute(sql, params),
+            target,
+            table_name,
+        )
+        self._cache.set(key, result)
+        return result
 
     # ------------------------------------------------------------------ #
     # BigQuery-specific questions

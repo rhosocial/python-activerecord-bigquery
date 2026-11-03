@@ -30,22 +30,39 @@ from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.dialect.mixins import IntrospectionMixin
-from rhosocial.activerecord.backend.expression.core import Column, Literal
+from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
+from rhosocial.activerecord.backend.expression.core import (
+    CastExpression,
+    Column,
+    FunctionCall,
+    Literal,
+    RowCountWildcard,
+    Subquery,
+)
+from rhosocial.activerecord.backend.expression.functions.aggregate import (
+    CountFunction,
+    SumFunction,
+)
 from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.expression.predicates import (
     ComparisonPredicate,
     InPredicate,
+    IsNullPredicate,
     LogicalPredicate,
 )
 from rhosocial.activerecord.backend.expression.query_parts import (
+    GroupByHavingClause,
     JoinClause,
+    LimitOffsetClause,
     OrderByClause,
 )
 from rhosocial.activerecord.backend.expression.sources import NamedRelationRef
 from rhosocial.activerecord.backend.expression.statements.dql import QueryStatement
+from rhosocial.activerecord.backend.expression.types.string import CharType
 from rhosocial.activerecord.backend.introspection.types import IntrospectionScope
 
 from ..expression.introspection import (
+    BigQueryColumnDataProfileQueryStatement,
     BigQueryColumnInfoQueryStatement,
     BigQueryDatabaseInfoQueryStatement,
     BigQueryIndexInfoQueryStatement,
@@ -56,10 +73,13 @@ from ..expression.introspection import (
 
 if TYPE_CHECKING:  # pragma: no cover
     from rhosocial.activerecord.backend.expression.introspection import (
+        ColumnDataProfileQueryStatement,
         ColumnInfoQueryStatement,
+        ColumnValueSampleQueryStatement,
         DatabaseInfoQueryStatement,
         ForeignKeyQueryStatement,
         IndexInfoQueryStatement,
+        JoinCoverageQueryStatement,
         TableInfoQueryStatement,
         TableListQueryStatement,
         TriggerInfoQueryStatement,
@@ -87,6 +107,33 @@ if TYPE_CHECKING:  # pragma: no cover
 #: https://cloud.google.com/bigquery/docs/information-schema-tables
 _BASE_TABLE_TYPES = ("BASE TABLE", "CLONE", "SNAPSHOT")
 _VIEW_TYPES = ("VIEW", "MATERIALIZED VIEW")
+
+
+#: The column types the profile's aggregates cannot read. BigQuery's ``MIN`` and
+#: ``MAX`` take "any orderable data type", which excludes ``ARRAY``, ``STRUCT``
+#: (spelled ``RECORD`` where a nested schema is written out), ``JSON``,
+#: ``GEOGRAPHY`` and ``RANGE``; ``COUNT(DISTINCT ...)`` excludes the same ones
+#: plus nothing else that matters here, because the rest are groupable.
+#:
+#: A prefix test rather than an equality test: the catalogue reports a parameterised
+#: type as one string, ``ARRAY<INT64>`` or ``STRUCT<a INT64, b STRING>``, so the
+#: family name is all that is left to match on. ``RANGE`` is written
+#: ``RANGE<DATE>`` by the same catalogue, so it matches the same way.
+_PROFILE_OPAQUE_TYPE_PREFIXES = ("ARRAY", "STRUCT", "RECORD", "JSON", "GEOGRAPHY", "RANGE")
+
+
+def _profile_aggregates_are_blind(data_type: Optional[str]) -> bool:
+    """Whether the profile's aggregates cannot read a column of this type.
+
+    Read off the declared type string the catalogue reports. A type this
+    function does not recognise is treated as readable: the profile is a scan of
+    the caller's table and the server is the final judge, but a name-derived
+    guess that silently dropped a column's figures would be worse than a query
+    that fails and says why.
+    """
+    if not data_type:
+        return False
+    return str(data_type).strip().upper().startswith(_PROFILE_OPAQUE_TYPE_PREFIXES)
 
 
 class BigQueryIntrospectionMixin(IntrospectionMixin):
@@ -186,6 +233,103 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
             IntrospectionScope.COLUMN,
             IntrospectionScope.VIEW,
         ]
+
+    # ------------------------------------------------------------------ #
+    # Data profiles: the rows, not the declaration
+    # ------------------------------------------------------------------ #
+
+    def supports_column_data_profile(self) -> bool:
+        """BigQuery answers a profile only by scanning the table's rows.
+
+        There is no per-column statistics catalogue to read.
+        ``INFORMATION_SCHEMA.COLUMNS`` describes what a column *declares* --
+        type, nullability, default -- and no view reports what its rows hold:
+        no ``null_frac``, no distinct count, no bounds. So the answer is exact
+        and bought with a scan.
+
+        **That scan is billed.** BigQuery charges by bytes read, so a profile is
+        the most expensive thing this backend can be asked, and unlike every
+        other introspection family its price is proportional to the table
+        rather than to the schema. It is one scan, not one per column -- the
+        formatter projects every column's aggregates in a single ``SELECT`` --
+        but it is still a full read of the table, and it is why this sits behind
+        an explicit call rather than in any automatic pass over a schema.
+
+        ``COUNT(DISTINCT ...)`` is the exact spelling and is what the statement
+        uses; ``APPROX_COUNT_DISTINCT`` would be cheaper and approximate, and a
+        figure derived from a sample would have to be labelled
+        ``source='sample'`` rather than ``'aggregate'`` -- the label exists so a
+        caller can tell, and this backend answers exactly.
+        """
+        return True
+
+    def supports_column_value_sample(self) -> bool:
+        """BigQuery lists values by grouping the column, and pays for the scan.
+
+        Nothing is precomputed, so this costs one grouped read of the table --
+        the same billed bytes as the profile, plus a sort of the groups. It is a
+        separate probe because it is a separate scan: a caller asking only for
+        the most frequent values should not be charged for the five other
+        aggregates per column the profile computes.
+
+        A column of a type BigQuery cannot group -- ``ARRAY``, ``STRUCT``,
+        ``JSON``, ``GEOGRAPHY`` -- is refused by the server. That is the
+        engine's rule about the chosen column rather than a gap in this family,
+        and the answer is a server error naming the column, not a shorter list
+        that looks complete.
+        """
+        return True
+
+    def supports_join_coverage(self) -> bool:
+        """BigQuery measures overlap by counting distinct values on both sides.
+
+        Exact, and paid for with a read of each column: one for the overlap and
+        one for the denominator, twice over, because both directions are
+        reported. Every one of those reads is billed, which makes this the most
+        expensive measurement in the family -- two columns of two tables rather
+        than one table's profile.
+
+        Answering ``True`` is right because the probe asks whether the engine
+        *can* answer, not whether it can answer cheaply: the cost belongs in the
+        docstring, not in a ``False`` that would claim BigQuery cannot measure
+        its own rows.
+        """
+        return True
+
+    def profile_statement(
+        self,
+        *,
+        table_name: str,
+        schema: Optional[str],
+        columns: List[Any],
+    ) -> "BigQueryColumnDataProfileQueryStatement":
+        """The profile question, told which columns its aggregates can read.
+
+        Args:
+            table_name: The table whose columns are profiled.
+            schema: The dataset, or a ``project.dataset`` pair.
+            columns: The table's columns as the catalogue reported them --
+                :class:`~rhosocial.activerecord.backend.introspection.types.IntrospectionColumnInfo`
+                values, not names, because each one's declared type decides
+                whether ``MIN``/``MAX`` and ``COUNT(DISTINCT ...)`` may be asked
+                of it.
+
+        Returns:
+            The statement. Render it with ``to_sql()``.
+        """
+        return BigQueryColumnDataProfileQueryStatement(
+            self,
+            table_name=table_name,
+            schema=schema,
+            columns=tuple(column.name for column in columns),
+            opaque_columns=tuple(
+                column.name
+                for column in columns
+                if _profile_aggregates_are_blind(
+                    getattr(column, "data_type_full", None) or column.data_type
+                )
+            ),
+        )
 
     # ------------------------------------------------------------------ #
     # Spelling helpers
@@ -869,6 +1013,347 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
             "BigQuery has no triggers, so there is no catalog view to query. "
             "get_trigger_info() answers None.",
         )
+
+    # ------------------------------------------------------------------ #
+    # Data profiles: the rows themselves
+    # ------------------------------------------------------------------ #
+
+    def _user_relation(self, table_name: str, schema: Optional[str]) -> Table:
+        """A user table as a ``FROM`` source, qualified by its dataset.
+
+        Unlike the ``INFORMATION_SCHEMA`` questions this backend asks, the
+        relation here is the caller's own table, so its name, its dataset and
+        the project above them are all identifiers the dialect quotes. The
+        schema slot carries what the caller passed: a dataset, or a
+        ``project.dataset`` pair, which is split so the project lands on the
+        object's ``catalog_name`` and the dataset on its ``schema_name``.
+
+        An absent dataset is not refused here; it means the connection's default
+        dataset, which is the same convention every other statement this backend
+        renders for a user relation follows (see
+        :class:`~...backend.qualified_names.BigQueryQualifiedNameMixin`). The
+        introspector resolves the configured default before it gets here, so a
+        caller that configured one gets a qualified name and one that did not
+        gets the server's own answer.
+        """
+        dataset = (schema or "").strip().strip("`")
+        project, _, name = dataset.rpartition(".")
+        return Table(
+            self,
+            table_name,
+            catalog_name=project or None,
+            schema_name=name or None,
+        )
+
+    def _profile_label(self, text: Optional[str], alias: str) -> CastExpression:
+        """A constant label as a named projection.
+
+        A :class:`~...expression.core.Literal` is deliberately unaliasable -- a
+        value has nothing to name -- so the constant is cast to ``STRING``,
+        which is the smallest node that carries a result name. ``None`` is the
+        same node holding SQL ``NULL``, which is how an absent figure is
+        projected without inventing a type for it.
+
+        ``CAST`` rather than a bare literal matters for a second reason here:
+        the arms of a profile row are not a union, but ``STRING`` is also the
+        type a label should have when it is compared with, or sorted beside,
+        another label.
+        """
+        return CastExpression(
+            self,
+            Literal(self, text, inline=True),
+            CharType(self),
+            alias=alias,
+        )
+
+    def _profile_slot(self, index: int, suffix: str) -> str:
+        """The result name of one slot of one column's group.
+
+        Positional rather than column-named: a column name may contain any
+        character the catalogue accepts, while these names are fixed words the
+        parser reads. The column's *name* travels beside them, cast to text, so
+        the answer says which column each group is about.
+        """
+        return f"c{index}_{suffix}"
+
+    def _profile_column_slots(
+        self, index: int, column_name: str, opaque: bool
+    ) -> List[Any]:
+        """The five entries one column contributes to the profile row.
+
+        ``null_count`` is a ``SUM`` over a ``CASE`` so an empty table answers
+        ``NULL`` rather than a fabricated zero -- the parser then reports no
+        fraction, which is the truth about a table with no rows. The distinct
+        count and the bounds are the two figures a column's declared type can
+        put out of reach: for an opaque type they are projected as ``NULL``,
+        because BigQuery refuses the aggregate rather than answering ``NULL``
+        for it.
+        """
+        column = Column(self, column_name)
+        slots: List[Any] = [
+            self._profile_label(column_name, self._profile_slot(index, "name")),
+            SumFunction(
+                self,
+                CaseExpression(
+                    self,
+                    cases=[
+                        (
+                            IsNullPredicate(self, column),
+                            Literal(self, 1, inline=True),
+                        )
+                    ],
+                    else_result=Literal(self, 0, inline=True),
+                ),
+            ).as_(self._profile_slot(index, "null_count")),
+        ]
+        if opaque:
+            slots.extend(
+                [
+                    self._profile_label(None, self._profile_slot(index, "distinct_count")),
+                    self._profile_label(None, self._profile_slot(index, "min")),
+                    self._profile_label(None, self._profile_slot(index, "max")),
+                ]
+            )
+        else:
+            # ``MIN``/``MAX`` keep their native type in the projection and are
+            # cast to ``STRING`` only to name them: a profile row is one row, so
+            # the cast is not the union's type coercion -- it is the same choice
+            # the label makes, and it keeps every bound renderable whatever the
+            # column holds.
+            slots.extend(
+                [
+                    CountFunction(self, column, distinct=True).as_(
+                        self._profile_slot(index, "distinct_count")
+                    ),
+                    CastExpression(
+                        self,
+                        FunctionCall(self, "MIN", column),
+                        CharType(self),
+                        alias=self._profile_slot(index, "min"),
+                    ),
+                    CastExpression(
+                        self,
+                        FunctionCall(self, "MAX", column),
+                        CharType(self),
+                        alias=self._profile_slot(index, "max"),
+                    ),
+                ]
+            )
+        return slots
+
+    def format_column_data_profile_query_statement(
+        self, expr: "ColumnDataProfileQueryStatement"
+    ) -> Tuple[str, tuple]:
+        """Format a per-column profile as one aggregate row.
+
+        BigQuery has no statistics catalogue, so the answer is the rows
+        themselves: one ``SELECT`` projecting, for every column, its name, its
+        null count, its distinct count, its bounds and the table's row count,
+        plus the provenance ``'aggregate'``.
+
+        **One row, not one ``UNION ALL`` arm per column, and that is a billing
+        decision as much as a spelling one.** BigQuery charges for bytes read,
+        and each arm of a union that reads the same table is a read of it: a
+        fifty-column table would be scanned fifty times for the same figures.
+        A single projection is scanned once, so this is the cheapest exact
+        answer the engine can give -- though "cheapest exact" is still a full
+        scan, and the most expensive introspection this backend offers.
+
+        The row form is also what keeps the bounds typed. A union resolves one
+        common type across its arms, so ``min_value`` carrying an ``INT64`` from
+        one column and a ``STRING`` from another would be a type error rather
+        than a coercion; here every slot belongs to exactly one column.
+
+        ``NULL`` for an unreadable type is a figure the engine refuses to
+        measure, not one it measured as absent -- BigQuery will not compute
+        ``MIN``/``MAX`` over ``ARRAY``, ``STRUCT``, ``JSON``, ``GEOGRAPHY`` or
+        ``RANGE`` columns, and ``COUNT(DISTINCT ...)`` over the same. The
+        statement therefore leaves those three slots ``NULL`` and still counts
+        the column's nulls, because that count is answerable for every type.
+
+        An empty column list renders the row with the table's own facts and no
+        column groups; the parser reads it as an empty profile, which is the
+        truth about a table with no columns and not an error.
+        """
+        relation = self._user_relation(expr.table_name, expr.schema)
+        opaque = frozenset(getattr(expr, "opaque_columns", ()))
+        select: List[Any] = []
+        for index, column_name in enumerate(expr.columns, start=1):
+            select.extend(
+                self._profile_column_slots(index, column_name, column_name in opaque)
+            )
+        select.append(CountFunction(self, RowCountWildcard(self)).as_("row_count"))
+        select.append(self._profile_label("aggregate", "source"))
+        query = QueryStatement(
+            self,
+            select=select,
+            from_=NamedRelationRef(self, relation),
+        )
+        return self.format_query_statement(query)
+
+    def format_column_value_sample_query_statement(
+        self, expr: "ColumnValueSampleQueryStatement"
+    ) -> Tuple[str, tuple]:
+        """Format a most-frequent-values listing with a grouped scan.
+
+        Nothing is precomputed in BigQuery, so this costs a ``GROUP BY`` over the
+        column and a sort of the groups -- the same billed scan as the profile,
+        which is why the two are separate probes rather than one call that would
+        make the cheap half pay for the dear one.
+
+        ``ORDER BY COUNT(*) DESC`` is what makes the answer "the most frequent
+        values" rather than "the first values"; ties break by the value so two
+        runs of the same query agree. The ``LIMIT`` is a bind parameter, as it is
+        everywhere else in this dialect: the caller's integer is never spliced
+        into statement text.
+
+        A column BigQuery cannot group -- ``ARRAY``, ``STRUCT``, ``JSON``,
+        ``GEOGRAPHY`` -- is refused by the server. That is the engine's rule
+        about the column, and the formatter cannot know the column's type
+        without a catalogue read it was not given; the error names the column,
+        which is a better answer than a listing that silently omits it.
+        """
+        relation = self._user_relation(expr.table_name, expr.schema)
+        query = QueryStatement(
+            self,
+            select=[
+                Column(self, expr.column_name).as_("value"),
+                CountFunction(self, RowCountWildcard(self)).as_("count"),
+            ],
+            from_=NamedRelationRef(self, relation),
+            group_by_having=GroupByHavingClause(
+                self, group_by=[Column(self, expr.column_name)]
+            ),
+            order_by=OrderByClause(
+                self,
+                expressions=[
+                    (CountFunction(self, RowCountWildcard(self)), "DESC"),
+                    (Column(self, expr.column_name), "ASC"),
+                ],
+            ),
+            limit_offset=LimitOffsetClause(self, limit=int(expr.limit)),
+        )
+        return self.format_query_statement(query)
+
+    def _coverage_fraction(self, column, source, other_column, other_source):
+        """One side of the overlap: the share of *column* the other side holds.
+
+        The numerator counts the *distinct* values of *column* that also occur in
+        *other_column*, by counting ``DISTINCT column`` under an ``IN`` predicate
+        over the other side's non-NULL values. Distinct on both sides is what
+        makes the figure a coverage of values rather than of rows -- a key
+        repeated a thousand times that matches once would otherwise read as well
+        covered -- and the count needs no derived table, so no alias has to be
+        invented for one.
+
+        ``IS NOT NULL`` is written on both halves rather than relied upon. In the
+        numerator it is load-bearing: a value list containing NULL would never
+        match, but the predicate says so where a reader can see it. In the
+        divisor ``COUNT(DISTINCT ...)`` skips NULLs on its own, but the share is
+        of the values that could join, and that is the fact being measured.
+        ``NULLIF(..., 0)`` then makes a column with no value at all answer
+        ``NULL`` rather than ``0``, which the parser reads as "no fraction": the
+        difference between "nothing matched" and "nothing to match" survives to
+        the caller.
+
+        BigQuery's ``/`` over two ``INT64`` counts already answers a ``FLOAT64``,
+        so there is no ``* 1.0`` here: multiplying first would add noise and
+        change nothing.
+        """
+        overlap = QueryStatement(
+            self,
+            select=[CountFunction(self, column, distinct=True)],
+            from_=source,
+            where=LogicalPredicate(
+                self,
+                "AND",
+                column.is_not_null(),
+                InPredicate(
+                    self,
+                    column,
+                    Subquery(
+                        self,
+                        QueryStatement(
+                            self,
+                            select=[other_column],
+                            from_=other_source,
+                            where=other_column.is_not_null(),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        total = QueryStatement(
+            self,
+            select=[
+                FunctionCall(
+                    self,
+                    "NULLIF",
+                    CountFunction(self, column, distinct=True),
+                    Literal(self, 0, inline=True),
+                )
+            ],
+            from_=source,
+            where=column.is_not_null(),
+        )
+        return Subquery(self, overlap) / Subquery(self, total)
+
+    def format_join_coverage_query_statement(
+        self, expr: "JoinCoverageQueryStatement"
+    ) -> Tuple[str, tuple]:
+        """Format a two-sided measurement of two columns' value domains.
+
+        Unlike every other statement in this module, this one names two user
+        tables rather than one catalogue view: the question is a relation
+        between two objects, so both sides are carried explicitly and their
+        identifiers are the dialect's to quote (see :meth:`_user_relation`). The
+        aliases ``l`` and ``r`` are what keep the two columns apart in the
+        rendered statement, and they are quoted like every other identifier.
+
+        The row carries both fractions because neither is meaningful alone. A
+        left share of 1.0 beside a right share of 0.2 says every tested value
+        exists on the other side while most of that other domain is
+        unaccounted for; a single similarity score would average the two and
+        describe neither. A caller deciding whether a join is worth writing
+        needs to know which direction is incomplete.
+
+        Both figures are counted over *distinct* values, with NULLs excluded
+        from the numerators and the denominators alike -- a NULL is not a value
+        that could ever join, so it belongs in neither half of the fraction. The
+        denominators are ``NULLIF``-guarded so a column with nothing to match
+        answers ``NULL``, which the parser reports as "no measurement" instead
+        of a zero overlap that would read as a real answer. See
+        :meth:`_coverage_fraction` for both rules in place.
+
+        The cost is the two sides read for their distinct domains plus the
+        intersection between them, twice, because both directions are reported.
+        Every read is billed, which is why this belongs behind an explicit call
+        rather than in any automatic pass.
+
+        BigQuery needs no ``FROM`` for a projection made only of subqueries, so
+        the two measurements share one row without a dummy relation.
+        """
+        left_source = NamedRelationRef(
+            self, self._user_relation(expr.left_table, expr.schema), alias="l"
+        )
+        right_source = NamedRelationRef(
+            self, self._user_relation(expr.right_table, expr.schema), alias="r"
+        )
+        left_column = Column(self, expr.left_column, table="l")
+        right_column = Column(self, expr.right_column, table="r")
+
+        query = QueryStatement(
+            self,
+            select=[
+                self._coverage_fraction(
+                    left_column, left_source, right_column, right_source
+                ).as_("left_coverage"),
+                self._coverage_fraction(
+                    right_column, right_source, left_column, left_source
+                ).as_("right_coverage"),
+            ],
+        )
+        return self.format_query_statement(query)
 
 
 __all__ = ["BigQueryIntrospectionMixin"]

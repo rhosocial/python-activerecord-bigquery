@@ -57,9 +57,10 @@ No BigQuery instance was available while writing this module. The statement
 shapes follow the pages cited beside each class below.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
 from rhosocial.activerecord.backend.expression.introspection import (
+    ColumnDataProfileQueryStatement,
     IntrospectionExpression,
 )
 
@@ -77,6 +78,7 @@ __all__ = [
     "BigQueryDatasetListQueryStatement",
     "BigQueryTableOptionsQueryStatement",
     "BigQueryPartitionListQueryStatement",
+    "BigQueryColumnDataProfileQueryStatement",
 ]
 
 
@@ -411,3 +413,72 @@ class BigQueryPartitionListQueryStatement(IntrospectionExpression):
     def format_method(self) -> str:
         """The dialect formatting method that renders this expression."""
         return "format_bigquery_partition_list_query_statement"
+
+
+class BigQueryColumnDataProfileQueryStatement(ColumnDataProfileQueryStatement):
+    """Ask for one table's per-column profile, answered as a single row.
+
+    Core's class already carries the question: the table, the dataset, and the
+    column list an aggregating dialect cannot do without. This one adds the
+    other fact the SQL needs, which is *which* of those columns the aggregates
+    can read at all.
+
+    BigQuery refuses ``MIN`` and ``MAX`` on ``ARRAY``, ``STRUCT``/``RECORD``,
+    ``JSON``, ``GEOGRAPHY`` and ``RANGE`` columns -- they are not orderable -- and
+    refuses ``COUNT(DISTINCT ...)`` on several of the same types, which are not
+    groupable either. A statement that named such a column in those positions
+    would not answer for the columns it can read: the server rejects the whole
+    query. ``opaque_columns`` names them, and the formatter leaves their
+    distinct count and both bounds as SQL ``NULL`` while still counting their
+    nulls and the table's rows: "BigQuery cannot measure this about this type"
+    rather than a fabricated zero.
+
+    The introspector supplies that list from the column catalogue it reads the
+    names from -- the only place the declared type is known without paying for
+    the scan this statement is about to make.
+
+    The profile is one row rather than one arm per column. A ``UNION ALL`` would
+    be read as one table scan *per arm* and billed accordingly, which for a
+    fifty-column table is fifty scans of the same bytes; one projection reads
+    the table once. It also keeps each column's own bounds type, which a union
+    cannot: BigQuery resolves one common type across a union's arms, and
+    ``min_value`` carrying an ``INT64`` in one arm and a ``STRING`` in another
+    is a type error rather than a coercion.
+
+    ``format_method`` is inherited deliberately: one formatter answers the
+    question, reading ``opaque_columns`` when the statement carries it so that
+    core's own statement -- which does not -- still renders, with every column
+    assumed readable.
+    """
+
+    def __init__(
+        self,
+        dialect: "BigQueryDialect",
+        table_name: str,
+        schema: Optional[str] = None,
+        columns: Sequence[str] = (),
+        opaque_columns: Sequence[str] = (),
+    ):
+        """Initialize the column data profile statement.
+
+        Args:
+            dialect: The BigQuery dialect that renders this statement.
+            table_name: The table whose columns are profiled.
+            schema: The dataset, or a ``project.dataset`` pair. Required.
+            columns: Every column of the table, in the order the profile's
+                slots are projected.
+            opaque_columns: The subset of *columns* whose declared type the
+                aggregates cannot read. Their distinct count and bounds are
+                rendered as ``NULL``.
+        """
+        super().__init__(
+            dialect, table_name=table_name, schema=schema, columns=columns
+        )
+        self.opaque_columns = tuple(opaque_columns)
+
+    def __repr__(self) -> str:
+        return (
+            f"BigQueryColumnDataProfileQueryStatement("
+            f"table_name={self.table_name!r}, schema={self.schema!r}, "
+            f"columns={self.columns!r}, opaque_columns={self.opaque_columns!r})"
+        )
