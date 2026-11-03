@@ -103,7 +103,10 @@ import inspect
 
 import pytest
 
-from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.dialect.exceptions import (
+    ProtocolNotImplementedError,
+    UnsupportedFeatureError,
+)
 from rhosocial.activerecord.backend.expression import declared
 from rhosocial.activerecord.backend.expression import graph as graph_mod
 from rhosocial.activerecord.backend.expression.advanced_functions import (
@@ -962,6 +965,31 @@ _NO_FORMATTER = "does not support the"
 #: move them out of here, and each of those moves is a change someone has to make
 #: on purpose.
 LEGITIMATE_NON_RENDERS = {
+    # ---- core operational families this dialect does not answer ----
+    #  BigQuery has no secondary indexes, no dependency catalogue and no per-object DDL retrieval; INFORMATION_SCHEMA describes tables and routines, not use. The probes answer False.
+    # Unused indexes and table stats: BigQuery has no secondary indexes at
+    # all, and INFORMATION_SCHEMA describes tables and routines rather than
+    # how they are used. Not unanswered so much as meaningless -- an
+    # unused-index listing for an engine without indexes would be a zero-row
+    # answer that reads like a finding.
+    "rhosocial.activerecord.backend.expression.introspection.UnusedIndexesQueryStatement": (
+        ProtocolNotImplementedError, 'does not implement ',
+    ),
+    "rhosocial.activerecord.backend.expression.introspection.TableUsageStatsQueryStatement": (
+        ProtocolNotImplementedError, 'does not implement ',
+    ),
+    "rhosocial.activerecord.backend.expression.introspection.RuntimeMetricsQueryStatement": (
+        ProtocolNotImplementedError, 'does not implement ',
+    ),
+    "rhosocial.activerecord.backend.expression.introspection.IndexUsageStatsQueryStatement": (
+        ProtocolNotImplementedError, 'does not implement ',
+    ),
+    "rhosocial.activerecord.backend.expression.introspection.ObjectDependencyQueryStatement": (
+        ProtocolNotImplementedError, 'does not implement ',
+    ),
+    "rhosocial.activerecord.backend.expression.introspection.DDLStatementQueryStatement": (
+        ProtocolNotImplementedError, 'does not implement ',
+    ),
     # ---- SQL/XML: BigQuery has no SQL/XML functions at all -----------------
     "rhosocial.activerecord.backend.expression.xml.XMLAggExpression": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_xml_agg_expression'",
