@@ -179,9 +179,27 @@ def test_columns_query_binds_the_table_name(dialect):
     assert "WHERE `table_name` = ?" in sql
     assert params == ("orders",)
     assert "ORDER BY `ordinal_position`" in sql
-    # identity_maximum / identity_minimum are the documented spellings.
-    assert "`identity_maximum`" in sql
-    assert "`identity_minimum`" in sql
+    # The projection is the cross-engine minimum: every name the emulator's
+    # own COLUMNS view answers, and no name it does not. Real BigQuery's view
+    # documents more (is_generated, column_default, the identity bounds), and
+    # a projection naming one an engine lacks fails the whole query during
+    # analysis rather than answering NULL -- which is how this family used to
+    # break the only endpoint CI can reach.
+    for name in (
+        "`table_catalog`",
+        "`table_schema`",
+        "`table_name`",
+        "`column_name`",
+        "`ordinal_position`",
+        "`is_nullable`",
+        "`data_type`",
+        "`is_hidden`",
+        "`is_system_defined`",
+        "`is_partitioning_column`",
+    ):
+        assert name in sql
+    for absent in ("`is_generated`", "`column_default`", "`identity_maximum`"):
+        assert absent not in sql
 
 
 def test_index_query_joins_the_two_constraint_views(dialect):

@@ -533,6 +533,19 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         The table name is a bind parameter. ``is_hidden`` is selected so
         the parser can drop pseudo columns, whose ``ordinal_position`` the
         documents say is ``NULL``.
+
+        The projection is the catalog's **cross-engine minimum**, not the
+        whole documented column list. BigQuery's own ``COLUMNS`` view
+        documents more columns than the emulator this repository's CI runs
+        against exposes, and a projection naming one the engine does not
+        have fails the *whole* query during analysis rather than answering
+        with a ``NULL`` -- so ``list_columns`` (and every family that reads
+        the catalogue first, the profile among them) would be unusable
+        against the only endpoint this repository can reach. The parser
+        reads every dropped name through ``_row_get`` with a default, so a
+        missing slot is an absent fact rather than an error; the ten names
+        this keeps are the emulator's own ``COLUMNS`` columns, and real
+        BigQuery answers all of them.
         """
         query = QueryStatement(
             self,
@@ -544,23 +557,9 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 "ordinal_position",
                 "is_nullable",
                 "data_type",
-                "is_generated",
-                "generation_expression",
-                "is_stored",
                 "is_hidden",
                 "is_system_defined",
                 "is_partitioning_column",
-                "clustering_ordinal_position",
-                "collation_name",
-                "column_default",
-                "rounding_mode",
-                "is_identity",
-                "identity_generation",
-                "identity_start",
-                "identity_increment",
-                "identity_maximum",
-                "identity_minimum",
-                "identity_cycle",
             ),
             from_=self._information_schema_source("COLUMNS", expr.catalog, expr.schema),
             where=ComparisonPredicate(
@@ -1141,10 +1140,19 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
             )
         return slots
 
-    def format_column_data_profile_query_statement(
-        self, expr: "ColumnDataProfileQueryStatement"
+    def format_bigquery_column_data_profile_query_statement(
+        self, expr: "BigQueryColumnDataProfileQueryStatement"
     ) -> Tuple[str, tuple]:
         """Format a per-column profile as one aggregate row.
+
+        The BigQuery spelling of the question, and the one the class declares:
+        §3 makes the entry the kind's own name, so
+        :class:`BigQueryColumnDataProfileQueryStatement` names this entry while
+        core's :class:`ColumnDataProfileQueryStatement` names
+        ``format_column_data_profile_query_statement`` -- which is the adapter
+        below, reading the same parameters off whichever statement carries
+        them. Core's statement has no ``opaque_columns``, so its columns are
+        all assumed readable; the BigQuery one says which are not.
 
         BigQuery has no statistics catalogue, so the answer is the rows
         themselves: one ``SELECT`` projecting, for every column, its name, its
@@ -1190,6 +1198,30 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
             from_=NamedRelationRef(self, relation),
         )
         return self.format_query_statement(query)
+
+    def format_column_data_profile_query_statement(
+        self, expr: "ColumnDataProfileQueryStatement"
+    ) -> Tuple[str, tuple]:
+        """The core spelling of the profile question.
+
+        An adapter in the shape of every other core-named entry in this mixin:
+        it reads the core statement's parameters and renders through the
+        BigQuery-named entry above, so the projection is written once.
+
+        ``opaque_columns`` is passed through only when the statement carries
+        it. Core's statement does not -- it knows no column types -- so its
+        columns are all projected as readable, which is the same assumption
+        an aggregating dialect makes when a caller names no types at all.
+        """
+        return self.format_bigquery_column_data_profile_query_statement(
+            BigQueryColumnDataProfileQueryStatement(
+                self,
+                table_name=expr.table_name,
+                schema=expr.schema,
+                columns=expr.columns,
+                opaque_columns=getattr(expr, "opaque_columns", ()),
+            )
+        )
 
     def format_column_value_sample_query_statement(
         self, expr: "ColumnValueSampleQueryStatement"

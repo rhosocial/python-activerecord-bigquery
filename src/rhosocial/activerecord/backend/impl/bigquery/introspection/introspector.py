@@ -918,7 +918,7 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
             return cached
         target = schema if schema is not None else self.default_schema
         columns = self.list_columns(table_name, target)
-        sql, params = self.profile_statement(
+        sql, params = self.dialect.profile_statement(
             table_name=table_name, schema=target, columns=columns
         ).to_sql()
         result = self.parse_column_data_profiles(
@@ -1117,7 +1117,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
             return cached
         target = schema if schema is not None else self.default_schema
         columns = await self.list_columns(table_name, target)
-        sql, params = self.profile_statement(
+        sql, params = self.dialect.profile_statement(
             table_name=table_name, schema=target, columns=columns
         ).to_sql()
         result = self.parse_column_data_profiles(

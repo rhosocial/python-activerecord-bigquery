@@ -445,10 +445,13 @@ class BigQueryColumnDataProfileQueryStatement(ColumnDataProfileQueryStatement):
     ``min_value`` carrying an ``INT64`` in one arm and a ``STRING`` in another
     is a type error rather than a coercion.
 
-    ``format_method`` is inherited deliberately: one formatter answers the
-    question, reading ``opaque_columns`` when the statement carries it so that
-    core's own statement -- which does not -- still renders, with every column
-    assumed readable.
+    ``format_method`` names the BigQuery entry rather than core's: §3 makes the
+    entry the kind's own spelling, so this class declares
+    ``format_bigquery_column_data_profile_query_statement`` and the dialect
+    mixin answers it. Core's statement keeps its own entry, and the mixin's
+    core-named answer reads ``opaque_columns`` when the statement carries it so
+    that core's own statement -- which does not -- still renders, with every
+    column assumed readable.
     """
 
     def __init__(
@@ -475,6 +478,11 @@ class BigQueryColumnDataProfileQueryStatement(ColumnDataProfileQueryStatement):
             dialect, table_name=table_name, schema=schema, columns=columns
         )
         self.opaque_columns = tuple(opaque_columns)
+
+    @property
+    def format_method(self) -> str:
+        """The dialect formatting method that renders this expression."""
+        return "format_bigquery_column_data_profile_query_statement"
 
     def __repr__(self) -> str:
         return (
