@@ -182,6 +182,15 @@ def test_every_subcommand_is_registered():
         "views",
         "columns",
         "datasets",
+        "unused-indexes",
+        "table-stats",
+        "runtime",
+        "index-stats",
+        "dependencies",
+        "ddl",
+        "column-profiles",
+        "value-samples",
+        "join-coverage",
     }
 
 

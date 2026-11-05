@@ -39,13 +39,75 @@ from .output import create_provider
 
 OUTPUT_CHOICES = ["table", "json", "csv", "tsv"]
 
+#: Subcommand -> the dialect capability switch that decides whether the
+#: connected project can answer it.
+#:
+#: The advertised list is derived from this mapping, so a subcommand cannot
+#: be offered without saying which switch gates it. A subcommand whose
+#: switch is False is refused when handled, rather than run and answered
+#: with an empty row -- "this project cannot report per-index use counters"
+#: and "this project has no counters" are different answers, and only one
+#: of them is what happened.
+#:
+#: BigQuery declares three of the nine families beyond its catalogue: the
+#: three that read the *rows* (a profile, a value listing, an overlap
+#: measurement), because ``INFORMATION_SCHEMA`` describes what a column
+#: declares and no view reports what its rows hold. The other six answer
+#: False -- there is no unused-index view, no usage counters, no runtime
+#: metrics and no dependency graph in ``INFORMATION_SCHEMA`` -- so their
+#: subcommands exist to be refused rather than to run.
+_TYPE_CAPABILITIES = {
+    "tables": "supports_table_introspection",
+    "views": "supports_view_introspection",
+    "columns": "supports_column_introspection",
+    "datasets": "supports_dataset_introspection",
+    "unused-indexes": "supports_unused_indexes_detection",
+    "table-stats": "supports_table_stats",
+    "runtime": "supports_runtime_stats",
+    "index-stats": "supports_index_stats",
+    "dependencies": "supports_object_dependencies",
+    "ddl": "supports_ddl_extraction",
+    "column-profiles": "supports_column_data_profile",
+    "value-samples": "supports_column_value_sample",
+    "join-coverage": "supports_join_coverage",
+}
+
 #: The subcommands this module owns. ``cli.get_handler`` routes each name
 #: here; nothing else registers one of them.
-INTROSPECT_SUBCOMMANDS = ("tables", "views", "columns", "datasets")
+INTROSPECT_SUBCOMMANDS = tuple(_TYPE_CAPABILITIES)
 
-#: The one subcommand that acts on a named table, so it carries the
+#: The subcommands that act on a named table, so they carry the
 #: positional name the others do not.
-_NAME_COMMANDS = ("columns",)
+_NAME_COMMANDS = (
+    "columns",
+    "ddl",
+    "column-profiles",
+    "value-samples",
+    "join-coverage",
+)
+
+#: The subcommands that can also answer for one named object but answer the
+#: whole family without it. ``dependencies`` narrows to one object's edges
+#: when a name is given; omitting it asks for the whole graph. BigQuery
+#: declines the family, so both spellings reach the same refusal -- but the
+#: name still has to parse, or the refusal would be argparse's instead of
+#: the capability answer.
+_OPTIONAL_NAME_COMMANDS = ("dependencies",)
+
+#: Said before a column profile prints. It goes to stderr so the machine
+#: formats stay parseable, and it says the one thing a reader cannot infer
+#: from the rows: BigQuery charges by bytes read, so a profile is a full
+#: scan of the table and the most expensive thing this CLI can be asked.
+#: Each row carries ``source='aggregate'`` itself, which is what says the
+#: figures are exact counts rather than estimates -- this sentence only
+#: keeps a reader from taking an exact full-table count for a cheap
+#: catalogue reading.
+_PROFILE_COST_NOTE = (
+    "Note: a column profile is one full scan of the table, and BigQuery "
+    "bills by bytes read -- the most expensive introspection this command "
+    "offers. The figures are exact counts (source='aggregate'), not "
+    "estimates."
+)
 
 _EPILOG = """Examples:
   # Every dataset in the project
@@ -57,6 +119,17 @@ _EPILOG = """Examples:
 
   # One table's columns
   %(prog)s columns orders --project my-project --dataset my_dataset
+
+  # What the rows hold: a profile, the most frequent values, an overlap
+  %(prog)s column-profiles orders --project my-project --dataset my_dataset
+  %(prog)s value-samples orders --column status --project my-project --dataset my_dataset
+  %(prog)s join-coverage orders --column buyer_id --right-table users \\
+    --right-column id --project my-project --dataset my_dataset
+
+  # The families BigQuery declines -- refused, not answered with an empty row
+  %(prog)s unused-indexes --project my-project --dataset my_dataset
+  %(prog)s dependencies --project my-project --dataset my_dataset
+  %(prog)s ddl orders --project my-project --dataset my_dataset
 
   # JSON output, and the environment-variable form
   %(prog)s tables -o json
@@ -89,6 +162,42 @@ def create_parser(subparsers):
                 "name",
                 help=_POSITIONAL_HELP[name],
             )
+        if name in _OPTIONAL_NAME_COMMANDS:
+            # It answers the whole family without a name and one object's
+            # part of it with one, so the positional is optional rather than
+            # required or absent.
+            parser.add_argument(
+                "name",
+                nargs="?",
+                default=None,
+                help="Optional object name; omit it for the whole graph",
+            )
+        # The flags the row families read. They stay flags rather than more
+        # positionals because ``name`` already means "the table" everywhere
+        # else, and ``value-samples orders.email`` would read as a dotted
+        # object name. A subcommand that reads none of them refuses them
+        # (see :func:`_refuse_unused_arguments`) rather than parsing and
+        # dropping them.
+        if name in _COLUMN_COMMANDS:
+            parser.add_argument(
+                "--column",
+                default=None,
+                help="Column name: the column to sample for value-samples, "
+                "and the left column for join-coverage",
+            )
+        if name == "join-coverage":
+            parser.add_argument(
+                "--right-table",
+                dest="right_table",
+                default=None,
+                help="Right-hand table for the join-coverage type",
+            )
+            parser.add_argument(
+                "--right-column",
+                dest="right_column",
+                default=None,
+                help="Right-hand column for the join-coverage type",
+            )
         parser.add_argument(
             "-o",
             "--output",
@@ -112,15 +221,33 @@ def create_parser(subparsers):
 _HELP = {
     "tables": "List the tables and views in a dataset",
     "views": "List the views in a dataset",
-
     "columns": "List one table's columns",
     "datasets": "List the project's datasets",
+    # The four operational families: declined here, so the help says what
+    # the subcommand is for and the gate says it cannot be answered.
+    "unused-indexes": "Indexes with no recorded use (not supported by BigQuery)",
+    "table-stats": "Per-table usage counters (not supported by BigQuery)",
+    "runtime": "Live runtime measurements (not supported by BigQuery)",
+    "index-stats": "Per-index usage counters (not supported by BigQuery)",
+    "dependencies": "The object dependency graph (not supported by BigQuery)",
+    "ddl": "The DDL that recreates one table (not supported by BigQuery)",
+    # The three families that read the rows rather than the catalogue.
+    "column-profiles": "Profile every column of a table from its data",
+    "value-samples": "List one column's most frequent values",
+    "join-coverage": "Measure how two columns' value domains overlap",
 }
 
 _POSITIONAL_HELP = {
-
     "columns": "Table name (required)",
+    "ddl": "Table name (required)",
+    "column-profiles": "Table name (required)",
+    "value-samples": "Table name (required)",
+    "join-coverage": "Left table name (required)",
 }
+
+#: The subcommands that read ``--column``. Only these may be given it; the
+#: flag check refuses it everywhere else rather than dropping it.
+_COLUMN_COMMANDS = ("value-samples", "join-coverage")
 
 
 def get_handler(command_name: str) -> Callable[[argparse.Namespace], None]:
@@ -202,6 +329,122 @@ def _one(name: str, args) -> str:
     return args.name
 
 
+def _refuse_name(args) -> None:
+    """Refuse a positional NAME the command has no question for.
+
+    The operational families describe the dataset or the project as a
+    whole: dropping the name instead would print the family listing under
+    a one-object question, which is a different answer than the one asked
+    for.
+    """
+    print(
+        f"Error: '{args.command}' does not take an object name; it answers "
+        "for the whole dataset",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+
+def _require_column(command: str, args) -> str:
+    """The ``--column`` a value listing or an overlap measurement needs."""
+    column = getattr(args, "column", None)
+    if not column:
+        print(
+            f"Error: --column is required for the '{command}' command",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return column
+
+
+def _require_right_table(args) -> str:
+    """The ``--right-table`` an overlap measurement needs."""
+    right_table = getattr(args, "right_table", None)
+    if not right_table:
+        print(
+            "Error: --right-table and --right-column are required for the "
+            "'join-coverage' command",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return right_table
+
+
+def _require_right_column(args) -> str:
+    """The ``--right-column`` an overlap measurement needs."""
+    right_column = getattr(args, "right_column", None)
+    if not right_column:
+        print(
+            "Error: --right-table and --right-column are required for the "
+            "'join-coverage' command",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return right_column
+
+
+def _refuse_unused_arguments(args) -> None:
+    """Refuse a flag the chosen command has no question for.
+
+    The same defect as a silently dropped name, one flag over: ``--column``
+    beside ``tables`` would be ignored and the listing printed as if the
+    column had been part of the question. Only the two families whose probe
+    takes a column read ``--column``, and only ``join-coverage`` reads the
+    two right-hand names, so only they may be given them.
+
+    The flags are read with ``getattr`` because the handler is also driven
+    with hand-built namespaces (the offline tests), which carry no flags at
+    all -- an absent attribute is "not given", not an error.
+    """
+    column = getattr(args, "column", None)
+    right_table = getattr(args, "right_table", None)
+    right_column = getattr(args, "right_column", None)
+
+    if column is not None and args.command not in _COLUMN_COMMANDS:
+        print(
+            f"Error: '{args.command}' does not take --column; use "
+            "'value-samples' or 'join-coverage'",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if (right_table is not None or right_column is not None) and args.command != "join-coverage":
+        print(
+            f"Error: '{args.command}' does not take --right-table or "
+            "--right-column; use 'join-coverage'",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
+def _require_capability(backend, args) -> None:
+    """Refuse a family this project cannot answer.
+
+    BigQuery exposes a stable standard SQL feature set and its dialect is
+    not version-adapted, so the switches answer for the dialect this
+    backend constructs rather than for a negotiated version -- the same
+    answer every call of the same construction gets. A project that cannot
+    answer is refused at the capability question, rather than handed a
+    statement the engine would reject or, worse, an empty row that reads
+    like an answer of zero.
+    """
+    switch = _TYPE_CAPABILITIES.get(args.command)
+    if switch is None:
+        return
+    dialect = getattr(backend, "dialect", None)
+    if dialect is None:
+        # A stub standing in for the backend (the offline CLI tests) has no
+        # dialect to ask; a real one always does.
+        return
+    supported = getattr(dialect, switch, None)
+    if supported is None or supported():
+        return
+    print(
+        f"Error: {args.command} introspection is not supported by this server",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+
 def _schema_arg(args):
     """The dataset a question is scoped to.
 
@@ -223,16 +466,70 @@ def _schema_arg(args):
 def _questions(args) -> Dict[str, Callable[[Any], Any]]:
     """Map each subcommand onto the introspector call it runs (sync)."""
     schema = _schema_arg(args)
+
+    # The four operational families are listings over the dataset's scope, so
+    # none takes a name. Refused by the gate on this backend; the entries
+    # exist so the refusal is a capability answer rather than an unhandled
+    # subcommand. They are defined before the mapping because a ``def`` is a
+    # statement and cannot sit inside a dict display.
+    def _unused_indexes(introspector, _args=args):
+        if getattr(_args, "name", None):
+            _refuse_name(_args)
+        return introspector.list_unused_indexes(schema=schema)
+
+    def _table_usage_stats(introspector, _args=args):
+        if getattr(_args, "name", None):
+            _refuse_name(_args)
+        return introspector.list_table_usage_stats(schema=schema)
+
+    def _runtime_metrics(introspector, _args=args):
+        if getattr(_args, "name", None):
+            _refuse_name(_args)
+        return introspector.list_runtime_metrics(schema=schema)
+
+    def _index_usage_stats(introspector, _args=args):
+        if getattr(_args, "name", None):
+            _refuse_name(_args)
+        return introspector.list_index_usage_stats(schema=schema)
+
     return {
         "tables": lambda introspector: introspector.list_tables(
             schema=schema, include_system=args.include_system
         ),
         "views": lambda introspector: introspector.list_views(schema=schema),
-
         "columns": lambda introspector: introspector.list_columns(
             _one("columns", args), schema=schema
         ),
         "datasets": lambda introspector: introspector.list_datasets(),
+        "unused-indexes": _unused_indexes,
+        "table-stats": _table_usage_stats,
+        "runtime": _runtime_metrics,
+        "index-stats": _index_usage_stats,
+        # ``dependencies`` narrows to one object when a name is given and
+        # answers the whole graph without one, so a name is optional rather
+        # than refused.
+        "dependencies": lambda introspector: introspector.list_object_dependencies(
+            object_name=args.name, schema=schema
+        ),
+        # ---- the one-object and two-object families -------------------
+        "ddl": lambda introspector: introspector.get_ddl_statement(
+            _one("ddl", args), object_type=None, schema=schema
+        ),
+        "column-profiles": lambda introspector: introspector.list_column_data_profiles(
+            _one("column-profiles", args), schema=schema
+        ),
+        "value-samples": lambda introspector: introspector.sample_column_values(
+            _one("value-samples", args),
+            _require_column("value-samples", args),
+            schema=schema,
+        ),
+        "join-coverage": lambda introspector: introspector.estimate_join_coverage(
+            _one("join-coverage", args),
+            _require_column("join-coverage", args),
+            _require_right_table(args),
+            _require_right_column(args),
+            schema=schema,
+        ),
     }
 
 
@@ -246,6 +543,40 @@ def _async_questions(args) -> Dict[str, Callable[[Any], Any]]:
     return _questions(args)
 
 
+def _display_ddl(args, provider, statement) -> None:
+    """Show one object's DDL as the engine handed it back.
+
+    A DDL text is a block, not a field of a row: a bordered cell wraps every
+    one of its lines and reads worse than the text itself. So the terminal
+    format prints the engine's own text, and the formats a caller parses
+    keep the record -- schema, object type, object name, ``native`` and the
+    text -- which is what ``native`` is for: it says the engine retrieved
+    this rather than the library assembling it.
+    """
+    record = _serialize_for_output(statement)
+    if isinstance(record, dict):
+        text = record.get("ddl")
+        object_name = record.get("object_name") or args.name
+        object_type = record.get("object_type") or "OBJECT"
+    else:  # pragma: no cover - a statement is a record, not a scalar
+        text, object_name, object_type = statement, args.name, "OBJECT"
+    if not text:
+        # Not "no such table": the object exists and the engine answers
+        # with no text rather than an assembled fragment that would read as
+        # authoritative. The two are worth telling apart, so this exits
+        # without printing an empty row.
+        print(
+            f"Error: no DDL available for '{args.name}'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if args.output == "table":
+        print(f"-- {object_type} {object_name}")
+        print(text)
+        return
+    provider.display_results([record], title=f"DDL of {object_name}")
+
+
 def _report(result: Any, args, provider) -> None:
     """Print one question's result.
 
@@ -253,14 +584,74 @@ def _report(result: Any, args, provider) -> None:
     together -- columns and primary key -- are now the ``columns`` command
     and the key columns it reports.
     """
-    title = "Datasets" if args.command == "datasets" else args.command.title()
+    if args.command == "ddl":
+        _display_ddl(args, provider, result)
+        return
+
+    if args.command == "column-profiles":
+        # The price sentence, before the rows, so a reader sees it while
+        # looking at figures that cost a scan. On stderr, so the machine
+        # formats on stdout stay parseable.
+        print(_PROFILE_COST_NOTE, file=sys.stderr)
+        rows = _serialize_for_output(list(result))
+        provider.display_results(rows, title=_TITLES.get(args.command, args.command.title()))
+        return
+
+    if args.command == "value-samples":
+        if result is None:
+            # ``None`` is "no measurement", which is not an empty column;
+            # printing an empty listing would read as a measured zero.
+            print(
+                f"Error: this server could not measure '{args.command}'",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        title = _TITLES.get(args.command, args.command.title())
+        provider.display_results(_serialize_for_output(list(result)), title=title)
+        return
+
+    if args.command == "join-coverage":
+        if result is None:
+            # ``None`` is "no measurement", which is not zero overlap;
+            # printing a row of nulls would read as a measured zero.
+            print(
+                f"Error: this server could not measure '{args.command}'",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        # One measurement, printed as one row: the coverage is a record, not
+        # a listing, and ``list()`` on it would iterate its fields.
+        provider.display_results(
+            _serialize_for_output([result]),
+            title=_TITLES.get(args.command, args.command.title()),
+        )
+        return
+
+    title = _TITLES.get(args.command, args.command.title())
     provider.display_results(_serialize_for_output(list(result)), title=title)
+
+
+#: How each subcommand's rows are titled. Hyphenated names need a word
+#: ``str.title()`` would spell ``Unused-Indexes``, and the four operational
+#: families read better as what they measure than as their subcommand name.
+_TITLES = {
+    "unused-indexes": "Indexes with no recorded use",
+    "table-stats": "Table usage counters",
+    "runtime": "Runtime metrics",
+    "index-stats": "Index usage counters",
+    "dependencies": "Object dependencies",
+    "column-profiles": "Column profiles",
+    "value-samples": "Most frequent values",
+    "join-coverage": "Join coverage",
+}
 
 
 def _run_sync(args, backend, provider) -> None:
     """Run the question synchronously and report it."""
     try:
         backend.connect()
+        _require_capability(backend, args)
+        _refuse_unused_arguments(args)
         _report(_questions(args)[args.command](backend.introspector), args, provider)
     except ConnectionError as exc:
         print(f"Connection error: {exc}", file=sys.stderr)
@@ -280,6 +671,8 @@ async def _run_async(args, backend, provider) -> None:
     """Run the question asynchronously and report it."""
     try:
         await backend.connect()
+        _require_capability(backend, args)
+        _refuse_unused_arguments(args)
         call = _async_questions(args)[args.command]
         _report(await call(backend.introspector), args, provider)
     except ConnectionError as exc:
