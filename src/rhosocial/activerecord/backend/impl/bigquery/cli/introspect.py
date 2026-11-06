@@ -95,7 +95,7 @@ _TYPE_CAPABILITIES = {
 
 #: The subcommands this module owns. ``cli.get_handler`` routes each name
 #: here; nothing else registers one of them.
-INTROSPECT_SUBCOMMANDS = tuple(_TYPE_CAPABILITIES)
+INTROSPECT_TYPES = list(_TYPE_CAPABILITIES)
 
 #: The subcommands that act on a named table, so they carry the
 #: positional name the others do not. ``partitions`` is one of them: the
@@ -175,7 +175,7 @@ def create_parser(subparsers):
     Returns:
         None; the subcommands are registered into *subparsers*.
     """
-    for name in INTROSPECT_SUBCOMMANDS:
+    for name in INTROSPECT_TYPES:
         parser = subparsers.add_parser(
             name,
             help=_HELP[name],
@@ -292,7 +292,7 @@ def get_handler(command_name: str) -> Callable[[argparse.Namespace], None]:
     """Return :func:`handle` for one introspection subcommand name.
 
     Args:
-        command_name: One of :data:`INTROSPECT_SUBCOMMANDS`.
+        command_name: One of :data:`INTROSPECT_TYPES`.
 
     Returns:
         The ``handle`` entry point.
@@ -300,8 +300,8 @@ def get_handler(command_name: str) -> Callable[[argparse.Namespace], None]:
     Raises:
         KeyError: *command_name* is not an introspection subcommand.
     """
-    if command_name not in INTROSPECT_SUBCOMMANDS:
-        raise KeyError(f"{command_name!r} is not one of {list(INTROSPECT_SUBCOMMANDS)}")
+    if command_name not in INTROSPECT_TYPES:
+        raise KeyError(f"{command_name!r} is not one of {list(INTROSPECT_TYPES)}")
     return handle
 
 
@@ -759,7 +759,7 @@ async def _run_async(args, backend, provider) -> None:
 
 
 __all__ = [
-    "INTROSPECT_SUBCOMMANDS",
+    "INTROSPECT_TYPES",
     "create_parser",
     "get_handler",
     "handle",

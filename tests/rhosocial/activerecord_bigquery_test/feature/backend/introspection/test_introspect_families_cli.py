@@ -37,11 +37,15 @@ import pytest
 
 from rhosocial.activerecord.backend.impl.bigquery.cli import introspect as introspect_cli
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
+from rhosocial.activerecord.backend.impl.bigquery.mixins import (
+    introspection as mixins_introspection,
+)
 from rhosocial.activerecord.backend.introspection.types import (
     ColumnDataProfile,
     ColumnValueFrequency,
     DDLStatement,
     JoinCoverage,
+    TableType,
 )
 
 #: The nine families this change wires, and the switch that gates each.
@@ -763,13 +767,36 @@ class TestTheTypeSurfaceExtension:
         """The list the CLI's README states: the four listings, the project
         and the partitions questions, the six declined families and the three
         that read the rows."""
-        assert len(introspect_cli.INTROSPECT_SUBCOMMANDS) == 15
+        assert len(introspect_cli.INTROSPECT_TYPES) == 15
         for name in CATALOGUE_FAMILIES:
-            assert name in introspect_cli.INTROSPECT_SUBCOMMANDS
+            assert name in introspect_cli.INTROSPECT_TYPES
+
+    def test_the_view_types_have_one_definition(self):
+        """``include_views=False`` and the table-type map name the same views.
+
+        The dialect mixin excludes what ``_VIEW_TYPES`` names when a caller
+        does not ask for views; the introspector maps what its ``_TABLE_TYPE_MAP``
+        calls a view. Two spellings drifting apart means one of the two answers
+        a question the other does not: a ``MATERIALIZED VIEW`` the mixin stopped
+        excluding would be listed as a table, and one the map stopped mapping
+        would drop out of ``include_views=True``. The constant has one
+        definition in the introspector and the mixin imports it, so this
+        asserts the coupling rather than hoping for it.
+        """
+        from rhosocial.activerecord.backend.impl.bigquery.introspection.introspector import (
+            _TABLE_TYPE_MAP,
+        )
+
+        mapped = {
+            spelling
+            for spelling, member in _TABLE_TYPE_MAP.items()
+            if member is TableType.VIEW or member is TableType.MATERIALIZED_VIEW
+        }
+        assert mapped == set(mixins_introspection._VIEW_TYPES)
 
     def test_the_type_list_is_the_capability_table(self):
         assert list(introspect_cli._TYPE_CAPABILITIES) == list(
-            introspect_cli.INTROSPECT_SUBCOMMANDS
+            introspect_cli.INTROSPECT_TYPES
         )
 
     def test_each_new_family_has_an_entry_naming_a_probe(self):
@@ -783,14 +810,14 @@ class TestTheTypeSurfaceExtension:
         # where a missing branch would show up: an unlisted command falls
         # through to a KeyError rather than a silently empty run.
         questions = introspect_cli._questions(_args("tables"))
-        for name in introspect_cli.INTROSPECT_SUBCOMMANDS:
+        for name in introspect_cli.INTROSPECT_TYPES:
             assert name in questions, name
 
     def test_every_type_is_registered_as_a_command(self):
         from rhosocial.activerecord.backend.impl.bigquery.cli import COMMAND_NAMES
 
-        assert list(COMMAND_NAMES) == list(introspect_cli.INTROSPECT_SUBCOMMANDS)
-        for name in introspect_cli.INTROSPECT_SUBCOMMANDS:
+        assert list(COMMAND_NAMES) == list(introspect_cli.INTROSPECT_TYPES)
+        for name in introspect_cli.INTROSPECT_TYPES:
             assert introspect_cli.get_handler(name) is introspect_cli.handle
 
     def test_help_lists_every_type(self, capsys):
@@ -799,5 +826,5 @@ class TestTheTypeSurfaceExtension:
         with pytest.raises(SystemExit):
             root.parse_args(["--help"])
         out = capsys.readouterr().out
-        for name in introspect_cli.INTROSPECT_SUBCOMMANDS:
+        for name in introspect_cli.INTROSPECT_TYPES:
             assert name in out

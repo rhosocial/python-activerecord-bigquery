@@ -17,7 +17,7 @@ this module routes their names there directly.
 #: happen -- an unlisted subcommand still parses but exits with "unknown
 #: command" in ``get_handler``, which is the wrong error for a registered
 #: one.
-from .introspect import INTROSPECT_SUBCOMMANDS as COMMAND_NAMES  # noqa: E402
+from .introspect import INTROSPECT_TYPES as COMMAND_NAMES  # noqa: E402
 
 COMMAND_NAMES = list(COMMAND_NAMES)
 

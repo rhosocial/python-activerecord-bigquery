@@ -70,6 +70,7 @@ from ..expression.introspection import (
     BigQueryViewInfoQueryStatement,
     BigQueryViewListQueryStatement,
 )
+from ..introspection.introspector import _VIEW_TYPES
 
 if TYPE_CHECKING:  # pragma: no cover
     from rhosocial.activerecord.backend.expression.introspection import (
@@ -106,7 +107,6 @@ if TYPE_CHECKING:  # pragma: no cover
 #: tables, which is why those two keys are absent here rather than mapped.
 #: https://cloud.google.com/bigquery/docs/information-schema-tables
 _BASE_TABLE_TYPES = ("BASE TABLE", "CLONE", "SNAPSHOT")
-_VIEW_TYPES = ("VIEW", "MATERIALIZED VIEW")
 
 
 #: The column types the profile's aggregates cannot read. BigQuery's ``MIN`` and
