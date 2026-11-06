@@ -1,21 +1,32 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/cli/introspect.py
-"""The introspection subcommands: ``tables``, ``views``, ``columns`` and
-``datasets``.
+"""The introspection subcommands: the catalogue questions, the engine's own
+``partitions`` family, and the nine families the dialect answers or declines.
 
 Each one wires ``backend.introspector`` to an output format:
 
-===============================  ======================================
-Command                          Introspector question
-===============================  ======================================
-``tables``                       ``list_tables()``
-``views``                        ``list_views()``
-``columns NAME``                 ``list_columns()``
-``datasets``                     ``list_datasets()`` (the SCHEMATA view)
-===============================  ======================================
+========================  =======================================
+Command                   Introspector question
+``tables``                ``list_tables()``
+``views``                 ``list_views()``
+``columns NAME``          ``list_columns()``
+``datasets``              ``list_datasets()`` (the SCHEMATA view)
+``database``              ``get_database_info()`` (@@project_id)
+``partitions NAME``       ``list_partitions()`` (PARTITIONS view)
+``column-profiles NAME``  ``list_column_data_profiles()``
+``value-samples NAME``    ``sample_column_values()``
+``join-coverage NAME``    ``estimate_join_coverage()``
+========================  =======================================
+
+The six families this backend declines -- ``unused-indexes``,
+``table-stats``, ``runtime``, ``index-stats``, ``dependencies`` and
+``ddl`` -- are listed too, so that asking one of them is answered by the
+capability gate rather than by an "unknown command".
 
 ``--dataset`` selects the dataset every question is scoped to, and the
 schema argument each question receives is BigQuery's **dataset** -- the two
-are the same level, which is why one flag answers both.
+are the same level, which is why one flag answers both. ``database`` is the
+one question scoped to the project instead, because ``@@project_id`` names
+the project and no dataset.
 
 No command fabricates an answer. Without a dataset the introspector raises
 with the exact instruction, and without credentials the client refuses to
@@ -49,18 +60,28 @@ OUTPUT_CHOICES = ["table", "json", "csv", "tsv"]
 #: and "this project has no counters" are different answers, and only one
 #: of them is what happened.
 #:
-#: BigQuery declares three of the nine families beyond its catalogue: the
-#: three that read the *rows* (a profile, a value listing, an overlap
-#: measurement), because ``INFORMATION_SCHEMA`` describes what a column
-#: declares and no view reports what its rows hold. The other six answer
-#: False -- there is no unused-index view, no usage counters, no runtime
-#: metrics and no dependency graph in ``INFORMATION_SCHEMA`` -- so their
-#: subcommands exist to be refused rather than to run.
+#: Two questions sit beside them that this backend answers on its own.
+#: ``database`` is the project-level question -- the documented
+#: ``@@project_id`` system variable, which names no dataset -- and
+#: ``partitions`` is the engine's own: ``INFORMATION_SCHEMA.PARTITIONS``
+#: answers one row per partition of one table, which no core family covers.
+#: Both are declared by the dialect, so a CLI that could not ask them would
+#: be "answerable but unaskable", the defect §6 exists to prevent.
+#:
+#: BigQuery declares three of the nine families beyond its catalogue and its
+#: partitions view: the three that read the *rows* (a profile, a value
+#: listing, an overlap measurement), because ``INFORMATION_SCHEMA`` describes
+#: what a column declares and no view reports what its rows hold. The other
+#: six answer False -- there is no unused-index view, no usage counters, no
+#: runtime metrics and no dependency graph in ``INFORMATION_SCHEMA`` -- so
+#: their subcommands exist to be refused rather than to run.
 _TYPE_CAPABILITIES = {
     "tables": "supports_table_introspection",
     "views": "supports_view_introspection",
     "columns": "supports_column_introspection",
     "datasets": "supports_dataset_introspection",
+    "database": "supports_database_info",
+    "partitions": "supports_partition_info",
     "unused-indexes": "supports_unused_indexes_detection",
     "table-stats": "supports_table_stats",
     "runtime": "supports_runtime_stats",
@@ -77,9 +98,13 @@ _TYPE_CAPABILITIES = {
 INTROSPECT_SUBCOMMANDS = tuple(_TYPE_CAPABILITIES)
 
 #: The subcommands that act on a named table, so they carry the
-#: positional name the others do not.
+#: positional name the others do not. ``partitions`` is one of them: the
+#: question is one table's partitions, and the answer without a name would
+#: be a different question (every partition in the dataset) that the
+#: statement has no filter to ask.
 _NAME_COMMANDS = (
     "columns",
+    "partitions",
     "ddl",
     "column-profiles",
     "value-samples",
@@ -110,15 +135,17 @@ _PROFILE_COST_NOTE = (
 )
 
 _EPILOG = """Examples:
-  # Every dataset in the project
+  # Every dataset in the project, and the project itself
   %(prog)s datasets --project my-project
+  %(prog)s database --project my-project
 
   # Tables and views in one dataset
   %(prog)s tables --project my-project --dataset my_dataset
   %(prog)s views --project my-project --dataset my_dataset
 
-  # One table's columns
+  # One table's columns, and its partitions
   %(prog)s columns orders --project my-project --dataset my_dataset
+  %(prog)s partitions orders --project my-project --dataset my_dataset
 
   # What the rows hold: a profile, the most frequent values, an overlap
   %(prog)s column-profiles orders --project my-project --dataset my_dataset
@@ -223,6 +250,16 @@ _HELP = {
     "views": "List the views in a dataset",
     "columns": "List one table's columns",
     "datasets": "List the project's datasets",
+    # The project-level question: BigQuery answers it from the documented
+    # ``@@project_id`` system variable, so it is a family rather than a
+    # refusal -- the connection already names the project, and the CLI can
+    # report it.
+    "database": "Report the project this run is connected to",
+    # The engine's own family: one row per partition, with the rows and the
+    # bytes each holds. Core's per-table storage minimum is one slot this
+    # reduces its sums onto; the partition rows are finer than that and stay
+    # here where the dialect declares them.
+    "partitions": "List one table's partitions, with their sizes",
     # The four operational families: declined here, so the help says what
     # the subcommand is for and the gate says it cannot be answered.
     "unused-indexes": "Indexes with no recorded use (not supported by BigQuery)",
@@ -239,6 +276,7 @@ _HELP = {
 
 _POSITIONAL_HELP = {
     "columns": "Table name (required)",
+    "partitions": "Table name (required)",
     "ddl": "Table name (required)",
     "column-profiles": "Table name (required)",
     "value-samples": "Table name (required)",
@@ -329,17 +367,18 @@ def _one(name: str, args) -> str:
     return args.name
 
 
-def _refuse_name(args) -> None:
+def _refuse_name(args, hint: str = "it answers for the whole dataset") -> None:
     """Refuse a positional NAME the command has no question for.
 
     The operational families describe the dataset or the project as a
     whole: dropping the name instead would print the family listing under
     a one-object question, which is a different answer than the one asked
-    for.
+    for. ``database`` is the project-wide case and says so, because
+    "the whole dataset" would send a reader looking for a dataset question
+    that does not exist.
     """
     print(
-        f"Error: '{args.command}' does not take an object name; it answers "
-        "for the whole dataset",
+        f"Error: '{args.command}' does not take an object name; {hint}",
         file=sys.stderr,
     )
     sys.exit(2)
@@ -459,7 +498,7 @@ def _schema_arg(args):
 
 
 # ---------------------------------------------------------------------------
-# The five questions, as data: each sync handler and its async twin
+# The questions, as data: each sync handler and its async twin
 # ---------------------------------------------------------------------------
 
 
@@ -492,6 +531,15 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
             _refuse_name(_args)
         return introspector.list_index_usage_stats(schema=schema)
 
+    def _database_info(introspector, _args=args):
+        if getattr(_args, "name", None):
+            # The project the run connected to, not one object in it: a name
+            # is refused rather than dropped, because ``@@project_id`` answers
+            # for the whole project and a "database described by name" does
+            # not exist here.
+            _refuse_name(_args, "it describes the project the run connected to")
+        return introspector.get_database_info()
+
     return {
         "tables": lambda introspector: introspector.list_tables(
             schema=schema, include_system=args.include_system
@@ -501,6 +549,14 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
             _one("columns", args), schema=schema
         ),
         "datasets": lambda introspector: introspector.list_datasets(),
+        "database": _database_info,
+        # One table, one partition row each: the name is required because the
+        # question filters partitions by it, and a name-less ``PARTITIONS``
+        # read is the dataset-wide one the storage reducer asks rather than
+        # this family.
+        "partitions": lambda introspector: introspector.list_partitions(
+            _one("partitions", args), schema=schema
+        ),
         "unused-indexes": _unused_indexes,
         "table-stats": _table_usage_stats,
         "runtime": _runtime_metrics,
@@ -588,6 +644,17 @@ def _report(result: Any, args, provider) -> None:
         _display_ddl(args, provider, result)
         return
 
+    if args.command == "database":
+        # One record, not a listing: the answer describes the project the run
+        # connected to, and ``list()`` on it would iterate the object's
+        # fields. Printed as one row, the way the other one-object answers
+        # are.
+        provider.display_results(
+            [_serialize_for_output(result)],
+            title=_TITLES.get(args.command, args.command.title()),
+        )
+        return
+
     if args.command == "column-profiles":
         # The price sentence, before the rows, so a reader sees it while
         # looking at figures that cost a scan. On stderr, so the machine
@@ -635,6 +702,8 @@ def _report(result: Any, args, provider) -> None:
 #: ``str.title()`` would spell ``Unused-Indexes``, and the four operational
 #: families read better as what they measure than as their subcommand name.
 _TITLES = {
+    "database": "Database Info",
+    "partitions": "Partitions",
     "unused-indexes": "Indexes with no recorded use",
     "table-stats": "Table usage counters",
     "runtime": "Runtime metrics",

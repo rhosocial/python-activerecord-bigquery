@@ -4,8 +4,9 @@
 The package's shape follows the other backends' small CLIs: ``__main__.py``
 parses, this module registers and routes, and each subcommand module owns
 its parser and its handler. Every introspection subcommand -- the catalogue
-ones and the nine families the dialect answers or declines -- lives in
-:mod:`~.introspect`, so this module routes their names there directly.
+ones, the partitions family this backend answers on its own and the nine
+families the dialect answers or declines -- lives in :mod:`~.introspect`, so
+this module routes their names there directly.
 """
 
 #: The subcommands the package defines. ``__main__`` names them when a run

@@ -21,6 +21,12 @@ Three answer, and the profile speaks for the one cost a reader has to know:
 BigQuery bills bytes read, so a profile is a full scan. That sentence belongs
 on stderr so stdout stays parseable, and each row's ``source`` says the
 figures are exact counts rather than estimates.
+
+The two catalogue questions the dialect answers beyond the listings are here
+too: ``database`` (the project-level question, answered by ``@@project_id``)
+and ``partitions`` (the engine's own view). Both were ``supports_*``-True
+before this change, so the CLI could not ask what it already advertised --
+the defect §6 exists to prevent.
 """
 
 import argparse
@@ -67,6 +73,11 @@ ROW_FAMILIES = (
     "value-samples",
     "join-coverage",
 )
+
+#: The two questions the dialect answers from the catalogue, beyond the
+#: listings: the project-level database question and this engine's own
+#: partitions view. Neither is declined, so neither is a refusal.
+CATALOGUE_FAMILIES = ("database", "partitions")
 
 
 class _RecordingIntrospector:
@@ -116,6 +127,20 @@ def _args(command: str, name: Optional[str] = None, **overrides) -> argparse.Nam
     )
     values.update(overrides)
     return argparse.Namespace(**values)
+
+
+def _IntrospectionDatabaseInfo():
+    """The record the project-level question answers with."""
+    from rhosocial.activerecord.backend.introspection.types import (
+        IntrospectionDatabaseInfo,
+    )
+
+    return IntrospectionDatabaseInfo(
+        name="my-project",
+        version="3.0.0",
+        version_tuple=(3, 0, 0),
+        vendor="BigQuery",
+    )
 
 
 class _BackendStub:
@@ -486,6 +511,53 @@ class TestTheDependenciesBranch:
         ]
 
 
+class TestTheDatabaseBranch:
+    """The project-level question, answered by the documented system variable."""
+
+    def test_the_project_is_asked_for_without_a_dataset(self, monkeypatch):
+        introspector = _RecordingIntrospector(
+            {"get_database_info": _IntrospectionDatabaseInfo()}
+        )
+
+        _run_sync(monkeypatch, introspector, _args("database", dataset=None))
+
+        assert introspector.calls == [("get_database_info", (), {})]
+
+    def test_a_name_is_refused(self, capsys):
+        """``database`` describes the project the run connected to, so a name
+        is refused rather than parsed and dropped."""
+        with pytest.raises(SystemExit) as excinfo:
+            introspect_cli._refuse_name(
+                _args("database", "orders"),
+                "it describes the project the run connected to",
+            )
+
+        assert excinfo.value.code == 2
+        assert "does not take an object name" in capsys.readouterr().err
+
+
+class TestThePartitionsBranch:
+    """One table, and one row per partition it holds."""
+
+    def test_the_table_is_asked_for_by_name(self, monkeypatch):
+        introspector = _RecordingIntrospector({"list_partitions": []})
+
+        _run_sync(monkeypatch, introspector, _args("partitions", "orders"))
+
+        assert introspector.calls == [
+            ("list_partitions", ("orders",), {"schema": "my_dataset"})
+        ]
+
+    def test_a_missing_name_is_an_incomplete_invocation(self, monkeypatch, capsys):
+        """The question filters partitions by table, so a name-less one is a
+        different question -- and the CLI does not ask it."""
+        with pytest.raises(SystemExit) as excinfo:
+            _run_sync(monkeypatch, _RecordingIntrospector({}), _args("partitions"))
+
+        assert excinfo.value.code == 1
+        assert "table name is required" in capsys.readouterr().err
+
+
 class TestTheArgumentRules:
     def test_a_flag_the_type_does_not_read_is_refused(self, capsys):
         with pytest.raises(SystemExit) as excinfo:
@@ -542,6 +614,18 @@ class TestTheCapabilityGate:
     def test_the_row_families_are_not_refused(self, command):
         """These three answer True, so the gate must not refuse them."""
         introspect_cli._require_capability(_BackendStub(_RecordingIntrospector()), _args(command))
+
+    @pytest.mark.parametrize("command", CATALOGUE_FAMILIES)
+    def test_the_catalogue_questions_are_not_refused(self, command):
+        """Both declare ``supports_*`` True, so the gate must let them run.
+
+        A refused ``database`` or ``partitions`` would be a CLI that could not
+        ask a question the dialect advertises -- the same defect the gate
+        exists to prevent for the other direction.
+        """
+        introspect_cli._require_capability(
+            _BackendStub(_RecordingIntrospector()), _args(command)
+        )
 
     def test_a_stub_without_a_dialect_is_not_refused(self):
         introspect_cli._require_capability(object(), _args("tables"))
@@ -626,6 +710,20 @@ class TestTheAsyncPath:
                 [],
                 ((), {"object_name": "orders", "schema": "my_dataset"}),
             ),
+            (
+                "database",
+                "get_database_info",
+                {},
+                _IntrospectionDatabaseInfo(),
+                ((), {}),
+            ),
+            (
+                "partitions",
+                "list_partitions",
+                {"name": "orders"},
+                [],
+                (("orders",), {"schema": "my_dataset"}),
+            ),
         ],
     )
     def test_the_async_branch_calls_the_same_method_with_the_same_arguments(
@@ -661,6 +759,14 @@ class TestTheAsyncPath:
 
 
 class TestTheTypeSurfaceExtension:
+    def test_the_advertised_surface_is_fifteen_types(self):
+        """The list the CLI's README states: the four listings, the project
+        and the partitions questions, the six declined families and the three
+        that read the rows."""
+        assert len(introspect_cli.INTROSPECT_SUBCOMMANDS) == 15
+        for name in CATALOGUE_FAMILIES:
+            assert name in introspect_cli.INTROSPECT_SUBCOMMANDS
+
     def test_the_type_list_is_the_capability_table(self):
         assert list(introspect_cli._TYPE_CAPABILITIES) == list(
             introspect_cli.INTROSPECT_SUBCOMMANDS

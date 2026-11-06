@@ -11,15 +11,35 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect <TYPE> [NAME] 
 
 ## What it can ask about
 
+Fifteen types, each gated by the dialect capability switch that answers for it
+(`_TYPE_CAPABILITIES` in `introspect.py`). A type whose switch is `False` is
+refused with exit code 2 rather than answered with an empty row: "this project
+cannot report per-index use counters" and "this project has no counters" are
+different answers, and only one of them is what happened.
+
 | Type | Reads | Notes |
 | :--- | :--- | :--- |
 | `tables` | `INFORMATION_SCHEMA.TABLES` | Tables and views, with `table_type` distinguishing `BASE TABLE`, `VIEW`, `MATERIALIZED VIEW` and `EXTERNAL`. |
 | `views` | `INFORMATION_SCHEMA.VIEWS` | Views, with their definitions. |
-| `table` | several | One table by name, with its columns and primary key filled in. |
 | `columns` | `INFORMATION_SCHEMA.COLUMNS` | One table's columns: name, type, nullability, ordinal position, default. |
 | `datasets` | `INFORMATION_SCHEMA.SCHEMATA` | The project's datasets. A dataset is BigQuery's namespace level above a table, so it stands where a schema would elsewhere. |
+| `database` | `SELECT @@project_id` | The project this run connected to. The project-level question, so it takes no dataset and no name. |
+| `partitions` | `INFORMATION_SCHEMA.PARTITIONS` | One table's partitions: rows, logical bytes and billable bytes each. This engine's own family — the per-table storage minimum reduces its sums onto one slot, and these rows are finer than that. |
+| `column-profiles` | the table's rows | Every column's null count, distinct count, bounds and the table's row count. **A full scan, billed.** |
+| `value-samples` | the table's rows | One column's most frequent values. |
+| `join-coverage` | two columns' rows | How two columns' value domains overlap, both directions. |
+| `unused-indexes` | — | Refused: no `INFORMATION_SCHEMA` view reports index use. |
+| `table-stats` | — | Refused: no usage counters exist to read. |
+| `runtime` | — | Refused: BigQuery reports no runtime metrics. |
+| `index-stats` | — | Refused: there are no per-index counters. |
+| `dependencies` | — | Refused: no view names an object's dependants. |
+| `ddl` | — | Refused: `TABLES.ddl` describes tables and external tables, not a routine or a view's definition. |
 
-`NAME` is required for `table` and `columns`. The list types take no name.
+`NAME` is required for `columns`, `partitions`, `ddl`, `column-profiles`,
+`value-samples` and `join-coverage`; optional for `dependencies`; refused for
+`database`. The list types take no name. A `NAME` given where it is refused
+exits 2 rather than being parsed and dropped, and a flag the type does not read
+(`--column`, `--right-table`, `--right-column`) is refused the same way.
 
 ## Options
 
@@ -33,6 +53,8 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect <TYPE> [NAME] 
 | `--credentials-json` | `BIGQUERY_CREDENTIALS_JSON` | The key's JSON, inline. |
 | `--api-endpoint` | `BIGQUERY_API_ENDPOINT` | Endpoint override, for an emulator. |
 | `--use-async` | off | Drive the asynchronous backend. |
+| `--rich-ascii` | off | ASCII borders for the rich table. |
+| `--include-system` | off | No effect: `INFORMATION_SCHEMA` lists no system tables here. |
 
 ## Notes
 
@@ -42,6 +64,10 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect <TYPE> [NAME] 
 *   **A dataset, not a schema.** BigQuery has no schemas. `--dataset` maps
     onto the `schema` argument the core introspector takes, and the CLI says
     *dataset* so a user is not sent looking for a thing that does not exist.
+*   **A profile costs a scan.** BigQuery bills by bytes read, so
+    `column-profiles` reads the whole table and is the most expensive thing
+    this CLI can be asked. The sentence on stderr before the rows says so;
+    each row's `source='aggregate'` says the figures are exact counts.
 *   **Nothing here was run against a live project.** The statements are
     written from the official documentation (cited beside each one in the
     source). Verify the first run against your project before relying on the
@@ -55,12 +81,26 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect <TYPE> [NAME] 
 ## Examples
 
 ```bash
-# Datasets, and one dataset's tables
+# Datasets, and the project itself
 python -m rhosocial.activerecord.backend.impl.bigquery introspect datasets --project my-project
-python -m rhosocial.activerecord.backend.impl.bigquery introspect tables --dataset events -o json
+python -m rhosocial.activerecord.backend.impl.bigquery introspect database --project my-project
 
-# One table's columns
+# One dataset's tables and views
+python -m rhosocial.activerecord.backend.impl.bigquery introspect tables --dataset events -o json
+python -m rhosocial.activerecord.backend.impl.bigquery introspect views --dataset events
+
+# One table's columns, and its partitions
 python -m rhosocial.activerecord.backend.impl.bigquery introspect columns orders --dataset events
+python -m rhosocial.activerecord.backend.impl.bigquery introspect partitions orders --dataset events
+
+# What the rows hold: a profile, the most frequent values, an overlap
+python -m rhosocial.activerecord.backend.impl.bigquery introspect column-profiles orders --dataset events
+python -m rhosocial.activerecord.backend.impl.bigquery introspect value-samples orders --column status --dataset events
+python -m rhosocial.activerecord.backend.impl.bigquery introspect join-coverage orders \
+    --column buyer_id --right-table users --right-column id --dataset events
+
+# A family this project declines: refused, not answered with an empty row
+python -m rhosocial.activerecord.backend.impl.bigquery introspect ddl orders --dataset events
 
 # Against a local emulator
 python -m rhosocial.activerecord.backend.impl.bigquery introspect tables \
