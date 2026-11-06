@@ -35,6 +35,20 @@ ID here. Pass the dataset alone and the configured project is used, or pass
 need a dataset raise :class:`ValueError` with that instruction when neither
 the argument nor the connection config supplies one; nothing is guessed.
 
+**Two ``COLUMNS`` projections, because there is nothing else to ask.**
+``INFORMATION_SCHEMA.COLUMNS`` reports its own columns nowhere, so the only
+question that says which of them an endpoint carries is the ``COLUMNS``
+question itself. :meth:`list_columns` therefore asks the whole documented
+list and, if the endpoint fails the question, asks the narrower list instead
+-- remembering the answer for the rest of the manager's life, so a real
+server pays nothing for the fallback and an emulator pays one failed
+question once rather than one per table. :func:`_asked_columns` reads which
+projection ran off the row, and the parsed column records it under
+:data:`COLUMNS_ASKED_KEY` so a name the endpoint was never asked reports
+``None`` rather than an answer of *no*. See
+:data:`~..expression.introspection.COLUMNS_PROJECTION_FULL` and
+:data:`~..expression.introspection.COLUMNS_PROJECTION_NARROW`.
+
 **What BigQuery's catalog cannot answer.**
 
 *Foreign keys.* ``TABLE_CONSTRAINTS`` reports that a foreign key exists and
@@ -82,9 +96,10 @@ names and value spellings directly.
 import copy
 import warnings
 from datetime import datetime
-from typing import Any, Dict, List, NoReturn, Optional, Tuple
+from typing import Any, Dict, List, NoReturn, Optional, Sequence, Tuple
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.errors import DatabaseError
 from rhosocial.activerecord.backend.introspection.base import (
     AsyncAbstractIntrospector,
     IntrospectorMixin,
@@ -112,6 +127,8 @@ from rhosocial.activerecord.backend.introspection.types import (
 )
 
 from ..expression.introspection import (
+    COLUMNS_PROJECTION_FULL,
+    COLUMNS_PROJECTION_NARROW,
     BigQueryColumnInfoQueryStatement,
     BigQueryDatabaseInfoQueryStatement,
     BigQueryDatasetListQueryStatement,
@@ -146,6 +163,14 @@ _TABLE_TYPE_MAP = {
 #: The views that are not tables, used when ``include_views=False``.
 _VIEW_TYPES = ("VIEW", "MATERIALIZED VIEW")
 
+#: The ``extra`` key a parsed column records the catalog names it was actually
+#: asked for under. It is what separates "the catalog says this column is not
+#: generated" from "nobody asked": the first is a value in the slot, the
+#: second is the name's absence from this tuple -- and reading an unasked name
+#: as an answer of *no* is how a consumer ends up told a column is not
+#: generated when the truth is that the endpoint never carried the fact.
+COLUMNS_ASKED_KEY = "columns_asked"
+
 
 def _row_get(row: Dict[str, Any], key: str, default: Any = None) -> Any:
     """Read one catalog column, tolerating the case the driver used.
@@ -162,6 +187,30 @@ def _row_get(row: Dict[str, Any], key: str, default: Any = None) -> Any:
     if key.upper() in row:
         return row[key.upper()]
     return default
+
+
+def _row_asked(row: Dict[str, Any], key: str) -> bool:
+    """Whether the question that produced *row* selected *key*.
+
+    A projection selects names, and an endpoint returns one field per
+    selected name -- so a field's presence *is* the record of the question
+    that was asked, and its absence is never the endpoint answering "no".
+    """
+    return key in row or key.lower() in row or key.upper() in row
+
+
+def _asked_columns(row: Dict[str, Any]) -> Tuple[str, ...]:
+    """The documented ``COLUMNS`` names *row* was asked for, in their order.
+
+    The two projections are both subsets of the documented list, so the
+    intersection with it is the answer whichever one ran: the whole list for
+    a real server, the narrower set for an endpoint that could not answer
+    more. A name a future endpoint returns beyond that list cannot be
+    attributed to the question -- no projection named it -- so it stays out
+    of the tuple and is still read as a value, which is the only part of the
+    answer that is true either way.
+    """
+    return tuple(name for name in COLUMNS_PROJECTION_FULL if _row_asked(row, name))
 
 
 def _isoformat(value: Any) -> Optional[str]:
@@ -203,7 +252,18 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
     :mod:`...expression.introspection`; rendering is the dialect's job. The
     ``parse_*`` methods are pure Python: rows in, core introspection
     dataclasses out, shared by both managers.
+
+    The one thing the two managers hold between calls is which ``COLUMNS``
+    projection the endpoint in front of them answers -- see
+    :meth:`list_columns`, which is where an endpoint that cannot answer the
+    full documented list is asked the narrower one instead and the choice is
+    remembered. It is state rather than a constant because the answer is the
+    endpoint's, not this backend's.
     """
+
+    #: The ``COLUMNS`` projection this manager asks with, assigned by the
+    #: manager's ``__init__`` and narrowed by :meth:`list_columns`.
+    columns_projection: Tuple[str, ...]
 
     # ------------------------------------------------------------------ #
     # Names and qualifiers
@@ -334,7 +394,11 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         )
 
     def column_info_statement(
-        self, *, table_name: str, schema: Optional[str]
+        self,
+        *,
+        table_name: str,
+        schema: Optional[str],
+        projection: Sequence[str] = COLUMNS_PROJECTION_FULL,
     ) -> "BigQueryColumnInfoQueryStatement":
         """Return the ``INFORMATION_SCHEMA.COLUMNS`` statement.
 
@@ -344,6 +408,17 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         columns (``is_hidden = 'YES'``) are filtered in the parser, because
         their ``ordinal_position`` is documented as ``NULL`` and they are not
         part of the table's declared schema.
+
+        Args:
+            table_name: The table whose columns are wanted.
+            schema: A dataset ID or a ``project.dataset`` pair; ``None``
+                for the connection default.
+            projection: The catalog columns to select. Defaults to the whole
+                documented list, which is what a real BigQuery answers and
+                therefore what a real server is asked; :meth:`list_columns`
+                is what narrows it, and only for an endpoint that has just
+                failed to answer the whole list.
+
         https://cloud.google.com/bigquery/docs/information-schema-columns
         """
         catalog, dataset = self._dataset_scoped(schema)
@@ -352,6 +427,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             table_name=table_name,
             schema=dataset,
             catalog=catalog,
+            projection=projection,
         )
 
     def index_info_statement(
@@ -573,9 +649,22 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
     def parse_columns(
         self, rows: List[Dict[str, Any]], table_name: str, schema: str
     ) -> List[IntrospectionColumnInfo]:
+        """Turn ``COLUMNS`` rows into column objects, keeping what was asked.
+
+        The names the row carries are the names the question asked, and the
+        difference matters for every name the narrower projection leaves out:
+        read through ``_row_get``'s ``None`` default it would arrive as an
+        answer of *no* rather than as no question, so a consumer would be told
+        a column is not generated when the truth is that the endpoint never
+        carried the fact. Each column therefore records what it was asked
+        (``extra[COLUMNS_ASKED_KEY]``), and the slots for an unasked name say
+        ``None`` instead of a value: ``is_generated`` in particular, whose
+        ``False`` would be a claim.
+        """
         label = self._schema_label(schema)
         columns: List[IntrospectionColumnInfo] = []
         for row in rows:
+            asked = _asked_columns(row)
             if str(_row_get(row, "is_hidden") or "").strip().upper() == "YES":
                 # Pseudo columns have a NULL ordinal_position and are not
                 # declared schema; the catalog documents this explicitly.
@@ -588,7 +677,13 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
                 nullable = ColumnNullable.NOT_NULL
             else:
                 nullable = ColumnNullable.UNKNOWN
-            identity = str(_row_get(row, "is_identity") or "").strip().upper() == "YES"
+            # ``None`` when the question did not name it -- the endpoint was
+            # not asked, which is not the same as an answer of "no".
+            identity = (
+                str(_row_get(row, "is_identity") or "").strip().upper() == "YES"
+                if "is_identity" in asked
+                else None
+            )
             column_name = _row_get(row, "column_name") or ""
             columns.append(
                 IntrospectionColumnInfo(
@@ -609,6 +704,8 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
                     is_auto_increment=False,
                     is_generated=(
                         str(_row_get(row, "is_generated") or "").strip().upper() == "ALWAYS"
+                        if "is_generated" in asked
+                        else None
                     ),
                     generated_expression=_row_get(row, "generation_expression"),
                     collation=_row_get(row, "collation_name"),
@@ -631,6 +728,10 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
                         "identity_maximum": _as_int(_row_get(row, "identity_maximum")),
                         "identity_minimum": _as_int(_row_get(row, "identity_minimum")),
                         "identity_cycle": _row_get(row, "identity_cycle"),
+                        # Which of the documented names this row was asked:
+                        # a name absent here was never asked, so its slot is
+                        # "no answer" rather than a value the catalog gave.
+                        COLUMNS_ASKED_KEY: asked,
                     },
                 )
             )
@@ -848,6 +949,63 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
         cache: Optional[IntrospectionCache] = None,
     ) -> None:
         super().__init__(backend, executor, cache)
+        # The full documented list is what a real BigQuery answers, so that is
+        # what this manager asks until an endpoint proves otherwise.
+        self.columns_projection: Tuple[str, ...] = COLUMNS_PROJECTION_FULL
+
+    def list_columns(
+        self, table_name: str, schema: Optional[str] = None
+    ) -> List[IntrospectionColumnInfo]:
+        """List a table's columns, asking the projection this endpoint answers.
+
+        The whole documented column list is asked first, because that is what
+        BigQuery answers and it is the only way to read the families the
+        narrower list leaves out -- whether a column is generated, what a
+        computed one is computed from, what an identity column's bounds are,
+        which column the table clusters by. There is no version or capability
+        question in ``INFORMATION_SCHEMA`` that says whether an endpoint
+        carries those names -- BigQuery reports no server release at all, and
+        this backend's version is a feature level rather than a negotiated
+        one -- so the only question that can be answered is the ``COLUMNS``
+        question itself: ask, and if the endpoint fails the question because
+        it lacks a name, ask the narrow list instead and remember that this
+        endpoint answers that one. One failed question per manager, not one
+        per table, and a real server never pays for the fallback at all
+        because the first question succeeds.
+
+        The cache key is core's, so a caller reaching this method and one
+        reaching it through the base class share an answer.
+        """
+        target = schema if schema is not None else self.default_schema
+        key = self._cache.key(IntrospectionScope.COLUMN, table_name, schema=schema)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.column_info_statement(
+            table_name=table_name, schema=schema, projection=self.columns_projection
+        ).to_sql()
+        try:
+            rows = self._executor.execute(sql, params)
+        except DatabaseError as first_error:
+            if self.columns_projection == COLUMNS_PROJECTION_NARROW:
+                raise
+            self.columns_projection = COLUMNS_PROJECTION_NARROW
+            sql, params = self.column_info_statement(
+                table_name=table_name,
+                schema=schema,
+                projection=self.columns_projection,
+            ).to_sql()
+            try:
+                rows = self._executor.execute(sql, params)
+            except DatabaseError:
+                # The narrow list is a subset of the one that just failed, so
+                # it cannot fail where that one succeeded: what failed is the
+                # table, the dataset or the connection, and the first error is
+                # the one that names it.
+                raise first_error from None
+        result = self.parse_columns(rows, table_name, target)
+        self._cache.set(key, result)
+        return result
 
     def get_table_info(
         self, table_name: str, schema: Optional[str] = None
@@ -1064,6 +1222,47 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         cache: Optional[IntrospectionCache] = None,
     ) -> None:
         super().__init__(backend, executor, cache)
+        # The full documented list is what a real BigQuery answers, so that is
+        # what this manager asks until an endpoint proves otherwise.
+        self.columns_projection: Tuple[str, ...] = COLUMNS_PROJECTION_FULL
+
+    async def list_columns(
+        self, table_name: str, schema: Optional[str] = None
+    ) -> List[IntrospectionColumnInfo]:
+        """List a table's columns, asking the projection this endpoint answers.
+
+        The async twin of :meth:`BigQueryIntrospector.list_columns`, and kept
+        word-for-word apart from the await so the two cannot drift on which
+        projection runs: the whole documented list first, the narrower one
+        only after the endpoint has failed to answer it, and the choice
+        remembered for the rest of this manager's life.
+        """
+        target = schema if schema is not None else self.default_schema
+        key = self._cache.key(IntrospectionScope.COLUMN, table_name, schema=schema)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.column_info_statement(
+            table_name=table_name, schema=schema, projection=self.columns_projection
+        ).to_sql()
+        try:
+            rows = await self._executor.execute(sql, params)
+        except DatabaseError as first_error:
+            if self.columns_projection == COLUMNS_PROJECTION_NARROW:
+                raise
+            self.columns_projection = COLUMNS_PROJECTION_NARROW
+            sql, params = self.column_info_statement(
+                table_name=table_name,
+                schema=schema,
+                projection=self.columns_projection,
+            ).to_sql()
+            try:
+                rows = await self._executor.execute(sql, params)
+            except DatabaseError:
+                raise first_error from None
+        result = self.parse_columns(rows, table_name, target)
+        self._cache.set(key, result)
+        return result
 
     async def get_table_info(
         self, table_name: str, schema: Optional[str] = None

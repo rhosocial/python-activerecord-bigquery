@@ -55,9 +55,19 @@ partitions              ``INFORMATION_SCHEMA.PARTITIONS``
 
 No BigQuery instance was available while writing this module. The statement
 shapes follow the pages cited beside each class below.
+
+**The ``COLUMNS`` projection is a parameter, not a constant.** BigQuery's own
+``COLUMNS`` view documents more columns than every endpoint that speaks
+GoogleSQL answers, and a projection naming one an endpoint lacks fails the
+*whole* question during analysis rather than answering it ``NULL``. So the
+question carries the names it asks (:data:`COLUMNS_PROJECTION_FULL`), and the
+narrow set (:data:`COLUMNS_PROJECTION_NARROW`) is the fallback an endpoint that
+cannot answer the full one is asked instead -- never the projection a real
+server is asked, which is what the full list is.
+https://cloud.google.com/bigquery/docs/information-schema-columns
 """
 
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple
 
 from rhosocial.activerecord.backend.expression.introspection import (
     ColumnDataProfileQueryStatement,
@@ -67,8 +77,63 @@ from rhosocial.activerecord.backend.expression.introspection import (
 if TYPE_CHECKING:  # pragma: no cover
     from ..dialect import BigQueryDialect
 
+#: Every column BigQuery's ``COLUMNS`` view documents, in documented order.
+#: This is what a real server is asked, because it is what a real server
+#: answers -- and it is the *only* way to read the families the narrow
+#: projection leaves out: whether a column is generated, what a computed
+#: column is computed from, what an identity column's bounds are, which
+#: column the table clusters by.
+#:
+#: https://cloud.google.com/bigquery/docs/information-schema-columns
+COLUMNS_PROJECTION_FULL: Tuple[str, ...] = (
+    "table_catalog",
+    "table_schema",
+    "table_name",
+    "column_name",
+    "ordinal_position",
+    "is_nullable",
+    "data_type",
+    "is_generated",
+    "generation_expression",
+    "is_stored",
+    "is_hidden",
+    "is_system_defined",
+    "is_partitioning_column",
+    "clustering_ordinal_position",
+    "collation_name",
+    "column_default",
+    "rounding_mode",
+    "is_identity",
+    "identity_generation",
+    "identity_start",
+    "identity_increment",
+    "identity_maximum",
+    "identity_minimum",
+    "identity_cycle",
+)
+
+#: The subset the ``goccy/bigquery-emulator`` this repository's CI runs
+#: against answers. It is a *fallback*, chosen only after an endpoint has
+#: failed the full projection, and the parser records which of the two ran
+#: so that a name the endpoint was never asked is not read as an answer of
+#: "no" (see ``COLUMNS_ASKED_KEY`` in ...introspection.introspector).
+COLUMNS_PROJECTION_NARROW: Tuple[str, ...] = (
+    "table_catalog",
+    "table_schema",
+    "table_name",
+    "column_name",
+    "ordinal_position",
+    "is_nullable",
+    "data_type",
+    "is_hidden",
+    "is_system_defined",
+    "is_partitioning_column",
+)
+
 
 __all__ = [
+    "COLUMNS_PROJECTION_FULL",
+    "COLUMNS_PROJECTION_NARROW",
     "BigQueryDatabaseInfoQueryStatement",
     "BigQueryTableListQueryStatement",
     "BigQueryColumnInfoQueryStatement",
@@ -172,6 +237,12 @@ class BigQueryColumnInfoQueryStatement(IntrospectionExpression):
         table_name: The table whose columns are wanted.
         schema: The dataset, or a ``project.dataset`` pair. Required.
         catalog: The project to qualify the dataset with, or ``None``.
+        projection: The catalog columns to select. Defaults to the whole
+            documented list (:data:`COLUMNS_PROJECTION_FULL`), because that
+            is what a real BigQuery answers; an endpoint that cannot answer
+            a name fails the question during analysis, which is why the
+            narrower :data:`COLUMNS_PROJECTION_NARROW` exists as a fallback
+            rather than as the default.
 
     https://cloud.google.com/bigquery/docs/information-schema-columns
     """
@@ -182,11 +253,16 @@ class BigQueryColumnInfoQueryStatement(IntrospectionExpression):
         table_name: str,
         schema: str,
         catalog: Optional[str] = None,
+        projection: Sequence[str] = COLUMNS_PROJECTION_FULL,
     ):
         """Initialize the column list statement."""
         super().__init__(dialect, schema)
         self.table_name = table_name
         self.catalog = catalog
+        # Every parameter is collected at construction, and the projection is
+        # one of them: the row a caller parses later says nothing about which
+        # names were asked, so the statement is the only place that knows.
+        self.projection: Tuple[str, ...] = tuple(projection)
 
     @property
     def format_method(self) -> str:

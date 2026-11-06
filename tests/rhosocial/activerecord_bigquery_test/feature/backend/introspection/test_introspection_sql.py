@@ -24,10 +24,16 @@ BigQuery instance was reachable while writing them:
 * SCHEMATA https://cloud.google.com/bigquery/docs/information-schema-datasets-schemata
 * TABLE_OPTIONS https://cloud.google.com/bigquery/docs/information-schema-table-options
 * PARTITIONS https://cloud.google.com/bigquery/docs/information-schema-partitions
+
+The ``COLUMNS`` projection is the one question whose answer depends on the
+endpoint, so its two projections are pinned here too: the whole documented
+list is what a real server is asked, and the narrow list is what an endpoint
+that has just failed to answer that one is asked instead.
 """
 
 import pytest
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.errors import DatabaseError
 from rhosocial.activerecord.backend.introspection.types import IntrospectionScope
 
 from rhosocial.activerecord.backend.impl.bigquery.config import (
@@ -35,6 +41,8 @@ from rhosocial.activerecord.backend.impl.bigquery.config import (
 )
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.expression.introspection import (
+    COLUMNS_PROJECTION_FULL,
+    COLUMNS_PROJECTION_NARROW,
     BigQueryColumnInfoQueryStatement,
     BigQueryDatabaseInfoQueryStatement,
     BigQueryDatasetListQueryStatement,
@@ -179,27 +187,36 @@ def test_columns_query_binds_the_table_name(dialect):
     assert "WHERE `table_name` = ?" in sql
     assert params == ("orders",)
     assert "ORDER BY `ordinal_position`" in sql
-    # The projection is the cross-engine minimum: every name the emulator's
-    # own COLUMNS view answers, and no name it does not. Real BigQuery's view
-    # documents more (is_generated, column_default, the identity bounds), and
-    # a projection naming one an engine lacks fails the whole query during
-    # analysis rather than answering NULL -- which is how this family used to
-    # break the only endpoint CI can reach.
-    for name in (
-        "`table_catalog`",
-        "`table_schema`",
-        "`table_name`",
-        "`column_name`",
-        "`ordinal_position`",
-        "`is_nullable`",
-        "`data_type`",
-        "`is_hidden`",
-        "`is_system_defined`",
-        "`is_partitioning_column`",
-    ):
-        assert name in sql
-    for absent in ("`is_generated`", "`column_default`", "`identity_maximum`"):
-        assert absent not in sql
+    # The projection is the whole documented list, which is what a real
+    # BigQuery answers -- so it is what a real server is asked. An endpoint
+    # that lacks a name fails the question during analysis rather than
+    # answering NULL, and that is answered by reasking the narrower list
+    # (test_columns_fall_back_to_the_names_the_endpoint_answers), never by
+    # asking every server for the endpoint's own subset up front.
+    for name in COLUMNS_PROJECTION_FULL:
+        assert f"`{name}`" in sql
+
+
+def test_columns_fall_back_to_the_names_the_endpoint_answers(dialect):
+    """The narrow projection is a parameter, so it can be asked for.
+
+    It is the fallback ``list_columns`` reaches for after an endpoint has
+    failed the full list; that it renders as its own projection rather than
+    as a hand-edited copy of the first is what keeps the two from drifting.
+    """
+    sql, params = BigQueryColumnInfoQueryStatement(
+        dialect,
+        "orders",
+        "my_dataset",
+        "my-project",
+        projection=COLUMNS_PROJECTION_NARROW,
+    ).to_sql()
+    assert set(COLUMNS_PROJECTION_NARROW) <= set(COLUMNS_PROJECTION_FULL)
+    for name in COLUMNS_PROJECTION_NARROW:
+        assert f"`{name}`" in sql
+    for dropped in set(COLUMNS_PROJECTION_FULL) - set(COLUMNS_PROJECTION_NARROW):
+        assert f"`{dropped}`" not in sql
+    assert params == ("orders",)
 
 
 def test_index_query_joins_the_two_constraint_views(dialect):
@@ -481,3 +498,120 @@ def test_list_tables_asks_one_further_question_and_fills_the_slot():
     assert "PARTITIONS" in executor.statements[1]
     assert "WHERE" not in executor.statements[1]
 
+
+# ---------------------------------------------------------------------------
+# The COLUMNS projection: the whole documented list, and the fallback an
+# endpoint that cannot answer it is asked instead
+# ---------------------------------------------------------------------------
+
+
+class _EmulatedColumnsExecutor:
+    """Answers the narrow projection only, the way the emulator does.
+
+    The full documented projection is refused during analysis -- which is how
+    an endpoint that lacks a name behaves, and why the narrow list exists as
+    a fallback rather than as the default. Every statement is recorded so the
+    test can say which projection ran.
+    """
+
+    def __init__(self):
+        self.statements = []
+
+    def execute(self, sql, params=()):
+        self.statements.append(sql)
+        if "`is_generated`" in sql:
+            raise DatabaseError("Unrecognized name: is_generated")
+        return [
+            {
+                "table_name": "orders",
+                "column_name": "id",
+                "ordinal_position": 1,
+                "is_nullable": "NO",
+                "data_type": "INT64",
+                "is_hidden": "NO",
+                "is_system_defined": "NO",
+                "is_partitioning_column": "NO",
+            }
+        ]
+
+
+def test_a_real_server_is_asked_the_whole_documented_list():
+    """The default projection is not narrowed by what the emulator answers.
+
+    A caller that reaches ``list_columns`` against a server carrying every
+    documented name gets one question, and it names every one of them.
+    """
+    flags = {
+        name: ("YES" if name == "is_partitioning_column" else "NO")
+        for name in ("is_nullable", "is_hidden", "is_partitioning_column")
+    }
+    flags.update(
+        {
+            "table_name": "orders",
+            "column_name": "id",
+            "ordinal_position": 1,
+            "data_type": "INT64",
+            "is_generated": "NEVER",
+            "clustering_ordinal_position": None,
+            "collation_name": None,
+            "column_default": None,
+            "rounding_mode": None,
+            "is_identity": "NO",
+        }
+    )
+    executor = _TwoResponseExecutor([[dict(flags)]])
+    introspector_obj = BigQueryIntrospector(_BackendStandIn(), executor)
+    columns = introspector_obj.list_columns("orders", schema="my_dataset")
+
+    assert len(executor.statements) == 1
+    for name in COLUMNS_PROJECTION_FULL:
+        assert f"`{name}`" in executor.statements[0]
+    assert introspector_obj.columns_projection == COLUMNS_PROJECTION_FULL
+    assert columns[0].is_generated is False
+
+
+def test_list_columns_reasks_the_names_an_endpoint_answers():
+    """The emulator's limitation is answered by reasking, not by asking less.
+
+    One failed question, then the narrow projection -- and the choice is
+    remembered, so the second table costs one question rather than two.
+    """
+    executor = _EmulatedColumnsExecutor()
+    introspector_obj = BigQueryIntrospector(_BackendStandIn(), executor)
+
+    columns = introspector_obj.list_columns("orders", schema="my_dataset")
+    columns += introspector_obj.list_columns("payments", schema="my_dataset")
+
+    assert len(executor.statements) == 3
+    for name in COLUMNS_PROJECTION_FULL:
+        assert f"`{name}`" in executor.statements[0]
+    for dropped in set(COLUMNS_PROJECTION_FULL) - set(COLUMNS_PROJECTION_NARROW):
+        assert f"`{dropped}`" not in executor.statements[1]
+        assert f"`{dropped}`" not in executor.statements[2]
+    assert introspector_obj.columns_projection == COLUMNS_PROJECTION_NARROW
+    # The rows are parsed, so the families that read the catalogue (the
+    # profile, the storage shape) still work -- they work with the answer this
+    # endpoint has.
+    assert [c.name for c in columns] == ["id", "id"]
+
+
+def test_an_error_the_narrow_projection_cannot_answer_is_raised_unchanged():
+    """A narrow projection is a subset, so a failure there is not the endpoint
+    lacking a column: it is the table, the dataset or the connection, and the
+    caller hears the first error that named it."""
+
+    class _RefusingExecutor:
+        def __init__(self):
+            self.statements = []
+
+        def execute(self, sql, params=()):
+            self.statements.append(sql)
+            raise DatabaseError("Not found: Table my_project:my_dataset.orders")
+
+    executor = _RefusingExecutor()
+    introspector_obj = BigQueryIntrospector(_BackendStandIn(), executor)
+
+    with pytest.raises(DatabaseError, match="Not found"):
+        introspector_obj.list_columns("orders", schema="my_dataset")
+
+    assert len(executor.statements) == 2

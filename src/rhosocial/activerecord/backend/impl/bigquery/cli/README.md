@@ -21,7 +21,7 @@ different answers, and only one of them is what happened.
 | :--- | :--- | :--- |
 | `tables` | `INFORMATION_SCHEMA.TABLES` | Tables and views, with `table_type` distinguishing `BASE TABLE`, `VIEW`, `MATERIALIZED VIEW` and `EXTERNAL`. |
 | `views` | `INFORMATION_SCHEMA.VIEWS` | Views, with their definitions. |
-| `columns` | `INFORMATION_SCHEMA.COLUMNS` | One table's columns: name, type, nullability, ordinal position, default. |
+| `columns` | `INFORMATION_SCHEMA.COLUMNS` | One table's columns: name, type, nullability, ordinal position, default, and the generation and identity facts a real server answers. |
 | `datasets` | `INFORMATION_SCHEMA.SCHEMATA` | The project's datasets. A dataset is BigQuery's namespace level above a table, so it stands where a schema would elsewhere. |
 | `database` | `SELECT @@project_id` | The project this run connected to. The project-level question, so it takes no dataset and no name. |
 | `partitions` | `INFORMATION_SCHEMA.PARTITIONS` | One table's partitions: rows, logical bytes and billable bytes each. This engine's own family — the per-table storage minimum reduces its sums onto one slot, and these rows are finer than that. |
@@ -64,6 +64,13 @@ exits 2 rather than being parsed and dropped, and a flag the type does not read
 *   **A dataset, not a schema.** BigQuery has no schemas. `--dataset` maps
     onto the `schema` argument the core introspector takes, and the CLI says
     *dataset* so a user is not sent looking for a thing that does not exist.
+*   **`columns` asks for the documented column list.** The statement projects
+    every column `INFORMATION_SCHEMA.COLUMNS` documents, because that is what
+    a real server answers. An endpoint that lacks one of those names fails the
+    whole question during analysis rather than answering it `NULL`, so one that
+    does is re-asked a narrower projection instead — and the parsed column
+    records which names its row carried (`extra["columns_asked"]`), so a name
+    that was never asked reports `None` rather than an answer of "no".
 *   **A profile costs a scan.** BigQuery bills by bytes read, so
     `column-profiles` reads the whole table and is the most expensive thing
     this CLI can be asked. The sentence on stderr before the rows says so;

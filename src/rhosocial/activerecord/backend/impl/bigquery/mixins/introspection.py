@@ -534,33 +534,22 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         the parser can drop pseudo columns, whose ``ordinal_position`` the
         documents say is ``NULL``.
 
-        The projection is the catalog's **cross-engine minimum**, not the
-        whole documented column list. BigQuery's own ``COLUMNS`` view
-        documents more columns than the emulator this repository's CI runs
-        against exposes, and a projection naming one the engine does not
-        have fails the *whole* query during analysis rather than answering
-        with a ``NULL`` -- so ``list_columns`` (and every family that reads
-        the catalogue first, the profile among them) would be unusable
-        against the only endpoint this repository can reach. The parser
-        reads every dropped name through ``_row_get`` with a default, so a
-        missing slot is an absent fact rather than an error; the ten names
-        this keeps are the emulator's own ``COLUMNS`` columns, and real
-        BigQuery answers all of them.
+        The projection is the statement's own, and its default is the whole
+        documented column list -- what a real BigQuery answers. Nothing here
+        narrows it: an endpoint that lacks one of those names fails the
+        question during analysis rather than answering it ``NULL``, and the
+        way to survive that is to reask the narrower projection *after* the
+        endpoint has said it cannot answer, which the introspector does
+        (``list_columns``). Choosing the narrow list up front would mean an
+        endpoint's limitation decided what every server was asked for, and
+        the fourteen names it leaves out -- whether a column is generated,
+        what a computed one is computed from, what an identity column's
+        bounds are, which column the table clusters by -- would silently
+        become "the catalog says no".
         """
         query = QueryStatement(
             self,
-            select=self._columns(
-                "table_catalog",
-                "table_schema",
-                "table_name",
-                "column_name",
-                "ordinal_position",
-                "is_nullable",
-                "data_type",
-                "is_hidden",
-                "is_system_defined",
-                "is_partitioning_column",
-            ),
+            select=self._columns(*expr.projection),
             from_=self._information_schema_source("COLUMNS", expr.catalog, expr.schema),
             where=ComparisonPredicate(
                 self,
