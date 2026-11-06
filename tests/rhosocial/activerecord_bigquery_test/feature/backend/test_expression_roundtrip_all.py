@@ -204,7 +204,10 @@ from rhosocial.activerecord.backend.expression.statements.dml import (
     MergeAction,
     MergeActionType,
 )
-from rhosocial.activerecord.backend.expression.statements.dql import QueryStatement
+from rhosocial.activerecord.backend.expression.statements.dql import (
+    QueryStatement,
+    SetOperationStatement,
+)
 from rhosocial.activerecord.backend.expression.types import (
     ArrayType,
     IntegerType,
@@ -300,6 +303,18 @@ def _one_column_query(dialect):
     return QueryStatement(dialect, select=[Column(dialect, "id")], from_=_table(dialect))
 
 
+def _compound_arms(dialect):
+    """Two single-column SELECTs over two tables, no bind parameters."""
+    return [
+        QueryStatement(dialect, select=[Column(dialect, "id")], from_=_table(dialect)),
+        QueryStatement(
+            dialect,
+            select=[Column(dialect, "id")],
+            from_=_table(dialect, "other"),
+        ),
+    ]
+
+
 def _integer_column(dialect, name="col"):
     """A column definition carrying a *dialect-bound* type.
 
@@ -327,6 +342,15 @@ def register_specials():
             op="union",
             left=_one_column_query(d),
             right=_one_column_query(d),
+        ),
+    )
+    # The statement half of the same pair: the word-form enum refuses the
+    # guess's bare string at construction, and BigQuery spells a compound
+    # SELECT, so a factory turns it into an instance the matrix can assert.
+    register_special_constructor(
+        "statements.dql.SetOperationStatement",
+        lambda d: SetOperationStatement(
+            d, op="union_all", parts=_compound_arms(d)
         ),
     )
 
@@ -966,7 +990,9 @@ _NO_FORMATTER = "does not support the"
 #: on purpose.
 LEGITIMATE_NON_RENDERS = {
     # ---- core operational families this dialect does not answer ----
-    #  BigQuery has no secondary indexes, no dependency catalogue and no per-object DDL retrieval; INFORMATION_SCHEMA describes tables and routines, not use. The probes answer False.
+    #  BigQuery has no secondary indexes, no dependency catalogue and no per-object
+#  DDL retrieval; INFORMATION_SCHEMA describes tables and routines, not use.
+#  The probes answer False.
     # Unused indexes and table stats: BigQuery has no secondary indexes at
     # all, and INFORMATION_SCHEMA describes tables and routines rather than
     # how they are used. Not unanswered so much as meaningless -- an
@@ -1897,3 +1923,101 @@ class TestMatrixIntegrity:
             f"only {len(counts)} distinct outcomes; a narrow SQL surface usually "
             f"produces several, so something may have started swallowing errors"
         )
+
+
+# ---------------------------------------------------------------------------
+# The set-operation statement, rendered
+# ---------------------------------------------------------------------------
+#
+# The matrix says ``SetOperationStatement`` renders, which is a verdict about
+# the dialect rather than a claim about the bytes, so the bytes are pinned here.
+# BigQuery back-quotes its identifiers and takes a positional ``?`` marker, and
+# it answers all four set operators with no version gate. The ``all`` word is a
+# second axis: the plain ``UNION`` over the same arms must render, and must
+# spell something different.
+
+
+def _compound_arms_for_bigquery(dialect):
+    """Two single-column SELECTs over two tables, no bind parameters."""
+    return [
+        QueryStatement(
+            dialect, select=[Column(dialect, "id")], from_=_table(dialect)
+        ),
+        QueryStatement(
+            dialect,
+            select=[Column(dialect, "id")],
+            from_=_table(dialect, "other"),
+        ),
+    ]
+
+
+class TestSetOperationStatementRenders:
+    """Pin the SQL the compound SELECT actually renders on BigQuery."""
+
+    def test_union_all_renders_the_pinned_sql(self, dialect):
+        node = SetOperationStatement(
+            dialect, op="union_all", parts=_compound_arms_for_bigquery(dialect)
+        )
+
+        rendered, params = node.to_sql()
+
+        assert rendered == (
+            "SELECT `id` FROM `t` UNION ALL SELECT `id` FROM `other`"
+        )
+        assert params == ()
+
+    def test_union_renders_a_different_keyword(self, dialect):
+        """Same arms, different word, different SQL."""
+        node = SetOperationStatement(
+            dialect, op="union", parts=_compound_arms_for_bigquery(dialect)
+        )
+
+        rendered, params = node.to_sql()
+
+        assert rendered == "SELECT `id` FROM `t` UNION SELECT `id` FROM `other`"
+        assert params == ()
+
+    def test_parameters_concatenate_in_part_order(self, dialect):
+        """Each arm's parameters arrive in the order the operator joins them."""
+        parts = [
+            QueryStatement(
+                dialect,
+                select=[Column(dialect, "id"), Literal(dialect, 1)],
+                from_=_table(dialect),
+                where=ComparisonPredicate(
+                    dialect, "=", Column(dialect, "id"), Literal(dialect, 5)
+                ),
+            ),
+            QueryStatement(
+                dialect,
+                select=[Column(dialect, "id"), Literal(dialect, 2)],
+                from_=_table(dialect, "u"),
+            ),
+        ]
+        node = SetOperationStatement(dialect, op="union_all", parts=parts)
+
+        rendered, params = node.to_sql()
+
+        assert rendered == (
+            "SELECT `id`, ? FROM `t` WHERE `id` = ? "
+            "UNION ALL "
+            "SELECT `id`, ? FROM `u`"
+        )
+        assert params == (1, 5, 2)
+
+    @pytest.mark.parametrize("op, keyword", [
+        ("intersect", "INTERSECT"),
+        ("except", "EXCEPT"),
+    ])
+    def test_the_other_two_operators_render(self, dialect, op, keyword):
+        """Both spell the keyword directly, with no version gate."""
+        node = SetOperationStatement(
+            dialect, op=op, parts=_compound_arms_for_bigquery(dialect)
+        )
+
+        rendered, params = node.to_sql()
+
+        assert rendered == (
+            f"SELECT `id` FROM `t` {keyword} SELECT `id` FROM `other`"
+        )
+        assert params == ()
