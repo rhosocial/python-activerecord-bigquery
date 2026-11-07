@@ -36,7 +36,7 @@ from rhosocial.activerecord.backend.impl.bigquery.config import (
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.expression.introspection import (
     COLUMNS_PROJECTION_FULL,
-    COLUMNS_PROJECTION_NARROW,
+    _EMULATOR_COLUMNS_PROJECTION,
 )
 from rhosocial.activerecord.backend.impl.bigquery.introspection import (
     AsyncBigQueryIntrospector,
@@ -615,7 +615,7 @@ def test_a_name_the_question_did_not_ask_is_not_an_answer_of_no(introspector):
         for name, value in _column_row(
             is_generated="NEVER", is_identity="YES", column_default="7"
         ).items()
-        if name in COLUMNS_PROJECTION_NARROW
+        if name in _EMULATOR_COLUMNS_PROJECTION
     }
     narrow["table_catalog"] = "my-project"
     narrow["table_schema"] = "my_dataset"
@@ -634,7 +634,7 @@ def test_a_name_the_question_did_not_ask_is_not_an_answer_of_no(introspector):
         "my_dataset",
     )
 
-    assert set(unasked.extra[COLUMNS_ASKED_KEY]) == set(COLUMNS_PROJECTION_NARROW)
+    assert set(unasked.extra[COLUMNS_ASKED_KEY]) == set(_EMULATOR_COLUMNS_PROJECTION)
     assert unasked.is_generated is None
     assert unasked.default_value is None
     assert unasked.generated_expression is None
@@ -656,11 +656,11 @@ def test_the_asked_names_survive_an_uppercase_row(introspector):
     narrow = {
         name.upper(): value
         for name, value in _column_row().items()
-        if name in COLUMNS_PROJECTION_NARROW
+        if name in _EMULATOR_COLUMNS_PROJECTION
     }
     narrow["TABLE_CATALOG"] = "my-project"
     narrow["TABLE_SCHEMA"] = "my_dataset"
     (column,) = introspector.parse_columns([narrow], "orders", "my_dataset")
 
-    assert set(column.extra[COLUMNS_ASKED_KEY]) == set(COLUMNS_PROJECTION_NARROW)
+    assert set(column.extra[COLUMNS_ASKED_KEY]) == set(_EMULATOR_COLUMNS_PROJECTION)
     assert column.is_generated is None

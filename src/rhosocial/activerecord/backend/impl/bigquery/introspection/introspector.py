@@ -47,7 +47,7 @@ projection ran off the row, and the parsed column records it under
 :data:`COLUMNS_ASKED_KEY` so a name the endpoint was never asked reports
 ``None`` rather than an answer of *no*. See
 :data:`~..expression.introspection.COLUMNS_PROJECTION_FULL` and
-:data:`~..expression.introspection.COLUMNS_PROJECTION_NARROW`.
+the emulator's ``_EMULATOR_COLUMNS_PROJECTION``.
 
 **What BigQuery's catalog cannot answer.**
 
@@ -128,7 +128,7 @@ from rhosocial.activerecord.backend.introspection.types import (
 
 from ..expression.introspection import (
     COLUMNS_PROJECTION_FULL,
-    COLUMNS_PROJECTION_NARROW,
+    _EMULATOR_COLUMNS_PROJECTION,
     BigQueryColumnInfoQueryStatement,
     BigQueryDatabaseInfoQueryStatement,
     BigQueryDatasetListQueryStatement,
@@ -987,9 +987,9 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
         try:
             rows = self._executor.execute(sql, params)
         except DatabaseError as first_error:
-            if self.columns_projection == COLUMNS_PROJECTION_NARROW:
+            if self.columns_projection == _EMULATOR_COLUMNS_PROJECTION:
                 raise
-            self.columns_projection = COLUMNS_PROJECTION_NARROW
+            self.columns_projection = _EMULATOR_COLUMNS_PROJECTION
             sql, params = self.column_info_statement(
                 table_name=table_name,
                 schema=schema,
@@ -1248,9 +1248,9 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         try:
             rows = await self._executor.execute(sql, params)
         except DatabaseError as first_error:
-            if self.columns_projection == COLUMNS_PROJECTION_NARROW:
+            if self.columns_projection == _EMULATOR_COLUMNS_PROJECTION:
                 raise
-            self.columns_projection = COLUMNS_PROJECTION_NARROW
+            self.columns_projection = _EMULATOR_COLUMNS_PROJECTION
             sql, params = self.column_info_statement(
                 table_name=table_name,
                 schema=schema,

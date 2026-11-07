@@ -56,14 +56,22 @@ partitions              ``INFORMATION_SCHEMA.PARTITIONS``
 No BigQuery instance was available while writing this module. The statement
 shapes follow the pages cited beside each class below.
 
-**The ``COLUMNS`` projection is a parameter, not a constant.** BigQuery's own
-``COLUMNS`` view documents more columns than every endpoint that speaks
-GoogleSQL answers, and a projection naming one an endpoint lacks fails the
-*whole* question during analysis rather than answering it ``NULL``. So the
-question carries the names it asks (:data:`COLUMNS_PROJECTION_FULL`), and the
-narrow set (:data:`COLUMNS_PROJECTION_NARROW`) is the fallback an endpoint that
-cannot answer the full one is asked instead -- never the projection a real
-server is asked, which is what the full list is.
+**The ``COLUMNS`` projection is a parameter, and these two tables are its
+values.** BigQuery's own ``COLUMNS`` view documents more columns than every
+endpoint that speaks GoogleSQL answers, and a projection naming one an endpoint
+lacks fails the *whole* question during analysis rather than answering it
+``NULL``. So the question does not fix a projection in this module: the
+statement carries the names it asks as a parameter, which is what lets the
+introspector reask an endpoint with a shorter list once the first question has
+failed. This module names the two values that parameter takes.
+:data:`COLUMNS_PROJECTION_FULL` is the documented order, and it is the only
+projection a real server is asked. ``_EMULATOR_COLUMNS_PROJECTION`` is the
+column coverage of the ``goccy/bigquery-emulator`` this repository's CI runs
+against -- a property of that emulator, not of BigQuery -- and it is reached
+only after an endpoint has failed the documented list. The parameter
+distinction the heading draws still holds: no question fixes a projection in
+this module; the projection is the parameter the statement carries, and these
+tables are the candidate values for it.
 https://cloud.google.com/bigquery/docs/information-schema-columns
 """
 
@@ -79,7 +87,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 #: Every column BigQuery's ``COLUMNS`` view documents, in documented order.
 #: This is what a real server is asked, because it is what a real server
-#: answers -- and it is the *only* way to read the families the narrow
+#: answers -- and it is the *only* way to read the families the emulator
 #: projection leaves out: whether a column is generated, what a computed
 #: column is computed from, what an identity column's bounds are, which
 #: column the table clusters by.
@@ -113,11 +121,15 @@ COLUMNS_PROJECTION_FULL: Tuple[str, ...] = (
 )
 
 #: The subset the ``goccy/bigquery-emulator`` this repository's CI runs
-#: against answers. It is a *fallback*, chosen only after an endpoint has
-#: failed the full projection, and the parser records which of the two ran
-#: so that a name the endpoint was never asked is not read as an answer of
-#: "no" (see ``COLUMNS_ASKED_KEY`` in ...introspection.introspector).
-COLUMNS_PROJECTION_NARROW: Tuple[str, ...] = (
+#: against answers -- 10 of the 24 documented columns. This is the emulator's
+#: column coverage, not a fact about BigQuery, which is why the name says
+#: "emulator" and why the table is private: no real server is asked for less
+#: than the documented list. It is a *fallback*, chosen only after an endpoint
+#: has failed the full projection (``...introspection.introspector`` reasks
+#: with it once and remembers the choice), and the parser records which of the
+#: two ran so that a name the endpoint was never asked is not read as an answer
+#: of "no" (see ``COLUMNS_ASKED_KEY`` in ...introspection.introspector).
+_EMULATOR_COLUMNS_PROJECTION: Tuple[str, ...] = (
     "table_catalog",
     "table_schema",
     "table_name",
@@ -133,7 +145,6 @@ COLUMNS_PROJECTION_NARROW: Tuple[str, ...] = (
 
 __all__ = [
     "COLUMNS_PROJECTION_FULL",
-    "COLUMNS_PROJECTION_NARROW",
     "BigQueryDatabaseInfoQueryStatement",
     "BigQueryTableListQueryStatement",
     "BigQueryColumnInfoQueryStatement",
@@ -241,7 +252,7 @@ class BigQueryColumnInfoQueryStatement(IntrospectionExpression):
             documented list (:data:`COLUMNS_PROJECTION_FULL`), because that
             is what a real BigQuery answers; an endpoint that cannot answer
             a name fails the question during analysis, which is why the
-            narrower :data:`COLUMNS_PROJECTION_NARROW` exists as a fallback
+            narrower ``_EMULATOR_COLUMNS_PROJECTION`` exists as a fallback
             rather than as the default.
 
     https://cloud.google.com/bigquery/docs/information-schema-columns

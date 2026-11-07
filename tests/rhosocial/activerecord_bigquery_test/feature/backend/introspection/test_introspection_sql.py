@@ -42,7 +42,7 @@ from rhosocial.activerecord.backend.impl.bigquery.config import (
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.expression.introspection import (
     COLUMNS_PROJECTION_FULL,
-    COLUMNS_PROJECTION_NARROW,
+    _EMULATOR_COLUMNS_PROJECTION,
     BigQueryColumnInfoQueryStatement,
     BigQueryDatabaseInfoQueryStatement,
     BigQueryDatasetListQueryStatement,
@@ -209,12 +209,12 @@ def test_columns_fall_back_to_the_names_the_endpoint_answers(dialect):
         "orders",
         "my_dataset",
         "my-project",
-        projection=COLUMNS_PROJECTION_NARROW,
+        projection=_EMULATOR_COLUMNS_PROJECTION,
     ).to_sql()
-    assert set(COLUMNS_PROJECTION_NARROW) <= set(COLUMNS_PROJECTION_FULL)
-    for name in COLUMNS_PROJECTION_NARROW:
+    assert set(_EMULATOR_COLUMNS_PROJECTION) <= set(COLUMNS_PROJECTION_FULL)
+    for name in _EMULATOR_COLUMNS_PROJECTION:
         assert f"`{name}`" in sql
-    for dropped in set(COLUMNS_PROJECTION_FULL) - set(COLUMNS_PROJECTION_NARROW):
+    for dropped in set(COLUMNS_PROJECTION_FULL) - set(_EMULATOR_COLUMNS_PROJECTION):
         assert f"`{dropped}`" not in sql
     assert params == ("orders",)
 
@@ -585,10 +585,10 @@ def test_list_columns_reasks_the_names_an_endpoint_answers():
     assert len(executor.statements) == 3
     for name in COLUMNS_PROJECTION_FULL:
         assert f"`{name}`" in executor.statements[0]
-    for dropped in set(COLUMNS_PROJECTION_FULL) - set(COLUMNS_PROJECTION_NARROW):
+    for dropped in set(COLUMNS_PROJECTION_FULL) - set(_EMULATOR_COLUMNS_PROJECTION):
         assert f"`{dropped}`" not in executor.statements[1]
         assert f"`{dropped}`" not in executor.statements[2]
-    assert introspector_obj.columns_projection == COLUMNS_PROJECTION_NARROW
+    assert introspector_obj.columns_projection == _EMULATOR_COLUMNS_PROJECTION
     # The rows are parsed, so the families that read the catalogue (the
     # profile, the storage shape) still work -- they work with the answer this
     # endpoint has.
