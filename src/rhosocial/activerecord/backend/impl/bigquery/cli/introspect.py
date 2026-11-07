@@ -31,6 +31,12 @@ the project and no dataset.
 No command fabricates an answer. Without a dataset the introspector raises
 with the exact instruction, and without credentials the client refuses to
 connect; both exit non-zero with the reason on stderr.
+
+``NAME`` is required, optional or refused per subcommand, and the rule for
+each lives in ``_NAME_RULE`` rather than inside the question that needs it:
+a name a command has no question for is refused with exit 2, never parsed
+and dropped, because a dropped name prints the family listing under a
+one-object question.
 """
 
 import argparse
@@ -46,9 +52,7 @@ from .connection import (
     add_connection_args,
     resolve_connection_config_from_args,
 )
-from .output import create_provider
-
-OUTPUT_CHOICES = ["table", "json", "csv", "tsv"]
+from .output import OUTPUT_CHOICES, create_provider
 
 #: Subcommand -> the dialect capability switch that decides whether the
 #: connected project can answer it.
@@ -97,18 +101,50 @@ _TYPE_CAPABILITIES = {
 #: here; nothing else registers one of them.
 INTROSPECT_TYPES = list(_TYPE_CAPABILITIES)
 
-#: The subcommands that act on a named table, so they carry the
-#: positional name the others do not. ``partitions`` is one of them: the
-#: question is one table's partitions, and the answer without a name would
-#: be a different question (every partition in the dataset) that the
-#: statement has no filter to ask.
-_NAME_COMMANDS = (
-    "columns",
-    "partitions",
-    "ddl",
-    "column-profiles",
-    "value-samples",
-    "join-coverage",
+#: What the optional NAME positional means for each subcommand.
+#:
+#: ``required`` -- the subcommand asks about one object and cannot be
+#: answered without it. ``optional`` -- a family that can also answer for
+#: one named object, so a given name narrows it and omitting it asks for the
+#: whole family. ``forbidden`` -- the subcommand has no single-object
+#: question here, so a name would read as a filter that matched everything.
+#:
+#: The order is the order ``_TYPE_CAPABILITIES`` declares and the parser and
+#: ``--help`` print, and the two tables cover the same keys: a subcommand
+#: offered without a rule is one whose NAME decision nobody has made.
+#:
+#: ``tables``, ``views`` and ``datasets`` are listings over the whole
+#: dataset or project and take no positional at all; argparse refuses a
+#: stray one. ``database`` answers for the project the run connected to, and
+#: the four counter families for the dataset as a whole, so a name beside
+#: any of them is refused rather than parsed and dropped. ``dependencies``
+#: is the one family that can also answer for one object's edges, so its
+#: name is optional. ``partitions`` is a one-table question: without a name
+#: the read is the dataset-wide one the storage reducer asks, which is a
+#: different question the statement has no filter for.
+_NAME_RULE = {
+    "tables": "forbidden",
+    "views": "forbidden",
+    "columns": "required",
+    "datasets": "forbidden",
+    "database": "forbidden",
+    "partitions": "required",
+    "unused-indexes": "forbidden",
+    "table-stats": "forbidden",
+    "runtime": "forbidden",
+    "index-stats": "forbidden",
+    "dependencies": "optional",
+    "ddl": "required",
+    "column-profiles": "required",
+    "value-samples": "required",
+    "join-coverage": "required",
+}
+
+#: The subcommands that act on a named object, so they carry the positional
+#: name the others do not. Derived from the rule table rather than written a
+#: second time: one decision, read by the parser and by the validator alike.
+_NAME_COMMANDS = tuple(
+    name for name, rule in _NAME_RULE.items() if rule == "required"
 )
 
 #: The subcommands that can also answer for one named object but answer the
@@ -117,7 +153,9 @@ _NAME_COMMANDS = (
 #: declines the family, so both spellings reach the same refusal -- but the
 #: name still has to parse, or the refusal would be argparse's instead of
 #: the capability answer.
-_OPTIONAL_NAME_COMMANDS = ("dependencies",)
+_OPTIONAL_NAME_COMMANDS = tuple(
+    name for name, rule in _NAME_RULE.items() if rule == "optional"
+)
 
 _EPILOG = """Examples:
   # Every dataset in the project, and the project itself
@@ -341,32 +379,37 @@ def _serialize_for_output(obj: Any) -> Any:
     return str(obj)
 
 
-def _one(name: str, args) -> str:
-    """The positional name of a command that requires one, or an exit."""
-    if not args.name:
+def _validate_name(args) -> None:
+    """Apply the NAME rule table, once, instead of inside each question.
+
+    A silently ignored argument is the worst of the three outcomes: the run
+    succeeds, prints a family listing, and reads as though it had been
+    narrowed to one object. So the table above is read here, once -- a
+    question that forgot would answer a wider question than the one asked
+    and look successful doing it.
+
+    The name is read with ``getattr`` because the parser only declares the
+    positional for the subcommands that have one, so an absent attribute is
+    "no name was given" rather than an error. A *missing* name is an
+    incomplete invocation and leaves with 1, the code a missing ``--dataset``
+    gets; a name the command has no question for is a request this command
+    declines and leaves with 2.
+    """
+    rule = _NAME_RULE.get(args.command)
+    name = getattr(args, "name", None)
+    if rule == "required" and not name:
         print(
-            f"Error: a table name is required for the '{name}' command",
+            f"Error: a table name is required for the '{args.command}' command",
             file=sys.stderr,
         )
         sys.exit(1)
-    return args.name
-
-
-def _refuse_name(args, hint: str = "it answers for the whole dataset") -> None:
-    """Refuse a positional NAME the command has no question for.
-
-    The operational families describe the dataset or the project as a
-    whole: dropping the name instead would print the family listing under
-    a one-object question, which is a different answer than the one asked
-    for. ``database`` is the project-wide case and says so, because
-    "the whole dataset" would send a reader looking for a dataset question
-    that does not exist.
-    """
-    print(
-        f"Error: '{args.command}' does not take an object name; {hint}",
-        file=sys.stderr,
-    )
-    sys.exit(2)
+    if rule == "forbidden" and name:
+        print(
+            f"Error: '{args.command}' does not take an object name; "
+            "it answers for everything in scope, not one object",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
 
 def _require_column(command: str, args) -> str:
@@ -496,33 +539,24 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
     # exist so the refusal is a capability answer rather than an unhandled
     # subcommand. They are defined before the mapping because a ``def`` is a
     # statement and cannot sit inside a dict display.
-    def _unused_indexes(introspector, _args=args):
-        if getattr(_args, "name", None):
-            _refuse_name(_args)
+    # The four counter families and the project-level question are
+    # ``forbidden`` in ``_NAME_RULE``: they answer for everything in scope,
+    # so ``_validate_name`` has already refused a run that named one object.
+    # What is left here is the question itself.
+
+    def _unused_indexes(introspector):
         return introspector.list_unused_indexes(schema=schema)
 
-    def _table_usage_stats(introspector, _args=args):
-        if getattr(_args, "name", None):
-            _refuse_name(_args)
+    def _table_usage_stats(introspector):
         return introspector.list_table_usage_stats(schema=schema)
 
-    def _runtime_metrics(introspector, _args=args):
-        if getattr(_args, "name", None):
-            _refuse_name(_args)
+    def _runtime_metrics(introspector):
         return introspector.list_runtime_metrics(schema=schema)
 
-    def _index_usage_stats(introspector, _args=args):
-        if getattr(_args, "name", None):
-            _refuse_name(_args)
+    def _index_usage_stats(introspector):
         return introspector.list_index_usage_stats(schema=schema)
 
-    def _database_info(introspector, _args=args):
-        if getattr(_args, "name", None):
-            # The project the run connected to, not one object in it: a name
-            # is refused rather than dropped, because ``@@project_id`` answers
-            # for the whole project and a "database described by name" does
-            # not exist here.
-            _refuse_name(_args, "it describes the project the run connected to")
+    def _database_info(introspector):
         return introspector.get_database_info()
 
     return {
@@ -531,7 +565,7 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
         ),
         "views": lambda introspector: introspector.list_views(schema=schema),
         "columns": lambda introspector: introspector.list_columns(
-            _one("columns", args), schema=schema
+            args.name, schema=schema
         ),
         "datasets": lambda introspector: introspector.list_datasets(),
         "database": _database_info,
@@ -540,7 +574,7 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
         # read is the dataset-wide one the storage reducer asks rather than
         # this family.
         "partitions": lambda introspector: introspector.list_partitions(
-            _one("partitions", args), schema=schema
+            args.name, schema=schema
         ),
         "unused-indexes": _unused_indexes,
         "table-stats": _table_usage_stats,
@@ -554,18 +588,18 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
         ),
         # ---- the one-object and two-object families -------------------
         "ddl": lambda introspector: introspector.get_ddl_statement(
-            _one("ddl", args), object_type=None, schema=schema
+            args.name, object_type=None, schema=schema
         ),
         "column-profiles": lambda introspector: introspector.list_column_data_profiles(
-            _one("column-profiles", args), schema=schema
+            args.name, schema=schema
         ),
         "value-samples": lambda introspector: introspector.sample_column_values(
-            _one("value-samples", args),
+            args.name,
             _require_column("value-samples", args),
             schema=schema,
         ),
         "join-coverage": lambda introspector: introspector.estimate_join_coverage(
-            _one("join-coverage", args),
+            args.name,
             _require_column("join-coverage", args),
             _require_right_table(args),
             _require_right_column(args),
@@ -712,6 +746,7 @@ def _run_sync(args, backend, provider) -> None:
         backend.connect()
         _require_capability(backend, args)
         _refuse_unused_arguments(args)
+        _validate_name(args)
         _report(_questions(args)[args.command](backend.introspector), args, provider)
     except ConnectionError as exc:
         print(f"Connection error: {exc}", file=sys.stderr)
@@ -733,6 +768,7 @@ async def _run_async(args, backend, provider) -> None:
         await backend.connect()
         _require_capability(backend, args)
         _refuse_unused_arguments(args)
+        _validate_name(args)
         call = _async_questions(args)[args.command]
         _report(await call(backend.introspector), args, provider)
     except ConnectionError as exc:

@@ -1,10 +1,11 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/cli/output.py
-"""Output provider factory and display helpers.
+"""Output provider factory, the format lists, and display helpers.
 
 Four formats, one factory: ``table`` renders through ``rich`` when it is
 installed and falls back to ``json`` when it is not, because the table
 renderer is an optional dependency and a missing one must degrade rather
-than refuse the run.
+than refuse the run. The lists a caller picks from live here too, beside
+the factory that has to be able to produce every member of them.
 """
 
 from rhosocial.activerecord.backend.output import (
@@ -20,6 +21,17 @@ try:
 except ImportError:  # pragma: no cover -- exercised only without rich
     RICH_AVAILABLE = False
     RichOutputProvider = None  # type: ignore[misc,assignment]
+
+
+#: The output formats the introspect subcommand offers.
+#:
+#: The provider factory below is what makes them available: a format listed
+#: here must map to a provider, and a provider nobody is offered is
+#: unreachable. Defining the list once, beside the factory that has to be
+#: able to produce every member, is what keeps "offered" and "producible"
+#: from drifting apart -- a second spelling somewhere else would be
+#: advertising an output the factory cannot build.
+OUTPUT_CHOICES = ["table", "json", "csv", "tsv"]
 
 
 def create_provider(output_format: str, ascii_borders: bool = False):
@@ -49,4 +61,4 @@ def create_provider(output_format: str, ascii_borders: bool = False):
     return JsonOutputProvider()
 
 
-__all__ = ["create_provider", "RICH_AVAILABLE"]
+__all__ = ["OUTPUT_CHOICES", "create_provider", "RICH_AVAILABLE"]

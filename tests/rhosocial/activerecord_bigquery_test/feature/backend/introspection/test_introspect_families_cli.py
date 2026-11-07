@@ -36,6 +36,7 @@ from typing import Optional
 import pytest
 
 from rhosocial.activerecord.backend.impl.bigquery.cli import introspect as introspect_cli
+from rhosocial.activerecord.backend.impl.bigquery.cli import output as output_mod
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.mixins import (
     introspection as mixins_introspection,
@@ -219,10 +220,144 @@ class TestTheDatasetWideFamilies:
     @pytest.mark.parametrize("command", WHOLE_DATASET_FAMILIES)
     def test_a_name_is_refused(self, command, capsys):
         with pytest.raises(SystemExit) as excinfo:
-            introspect_cli._refuse_name(_args(command, "orders"))
+            introspect_cli._validate_name(_args(command, "orders"))
 
         assert excinfo.value.code == 2
         assert "does not take an object name" in capsys.readouterr().err
+
+
+class TestTheNameRuleTable:
+    """The NAME rule is a table, and a table nobody asserts is a guess.
+
+    Three pinning levels: the whole table as data (so editing one command's
+    answer is a visible change to a literal rather than a drift), the set (so a
+    command cannot be advertised without someone deciding what NAME means for
+    it), and the behaviour (so the table is what a run actually applies rather
+    than text that happens to sit beside code that ignores it). The set-level
+    check is what the cross-repository clause of ``.claude/rules/constants.md``
+    asks for: a private table read in several places earns its name because
+    the readings are asserted.
+    """
+
+    def test_every_advertised_command_has_a_rule(self):
+        assert set(introspect_cli._NAME_RULE) == set(introspect_cli.INTROSPECT_TYPES)
+
+    def test_the_table_says_what_each_commands_name_means(self):
+        assert introspect_cli._NAME_RULE == {
+            "tables": "forbidden",
+            "views": "forbidden",
+            "columns": "required",
+            "datasets": "forbidden",
+            "database": "forbidden",
+            "partitions": "required",
+            "unused-indexes": "forbidden",
+            "table-stats": "forbidden",
+            "runtime": "forbidden",
+            "index-stats": "forbidden",
+            "dependencies": "optional",
+            "ddl": "required",
+            "column-profiles": "required",
+            "value-samples": "required",
+            "join-coverage": "required",
+        }
+
+    def test_the_table_covers_no_command_the_parser_does_not_offer(self):
+        assert set(introspect_cli._NAME_RULE) - set(introspect_cli.INTROSPECT_TYPES) == set()
+
+    @pytest.mark.parametrize(
+        "command",
+        sorted(
+            k for k, rule in introspect_cli._NAME_RULE.items() if rule == "forbidden"
+        ),
+    )
+    def test_a_forbidden_name_is_refused_by_the_table(self, command, capsys):
+        with pytest.raises(SystemExit) as excinfo:
+            introspect_cli._validate_name(_args(command, "orders"))
+
+        assert excinfo.value.code == 2
+        assert "does not take an object name" in capsys.readouterr().err
+
+    @pytest.mark.parametrize(
+        "command",
+        sorted(
+            k for k, rule in introspect_cli._NAME_RULE.items() if rule == "required"
+        ),
+    )
+    def test_a_required_name_is_required_by_the_table(self, command, capsys):
+        """A missing required NAME is an incomplete invocation, exit 1 -- the
+        code a missing ``--dataset`` gets, because 2 is reserved for a request
+        this command declines to serve.
+        """
+        with pytest.raises(SystemExit) as excinfo:
+            introspect_cli._validate_name(_args(command))
+
+        assert excinfo.value.code == 1
+        assert "a table name is required for the" in capsys.readouterr().err
+
+    @pytest.mark.parametrize(
+        "command",
+        sorted(
+            k for k, rule in introspect_cli._NAME_RULE.items() if rule == "optional"
+        ),
+    )
+    def test_an_optional_name_may_be_given_or_not(self, command):
+        introspect_cli._validate_name(_args(command))
+        introspect_cli._validate_name(_args(command, "orders"))
+
+    def test_the_positional_is_declared_for_exactly_the_named_commands(self):
+        """The parser and the validator read the same decision.
+
+        A command that takes a positional is one the table marks required or
+        optional, and one the table marks forbidden takes none -- argparse
+        refuses a stray one there rather than the validator having to.
+        """
+        named = set(introspect_cli._NAME_COMMANDS) | set(introspect_cli._OPTIONAL_NAME_COMMANDS)
+        assert named == {
+            command
+            for command, rule in introspect_cli._NAME_RULE.items()
+            if rule in ("required", "optional")
+        }
+        for command in introspect_cli.INTROSPECT_TYPES:
+            assert (command in named) == (command in introspect_cli._NAME_RULE and
+                                          introspect_cli._NAME_RULE[command] != "forbidden")
+
+
+class TestTheOutputList:
+    """The format list lives beside the factory that has to produce it.
+
+    ``OUTPUT_CHOICES`` used to sit in this module, two definitions from the
+    provider that answers it, which is what let "offered" and "producible"
+    drift apart. Beside the factory the loop can be closed: every advertised
+    format maps to a provider, and the four the parser offers are exactly the
+    four the factory builds.
+    """
+
+    def test_the_parser_offers_the_list_output_declares(self):
+        assert introspect_cli.OUTPUT_CHOICES is output_mod.OUTPUT_CHOICES
+
+    @pytest.mark.parametrize("output_format", output_mod.OUTPUT_CHOICES)
+    def test_every_offered_format_builds_a_provider(self, output_format):
+        provider = output_mod.create_provider(output_format)
+
+        # ``table`` degrades to the JSON provider when rich is missing, which
+        # is the factory's own documented fallback rather than a refusal.
+        if output_format == "table":
+            expected = (
+                "RichOutputProvider"
+                if output_mod.RICH_AVAILABLE
+                else "JsonOutputProvider"
+            )
+        elif output_format == "json":
+            expected = "JsonOutputProvider"
+        elif output_format == "csv":
+            expected = "CsvOutputProvider"
+        else:
+            expected = "TsvOutputProvider"
+        assert type(provider).__name__ == expected, output_format
+
+    def test_the_list_is_the_four_formats_the_factory_answers(self):
+        """A fifth entry would be advertising an output the factory cannot build."""
+        assert output_mod.OUTPUT_CHOICES == ["table", "json", "csv", "tsv"]
 
 
 class TestTheDdlBranch:
@@ -531,10 +666,7 @@ class TestTheDatabaseBranch:
         """``database`` describes the project the run connected to, so a name
         is refused rather than parsed and dropped."""
         with pytest.raises(SystemExit) as excinfo:
-            introspect_cli._refuse_name(
-                _args("database", "orders"),
-                "it describes the project the run connected to",
-            )
+            introspect_cli._validate_name(_args("database", "orders"))
 
         assert excinfo.value.code == 2
         assert "does not take an object name" in capsys.readouterr().err
