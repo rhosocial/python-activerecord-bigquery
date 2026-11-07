@@ -119,21 +119,6 @@ _NAME_COMMANDS = (
 #: the capability answer.
 _OPTIONAL_NAME_COMMANDS = ("dependencies",)
 
-#: Said before a column profile prints. It goes to stderr so the machine
-#: formats stay parseable, and it says the one thing a reader cannot infer
-#: from the rows: BigQuery charges by bytes read, so a profile is a full
-#: scan of the table and the most expensive thing this CLI can be asked.
-#: Each row carries ``source='aggregate'`` itself, which is what says the
-#: figures are exact counts rather than estimates -- this sentence only
-#: keeps a reader from taking an exact full-table count for a cheap
-#: catalogue reading.
-_PROFILE_COST_NOTE = (
-    "Note: a column profile is one full scan of the table, and BigQuery "
-    "bills by bytes read -- the most expensive introspection this command "
-    "offers. The figures are exact counts (source='aggregate'), not "
-    "estimates."
-)
-
 _EPILOG = """Examples:
   # Every dataset in the project, and the project itself
   %(prog)s datasets --project my-project
@@ -659,7 +644,13 @@ def _report(result: Any, args, provider) -> None:
         # The price sentence, before the rows, so a reader sees it while
         # looking at figures that cost a scan. On stderr, so the machine
         # formats on stdout stay parseable.
-        print(_PROFILE_COST_NOTE, file=sys.stderr)
+        print(
+            "Note: a column profile is one full scan of the table, and BigQuery "
+            "bills by bytes read -- the most expensive introspection this command "
+            "offers. The figures are exact counts (source='aggregate'), not "
+            "estimates.",
+            file=sys.stderr,
+        )
         rows = _serialize_for_output(list(result))
         provider.display_results(rows, title=_TITLES.get(args.command, args.command.title()))
         return

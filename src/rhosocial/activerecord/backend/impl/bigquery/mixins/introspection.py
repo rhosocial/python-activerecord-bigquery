@@ -59,6 +59,7 @@ from rhosocial.activerecord.backend.expression.query_parts import (
 from rhosocial.activerecord.backend.expression.sources import NamedRelationRef
 from rhosocial.activerecord.backend.expression.statements.dql import QueryStatement
 from rhosocial.activerecord.backend.expression.types.string import CharType
+from rhosocial.activerecord.backend.introspection.types import ProfileSource
 from rhosocial.activerecord.backend.introspection.types import IntrospectionScope
 
 from ..expression.introspection import (
@@ -1180,7 +1181,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 self._profile_column_slots(index, column_name, column_name in opaque)
             )
         select.append(CountFunction(self, RowCountWildcard(self)).as_("row_count"))
-        select.append(self._profile_label("aggregate", "source"))
+        select.append(self._profile_label(ProfileSource.AGGREGATE.value, "source"))
         query = QueryStatement(
             self,
             select=select,
