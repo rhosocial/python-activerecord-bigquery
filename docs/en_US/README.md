@@ -10,6 +10,10 @@ a **dataset**, and unlike every other backend, column references never carry it.
 - **[Schema Namespaces](bigquery_specific_features/schema_namespace.md)**: declaring
   `__schema_name__`, why columns are never dataset-qualified, the absence of a
   session-level current dataset, and the limits of single-level qualification
+- **[Database Introspection](bigquery_specific_features/introspection.md)**: what this
+  backend answers from `INFORMATION_SCHEMA`, the billed scans behind the three data
+  families, the two `COLUMNS` projections and the emulator fallback, and the fifteen
+  CLI types
 
 ## Key facts at a glance
 
