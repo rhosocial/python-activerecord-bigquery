@@ -22,10 +22,10 @@ env:
   # not published to PyPI; install them from git.
   # The schema-object refactor this branch depends on was developed on the core
   # library's expression-schema-object-refactor branch and merged to
-  # release/v1.0.0.dev30 (PR #125). This branch now pins CORE_PKG at its own
-  # development branch -- the constraint-gates work it carries is not on any
-  # release branch yet -- and pins TESTSUITE_PKG at the matching branch for the
-  # same reason, so the two move together. Two of the
+  # release/v1.0.0.dev30 (PR #125), and the introspection ownership rule this
+  # branch completes was merged there too (PR #128). CORE_PKG therefore pins the
+  # release branch, and TESTSUITE_PKG pins the matching testsuite release branch,
+  # so the two move together. Two of the
   # four names a previous revision of this comment listed -- QualifiedNameMixin
   # and CatalogSupport -- are ones that work *deleted*, along with the
   # single-`supports_schema_qualification` object model this backend used to
@@ -44,7 +44,7 @@ env:
   # The previous pin, the fix/schema-name-propagation-gaps branch, predates all
   # of that layer, so the imports this backend now makes do not resolve against
   # it.
-  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/introspection-enhancement"
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@release/v1.0.0.dev30"
   TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@release/v1.0.0.dev17"
 
 jobs:
