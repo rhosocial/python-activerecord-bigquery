@@ -223,5 +223,50 @@ class BigQueryDQLMixin:
             )
         return self.apply_alias(sql, end_params + start_params, expr)
 
+    def format_seconds_between_expression(self, expr) -> Tuple[str, tuple]:
+        """Format signed seconds between two instants as ``TIMESTAMP_DIFF``.
+
+        The node asks for ``end - start`` in seconds, signed and fractional.
+        BigQuery's ``TIMESTAMP_DIFF`` answers a whole number of named units and
+        keeps the direction in its sign, so the span is counted in
+        milliseconds -- the unit this node counts in -- and divided by
+        ``1000.0`` to turn the count into seconds. The decimal denominator
+        keeps the division in floating point, which is what preserves the
+        fraction: ``TIMESTAMP_DIFF(..., SECOND)`` alone would be a whole
+        number, and a whole-second answer is wrong wherever a sub-second is
+        present.
+
+        ``TIMESTAMP_DIFF`` takes the **end** instant first, so the arguments
+        are swapped relative to the generic ``start, end`` signature. That
+        swap is also where the sign comes from: ``end`` before ``start``
+        subtracts to a negative count, which the division carries through.
+
+        Resolution is one millisecond. ``TIMESTAMP_DIFF`` counts whole
+        milliseconds, so a span whose microseconds do not complete a
+        millisecond loses that remainder; a caller needing the exact
+        microsecond must ask the server for it directly rather than round-trip
+        through this node.
+
+        The operands must be ``TIMESTAMP`` values. GoogleSQL also has
+        ``DATETIME_DIFF`` for its zoneless ``DATETIME`` type, but this node
+        expresses an elapsed span between two instants, so ``TIMESTAMP_DIFF``
+        is the one spelling; passing a ``DATETIME`` operand without a cast is
+        a type error the server will report.
+
+        Args:
+            expr: The expression carrying ``start`` and ``end``.
+
+        Returns:
+            A ``(sql, params)`` tuple, with the end operand's parameters first
+            because the end operand is written first.
+        """
+        start_sql, start_params = expr.start.to_sql()
+        end_sql, end_params = expr.end.to_sql()
+        sql = (
+            f"TIMESTAMP_DIFF({end_sql}, {start_sql}, "
+            f"{self.escape_sql_string('MILLISECOND')}) / 1000.0"
+        )
+        return self.apply_alias(sql, end_params + start_params, expr)
+
 
 __all__ = ['BigQueryDQLMixin']
