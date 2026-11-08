@@ -35,6 +35,20 @@ ID here. Pass the dataset alone and the configured project is used, or pass
 need a dataset raise :class:`ValueError` with that instruction when neither
 the argument nor the connection config supplies one; nothing is guessed.
 
+**Two ``COLUMNS`` projections, because there is nothing else to ask.**
+``INFORMATION_SCHEMA.COLUMNS`` reports its own columns nowhere, so the only
+question that says which of them an endpoint carries is the ``COLUMNS``
+question itself. :meth:`list_columns` therefore asks the whole documented
+list and, if the endpoint fails the question, asks the narrower list instead
+-- remembering the answer for the rest of the manager's life, so a real
+server pays nothing for the fallback and an emulator pays one failed
+question once rather than one per table. :func:`_asked_columns` reads which
+projection ran off the row, and the parsed column records it under
+:data:`COLUMNS_ASKED_KEY` so a name the endpoint was never asked reports
+``None`` rather than an answer of *no*. See
+:data:`~..expression.introspection.COLUMNS_PROJECTION_FULL` and
+the emulator's ``_EMULATOR_COLUMNS_PROJECTION``.
+
 **What BigQuery's catalog cannot answer.**
 
 *Foreign keys.* ``TABLE_CONSTRAINTS`` reports that a foreign key exists and
@@ -82,20 +96,22 @@ names and value spellings directly.
 import copy
 import warnings
 from datetime import datetime
-from typing import Any, Dict, List, NoReturn, Optional, Tuple
+from typing import Any, Dict, List, NoReturn, Optional, Sequence, Tuple
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.errors import DatabaseError
 from rhosocial.activerecord.backend.introspection.base import (
     AsyncAbstractIntrospector,
     IntrospectorMixin,
-    SyncAbstractIntrospector,
+    AbstractIntrospector,
 )
 from rhosocial.activerecord.backend.introspection.cache import IntrospectionCache
 from rhosocial.activerecord.backend.introspection.executor import (
     AsyncIntrospectorExecutor,
-    SyncIntrospectorExecutor,
+    IntrospectorExecutor,
 )
 from rhosocial.activerecord.backend.introspection.types import (
+    ColumnDataProfile,
     ColumnNullable,
     IndexColumnInfo,
     IndexInfo,
@@ -111,6 +127,8 @@ from rhosocial.activerecord.backend.introspection.types import (
 )
 
 from ..expression.introspection import (
+    COLUMNS_PROJECTION_FULL,
+    _EMULATOR_COLUMNS_PROJECTION,
     BigQueryColumnInfoQueryStatement,
     BigQueryDatabaseInfoQueryStatement,
     BigQueryDatasetListQueryStatement,
@@ -145,6 +163,14 @@ _TABLE_TYPE_MAP = {
 #: The views that are not tables, used when ``include_views=False``.
 _VIEW_TYPES = ("VIEW", "MATERIALIZED VIEW")
 
+#: The ``extra`` key a parsed column records the catalog names it was actually
+#: asked for under. It is what separates "the catalog says this column is not
+#: generated" from "nobody asked": the first is a value in the slot, the
+#: second is the name's absence from this tuple -- and reading an unasked name
+#: as an answer of *no* is how a consumer ends up told a column is not
+#: generated when the truth is that the endpoint never carried the fact.
+COLUMNS_ASKED_KEY = "columns_asked"
+
 
 def _row_get(row: Dict[str, Any], key: str, default: Any = None) -> Any:
     """Read one catalog column, tolerating the case the driver used.
@@ -161,6 +187,30 @@ def _row_get(row: Dict[str, Any], key: str, default: Any = None) -> Any:
     if key.upper() in row:
         return row[key.upper()]
     return default
+
+
+def _row_asked(row: Dict[str, Any], key: str) -> bool:
+    """Whether the question that produced *row* selected *key*.
+
+    A projection selects names, and an endpoint returns one field per
+    selected name -- so a field's presence *is* the record of the question
+    that was asked, and its absence is never the endpoint answering "no".
+    """
+    return key in row or key.lower() in row or key.upper() in row
+
+
+def _asked_columns(row: Dict[str, Any]) -> Tuple[str, ...]:
+    """The documented ``COLUMNS`` names *row* was asked for, in their order.
+
+    The two projections are both subsets of the documented list, so the
+    intersection with it is the answer whichever one ran: the whole list for
+    a real server, the narrower set for an endpoint that could not answer
+    more. A name a future endpoint returns beyond that list cannot be
+    attributed to the question -- no projection named it -- so it stays out
+    of the tuple and is still read as a value, which is the only part of the
+    answer that is true either way.
+    """
+    return tuple(name for name in COLUMNS_PROJECTION_FULL if _row_asked(row, name))
 
 
 def _isoformat(value: Any) -> Optional[str]:
@@ -202,7 +252,18 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
     :mod:`...expression.introspection`; rendering is the dialect's job. The
     ``parse_*`` methods are pure Python: rows in, core introspection
     dataclasses out, shared by both managers.
+
+    The one thing the two managers hold between calls is which ``COLUMNS``
+    projection the endpoint in front of them answers -- see
+    :meth:`list_columns`, which is where an endpoint that cannot answer the
+    full documented list is asked the narrower one instead and the choice is
+    remembered. It is state rather than a constant because the answer is the
+    endpoint's, not this backend's.
     """
+
+    #: The ``COLUMNS`` projection this manager asks with, assigned by the
+    #: manager's ``__init__`` and narrowed by :meth:`list_columns`.
+    columns_projection: Tuple[str, ...]
 
     # ------------------------------------------------------------------ #
     # Names and qualifiers
@@ -333,7 +394,11 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         )
 
     def column_info_statement(
-        self, *, table_name: str, schema: Optional[str]
+        self,
+        *,
+        table_name: str,
+        schema: Optional[str],
+        projection: Sequence[str] = COLUMNS_PROJECTION_FULL,
     ) -> "BigQueryColumnInfoQueryStatement":
         """Return the ``INFORMATION_SCHEMA.COLUMNS`` statement.
 
@@ -343,6 +408,17 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         columns (``is_hidden = 'YES'``) are filtered in the parser, because
         their ``ordinal_position`` is documented as ``NULL`` and they are not
         part of the table's declared schema.
+
+        Args:
+            table_name: The table whose columns are wanted.
+            schema: A dataset ID or a ``project.dataset`` pair; ``None``
+                for the connection default.
+            projection: The catalog columns to select. Defaults to the whole
+                documented list, which is what a real BigQuery answers and
+                therefore what a real server is asked; :meth:`list_columns`
+                is what narrows it, and only for an endpoint that has just
+                failed to answer the whole list.
+
         https://cloud.google.com/bigquery/docs/information-schema-columns
         """
         catalog, dataset = self._dataset_scoped(schema)
@@ -351,6 +427,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             table_name=table_name,
             schema=dataset,
             catalog=catalog,
+            projection=projection,
         )
 
     def index_info_statement(
@@ -454,6 +531,50 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             self.dialect, table_name=table_name, schema=dataset, catalog=catalog
         )
 
+    def partition_totals_statement(
+        self, schema: Optional[str]
+    ) -> "BigQueryPartitionListQueryStatement":
+        """Return the same ``PARTITIONS`` question asked of the whole dataset.
+
+        No table filter, so the answer is every partition row the dataset
+        has. One read for the dataset is what lets the storage reducer fill
+        a whole listing; asking the filtered question once per table would
+        be one round trip per relation.
+        """
+        catalog, dataset = self._dataset_scoped(schema)
+        return BigQueryPartitionListQueryStatement(
+            self.dialect, table_name=None, schema=dataset, catalog=catalog
+        )
+
+    def parse_table_storage(
+        self, tables: List[IntrospectionTableInfo], rows: List[Dict[str, Any]]
+    ) -> List[IntrospectionTableInfo]:
+        """Attribute the dataset's partition rows to the tables they sum to.
+
+        ``PARTITIONS`` answers one row per partition; a table's stored bytes
+        is the sum of its partitions' ``total_billable_bytes``, which lands
+        on ``size_bytes`` -- the common minimum's total. A table with no
+        partition rows (a view has none) keeps ``None``: not an object this
+        engine stores bytes for, which is a different answer from zero.
+
+        The split slots stay ``None`` for a reason that is BigQuery's shape
+        rather than a gap: managed storage has no index side to separate,
+        so there is nothing to attribute ``data_size_bytes`` or
+        ``index_size_bytes`` to (``.claude/rules/introspection.md`` §5).
+        Per-partition rows are already answered by the ``PARTITIONS``
+        family; this reduction is only the common minimum.
+        """
+        billable_by_table: Dict[str, int] = {}
+        for row in rows:
+            table_name = row.get("table_name")
+            total = _as_int(row.get("total_billable_bytes"))
+            if table_name is None or total is None:
+                continue
+            billable_by_table[table_name] = billable_by_table.get(table_name, 0) + total
+        for table in tables:
+            table.size_bytes = billable_by_table.get(table.name)
+        return tables
+
     # ------------------------------------------------------------------ #
     # Parsing
     # ------------------------------------------------------------------ #
@@ -528,9 +649,22 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
     def parse_columns(
         self, rows: List[Dict[str, Any]], table_name: str, schema: str
     ) -> List[IntrospectionColumnInfo]:
+        """Turn ``COLUMNS`` rows into column objects, keeping what was asked.
+
+        The names the row carries are the names the question asked, and the
+        difference matters for every name the narrower projection leaves out:
+        read through ``_row_get``'s ``None`` default it would arrive as an
+        answer of *no* rather than as no question, so a consumer would be told
+        a column is not generated when the truth is that the endpoint never
+        carried the fact. Each column therefore records what it was asked
+        (``extra[COLUMNS_ASKED_KEY]``), and the slots for an unasked name say
+        ``None`` instead of a value: ``is_generated`` in particular, whose
+        ``False`` would be a claim.
+        """
         label = self._schema_label(schema)
         columns: List[IntrospectionColumnInfo] = []
         for row in rows:
+            asked = _asked_columns(row)
             if str(_row_get(row, "is_hidden") or "").strip().upper() == "YES":
                 # Pseudo columns have a NULL ordinal_position and are not
                 # declared schema; the catalog documents this explicitly.
@@ -543,7 +677,13 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
                 nullable = ColumnNullable.NOT_NULL
             else:
                 nullable = ColumnNullable.UNKNOWN
-            identity = str(_row_get(row, "is_identity") or "").strip().upper() == "YES"
+            # ``None`` when the question did not name it -- the endpoint was
+            # not asked, which is not the same as an answer of "no".
+            identity = (
+                str(_row_get(row, "is_identity") or "").strip().upper() == "YES"
+                if "is_identity" in asked
+                else None
+            )
             column_name = _row_get(row, "column_name") or ""
             columns.append(
                 IntrospectionColumnInfo(
@@ -564,6 +704,8 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
                     is_auto_increment=False,
                     is_generated=(
                         str(_row_get(row, "is_generated") or "").strip().upper() == "ALWAYS"
+                        if "is_generated" in asked
+                        else None
                     ),
                     generated_expression=_row_get(row, "generation_expression"),
                     collation=_row_get(row, "collation_name"),
@@ -586,10 +728,62 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
                         "identity_maximum": _as_int(_row_get(row, "identity_maximum")),
                         "identity_minimum": _as_int(_row_get(row, "identity_minimum")),
                         "identity_cycle": _row_get(row, "identity_cycle"),
+                        # Which of the documented names this row was asked:
+                        # a name absent here was never asked, so its slot is
+                        # "no answer" rather than a value the catalog gave.
+                        COLUMNS_ASKED_KEY: asked,
                     },
                 )
             )
         return columns
+
+    def parse_column_data_profiles(
+        self,
+        rows: List[Dict[str, Any]],
+        schema: str,
+        table_name: str,
+    ) -> List[ColumnDataProfile]:
+        """Pivot the profile's single row back into one row per column.
+
+        The statement projects every column's figures as one wide row -- that is
+        what makes the profile one billed scan rather than one per column -- so
+        the row is reshaped here into the per-column rows core's parser already
+        knows how to read: ``column_name``, ``null_count``, ``distinct_count``,
+        ``min_value``, ``max_value``, ``row_count`` and ``source``.
+
+        Reshaping rather than re-implementing is deliberate. "``None`` means not
+        measured", the derivation of ``null_fraction`` from a count and a row
+        count, and the skipping of a row with no column name are one set of
+        rules, and they live in core. A second parser here would be a second
+        place for the two engines to disagree about what a missing figure means.
+
+        Slots the formatter projected as ``NULL`` -- the distinct count and the
+        bounds of a column whose declared type the aggregates cannot read --
+        arrive as ``None`` and stay ``None``: their absence is a fact about the
+        engine, not a zero it measured.
+        """
+        shaped: List[Dict[str, Any]] = []
+        for row in rows or []:
+            # The catalogue reports lower-case names and this formatter aliases
+            # its slots in lower case; normalising keeps the parser independent
+            # of whether a client folds identifiers.
+            normalized = {str(key).lower(): value for key, value in row.items()}
+            index = 1
+            while f"c{index}_name" in normalized:
+                prefix = f"c{index}_"
+                shaped.append(
+                    {
+                        "column_name": normalized[prefix + "name"],
+                        "null_count": normalized.get(prefix + "null_count"),
+                        "distinct_count": normalized.get(prefix + "distinct_count"),
+                        "min_value": normalized.get(prefix + "min"),
+                        "max_value": normalized.get(prefix + "max"),
+                        "row_count": normalized.get("row_count"),
+                        "source": normalized.get("source"),
+                    }
+                )
+                index += 1
+        return super().parse_column_data_profiles(shaped, schema, table_name)
 
     def parse_indexes(
         self, rows: List[Dict[str, Any]], table_name: str, schema: str
@@ -738,7 +932,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         return [name for _position, name in sorted(positioned, key=lambda item: item[0])]
 
 
-class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospector):
+class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
     """Synchronous BigQuery introspector.
 
     Access it through ``backend.introspector``::
@@ -751,10 +945,67 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
     def __init__(
         self,
         backend: Any,
-        executor: SyncIntrospectorExecutor,
+        executor: IntrospectorExecutor,
         cache: Optional[IntrospectionCache] = None,
     ) -> None:
         super().__init__(backend, executor, cache)
+        # The full documented list is what a real BigQuery answers, so that is
+        # what this manager asks until an endpoint proves otherwise.
+        self.columns_projection: Tuple[str, ...] = COLUMNS_PROJECTION_FULL
+
+    def list_columns(
+        self, table_name: str, schema: Optional[str] = None
+    ) -> List[IntrospectionColumnInfo]:
+        """List a table's columns, asking the projection this endpoint answers.
+
+        The whole documented column list is asked first, because that is what
+        BigQuery answers and it is the only way to read the families the
+        narrower list leaves out -- whether a column is generated, what a
+        computed one is computed from, what an identity column's bounds are,
+        which column the table clusters by. There is no version or capability
+        question in ``INFORMATION_SCHEMA`` that says whether an endpoint
+        carries those names -- BigQuery reports no server release at all, and
+        this backend's version is a feature level rather than a negotiated
+        one -- so the only question that can be answered is the ``COLUMNS``
+        question itself: ask, and if the endpoint fails the question because
+        it lacks a name, ask the narrow list instead and remember that this
+        endpoint answers that one. One failed question per manager, not one
+        per table, and a real server never pays for the fallback at all
+        because the first question succeeds.
+
+        The cache key is core's, so a caller reaching this method and one
+        reaching it through the base class share an answer.
+        """
+        target = schema if schema is not None else self.default_schema
+        key = self._cache.key(IntrospectionScope.COLUMN, table_name, schema=schema)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.column_info_statement(
+            table_name=table_name, schema=schema, projection=self.columns_projection
+        ).to_sql()
+        try:
+            rows = self._executor.execute(sql, params)
+        except DatabaseError as first_error:
+            if self.columns_projection == _EMULATOR_COLUMNS_PROJECTION:
+                raise
+            self.columns_projection = _EMULATOR_COLUMNS_PROJECTION
+            sql, params = self.column_info_statement(
+                table_name=table_name,
+                schema=schema,
+                projection=self.columns_projection,
+            ).to_sql()
+            try:
+                rows = self._executor.execute(sql, params)
+            except DatabaseError:
+                # The narrow list is a subset of the one that just failed, so
+                # it cannot fail where that one succeeded: what failed is the
+                # table, the dataset or the connection, and the first error is
+                # the one that names it.
+                raise first_error from None
+        result = self.parse_columns(rows, table_name, target)
+        self._cache.set(key, result)
+        return result
 
     def get_table_info(
         self, table_name: str, schema: Optional[str] = None
@@ -793,6 +1044,49 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
         del table_name, schema
         return []
 
+    def list_column_data_profiles(
+        self,
+        table_name: str,
+        schema: Optional[str] = None,
+    ) -> List[ColumnDataProfile]:
+        """Profile one table's columns from its rows. **This scans the table.**
+
+        The answer is exact, and it is the most expensive question this backend
+        can be asked: BigQuery bills bytes read, so the cost is proportional to
+        the table rather than to its schema. One scan answers every column --
+        the statement projects all of them in one ``SELECT`` -- but a caller
+        profiling a large table is choosing to read all of it, twice if the
+        query is run again for the same table once the cache expires.
+
+        The column catalogue is read first, and not only for the names: an
+        aggregating dialect needs the names to pivot its aggregates, and this
+        one also needs each column's declared type to know whether the engine
+        will compute a distinct count and bounds for it at all. That is a
+        metadata read, priced in bytes of ``INFORMATION_SCHEMA`` rather than of
+        the table, so it is cheap beside what follows.
+
+        The cache key is core's, so a caller that reaches this method and one
+        that reaches it through the base class share an answer and a bill.
+        """
+        key = self._cache.key(
+            IntrospectionScope.COLUMN, table_name, "data_profile", schema=schema
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        target = schema if schema is not None else self.default_schema
+        columns = self.list_columns(table_name, target)
+        sql, params = self.dialect.profile_statement(
+            table_name=table_name, schema=target, columns=columns
+        ).to_sql()
+        result = self.parse_column_data_profiles(
+            self._executor.execute(sql, params),
+            target,
+            table_name,
+        )
+        self._cache.set(key, result)
+        return result
+
     # ------------------------------------------------------------------ #
     # BigQuery-specific questions
     # ------------------------------------------------------------------ #
@@ -822,6 +1116,51 @@ class SyncBigQueryIntrospector(BigQueryIntrospectorMixin, SyncAbstractIntrospect
         result = self.parse_table_options(self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
+
+    def collect_table_storage(self, schema: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The dataset's partition rows, the storage reducer's input.
+
+        One read for the whole dataset, gated on the dialect's
+        ``supports_table_storage_introspection``: a build that cannot answer
+        the family answers an empty list rather than an error, and the
+        reducer keeps every slot ``None``.
+        """
+        if not self.dialect.supports_table_storage_introspection():
+            return []
+        sql, params = self.partition_totals_statement(schema).to_sql()
+        return self._executor.execute(sql, params)
+
+    def list_tables(
+        self,
+        schema: Optional[str] = None,
+        include_system: bool = False,
+        table_type: Optional[str] = None,
+    ) -> List[IntrospectionTableInfo]:
+        """List tables with ``size_bytes`` filled from the partitions.
+
+        The base flow asks one question and parses its rows; this adds the
+        dataset-scoped partition read beside it and reduces it, so a caller
+        of the ordinary listing sees each table's stored bytes on the common
+        minimum instead of only through the ``PARTITIONS`` family.
+        """
+        key = self._cache.key(
+            IntrospectionScope.TABLE,
+            schema=schema,
+            extra=f"{include_system}:{table_type}",
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.table_list_statement(
+            schema=schema,
+            include_system=include_system,
+            include_views=True,
+            table_type=table_type,
+        ).to_sql()
+        tables = self.parse_tables(self._executor.execute(sql, params), schema)
+        tables = self.parse_table_storage(tables, self.collect_table_storage(schema))
+        self._cache.set(key, tables)
+        return tables
 
     def list_partitions(
         self, table_name: str, schema: Optional[str] = None
@@ -883,6 +1222,47 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         cache: Optional[IntrospectionCache] = None,
     ) -> None:
         super().__init__(backend, executor, cache)
+        # The full documented list is what a real BigQuery answers, so that is
+        # what this manager asks until an endpoint proves otherwise.
+        self.columns_projection: Tuple[str, ...] = COLUMNS_PROJECTION_FULL
+
+    async def list_columns(
+        self, table_name: str, schema: Optional[str] = None
+    ) -> List[IntrospectionColumnInfo]:
+        """List a table's columns, asking the projection this endpoint answers.
+
+        The async twin of :meth:`BigQueryIntrospector.list_columns`, and kept
+        word-for-word apart from the await so the two cannot drift on which
+        projection runs: the whole documented list first, the narrower one
+        only after the endpoint has failed to answer it, and the choice
+        remembered for the rest of this manager's life.
+        """
+        target = schema if schema is not None else self.default_schema
+        key = self._cache.key(IntrospectionScope.COLUMN, table_name, schema=schema)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.column_info_statement(
+            table_name=table_name, schema=schema, projection=self.columns_projection
+        ).to_sql()
+        try:
+            rows = await self._executor.execute(sql, params)
+        except DatabaseError as first_error:
+            if self.columns_projection == _EMULATOR_COLUMNS_PROJECTION:
+                raise
+            self.columns_projection = _EMULATOR_COLUMNS_PROJECTION
+            sql, params = self.column_info_statement(
+                table_name=table_name,
+                schema=schema,
+                projection=self.columns_projection,
+            ).to_sql()
+            try:
+                rows = await self._executor.execute(sql, params)
+            except DatabaseError:
+                raise first_error from None
+        result = self.parse_columns(rows, table_name, target)
+        self._cache.set(key, result)
+        return result
 
     async def get_table_info(
         self, table_name: str, schema: Optional[str] = None
@@ -916,6 +1296,37 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         del table_name, schema
         return []
 
+    async def list_column_data_profiles(
+        self,
+        table_name: str,
+        schema: Optional[str] = None,
+    ) -> List[ColumnDataProfile]:
+        """Profile one table's columns from its rows (async).
+
+        The async twin of :meth:`BigQueryIntrospector.list_column_data_profiles`:
+        same catalogue read, same one-scan statement, same cache key, so the two
+        cannot disagree about which columns carry figures or about what a billed
+        scan buys.
+        """
+        key = self._cache.key(
+            IntrospectionScope.COLUMN, table_name, "data_profile", schema=schema
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        target = schema if schema is not None else self.default_schema
+        columns = await self.list_columns(table_name, target)
+        sql, params = self.dialect.profile_statement(
+            table_name=table_name, schema=target, columns=columns
+        ).to_sql()
+        result = self.parse_column_data_profiles(
+            await self._executor.execute(sql, params),
+            target,
+            table_name,
+        )
+        self._cache.set(key, result)
+        return result
+
     # ------------------------------------------------------------------ #
     # BigQuery-specific questions
     # ------------------------------------------------------------------ #
@@ -945,6 +1356,47 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         result = self.parse_table_options(await self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
+
+    async def collect_table_storage(self, schema: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The async twin of :meth:`BigQueryIntrospector.collect_table_storage`.
+
+        Same question, awaited, and the same empty-list answer when the
+        dialect cannot answer the family -- so the two reductions see one
+        shape of input and cannot disagree about a table's bytes.
+        """
+        if not self.dialect.supports_table_storage_introspection():
+            return []
+        sql, params = self.partition_totals_statement(schema).to_sql()
+        return await self._executor.execute(sql, params)
+
+    async def list_tables(
+        self,
+        schema: Optional[str] = None,
+        include_system: bool = False,
+        table_type: Optional[str] = None,
+    ) -> List[IntrospectionTableInfo]:
+        """The async twin of :meth:`BigQueryIntrospector.list_tables`.
+
+        Same questions awaited, same reducer, same cache key.
+        """
+        key = self._cache.key(
+            IntrospectionScope.TABLE,
+            schema=schema,
+            extra=f"{include_system}:{table_type}",
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.table_list_statement(
+            schema=schema,
+            include_system=include_system,
+            include_views=True,
+            table_type=table_type,
+        ).to_sql()
+        tables = self.parse_tables(await self._executor.execute(sql, params), schema)
+        tables = self.parse_table_storage(tables, await self.collect_table_storage(schema))
+        self._cache.set(key, tables)
+        return tables
 
     async def list_partitions(
         self, table_name: str, schema: Optional[str] = None
@@ -980,6 +1432,6 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
 
 __all__ = [
     "BigQueryIntrospectorMixin",
-    "SyncBigQueryIntrospector",
+    "BigQueryIntrospector",
     "AsyncBigQueryIntrospector",
 ]

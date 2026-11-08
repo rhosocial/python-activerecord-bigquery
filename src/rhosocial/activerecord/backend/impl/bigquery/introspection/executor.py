@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Tuple
 
 from rhosocial.activerecord.backend.introspection.executor import (
     AsyncIntrospectorExecutor,
-    SyncIntrospectorExecutor,
+    IntrospectorExecutor,
 )
 
 
@@ -34,7 +34,7 @@ def _rows_from_result(result: Any) -> List[Dict[str, Any]]:
     return list(data)
 
 
-class SyncBigQueryIntrospectorExecutor(SyncIntrospectorExecutor):
+class BigQueryIntrospectorExecutor(IntrospectorExecutor):
     """Synchronous BigQuery executor: SQL in, list-of-dict rows out."""
 
     def execute(self, sql: str, params: Tuple = ()) -> List[Dict[str, Any]]:
@@ -71,6 +71,6 @@ class AsyncBigQueryIntrospectorExecutor(AsyncIntrospectorExecutor):
 
 
 __all__ = [
-    "SyncBigQueryIntrospectorExecutor",
+    "BigQueryIntrospectorExecutor",
     "AsyncBigQueryIntrospectorExecutor",
 ]

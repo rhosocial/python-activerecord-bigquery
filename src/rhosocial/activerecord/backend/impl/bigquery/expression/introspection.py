@@ -55,19 +55,96 @@ partitions              ``INFORMATION_SCHEMA.PARTITIONS``
 
 No BigQuery instance was available while writing this module. The statement
 shapes follow the pages cited beside each class below.
+
+**The ``COLUMNS`` projection is a parameter, and these two tables are its
+values.** BigQuery's own ``COLUMNS`` view documents more columns than every
+endpoint that speaks GoogleSQL answers, and a projection naming one an endpoint
+lacks fails the *whole* question during analysis rather than answering it
+``NULL``. So the question does not fix a projection in this module: the
+statement carries the names it asks as a parameter, which is what lets the
+introspector reask an endpoint with a shorter list once the first question has
+failed. This module names the two values that parameter takes.
+:data:`COLUMNS_PROJECTION_FULL` is the documented order, and it is the only
+projection a real server is asked. ``_EMULATOR_COLUMNS_PROJECTION`` is the
+column coverage of the ``goccy/bigquery-emulator`` this repository's CI runs
+against -- a property of that emulator, not of BigQuery -- and it is reached
+only after an endpoint has failed the documented list. The parameter
+distinction the heading draws still holds: no question fixes a projection in
+this module; the projection is the parameter the statement carries, and these
+tables are the candidate values for it.
+https://cloud.google.com/bigquery/docs/information-schema-columns
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple
 
 from rhosocial.activerecord.backend.expression.introspection import (
+    ColumnDataProfileQueryStatement,
     IntrospectionExpression,
 )
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..dialect import BigQueryDialect
 
+#: Every column BigQuery's ``COLUMNS`` view documents, in documented order.
+#: This is what a real server is asked, because it is what a real server
+#: answers -- and it is the *only* way to read the families the emulator
+#: projection leaves out: whether a column is generated, what a computed
+#: column is computed from, what an identity column's bounds are, which
+#: column the table clusters by.
+#:
+#: https://cloud.google.com/bigquery/docs/information-schema-columns
+COLUMNS_PROJECTION_FULL: Tuple[str, ...] = (
+    "table_catalog",
+    "table_schema",
+    "table_name",
+    "column_name",
+    "ordinal_position",
+    "is_nullable",
+    "data_type",
+    "is_generated",
+    "generation_expression",
+    "is_stored",
+    "is_hidden",
+    "is_system_defined",
+    "is_partitioning_column",
+    "clustering_ordinal_position",
+    "collation_name",
+    "column_default",
+    "rounding_mode",
+    "is_identity",
+    "identity_generation",
+    "identity_start",
+    "identity_increment",
+    "identity_maximum",
+    "identity_minimum",
+    "identity_cycle",
+)
+
+#: The subset the ``goccy/bigquery-emulator`` this repository's CI runs
+#: against answers -- 10 of the 24 documented columns. This is the emulator's
+#: column coverage, not a fact about BigQuery, which is why the name says
+#: "emulator" and why the table is private: no real server is asked for less
+#: than the documented list. It is a *fallback*, chosen only after an endpoint
+#: has failed the full projection (``...introspection.introspector`` reasks
+#: with it once and remembers the choice), and the parser records which of the
+#: two ran so that a name the endpoint was never asked is not read as an answer
+#: of "no" (see ``COLUMNS_ASKED_KEY`` in ...introspection.introspector).
+_EMULATOR_COLUMNS_PROJECTION: Tuple[str, ...] = (
+    "table_catalog",
+    "table_schema",
+    "table_name",
+    "column_name",
+    "ordinal_position",
+    "is_nullable",
+    "data_type",
+    "is_hidden",
+    "is_system_defined",
+    "is_partitioning_column",
+)
+
 
 __all__ = [
+    "COLUMNS_PROJECTION_FULL",
     "BigQueryDatabaseInfoQueryStatement",
     "BigQueryTableListQueryStatement",
     "BigQueryColumnInfoQueryStatement",
@@ -77,6 +154,7 @@ __all__ = [
     "BigQueryDatasetListQueryStatement",
     "BigQueryTableOptionsQueryStatement",
     "BigQueryPartitionListQueryStatement",
+    "BigQueryColumnDataProfileQueryStatement",
 ]
 
 
@@ -170,6 +248,12 @@ class BigQueryColumnInfoQueryStatement(IntrospectionExpression):
         table_name: The table whose columns are wanted.
         schema: The dataset, or a ``project.dataset`` pair. Required.
         catalog: The project to qualify the dataset with, or ``None``.
+        projection: The catalog columns to select. Defaults to the whole
+            documented list (:data:`COLUMNS_PROJECTION_FULL`), because that
+            is what a real BigQuery answers; an endpoint that cannot answer
+            a name fails the question during analysis, which is why the
+            narrower ``_EMULATOR_COLUMNS_PROJECTION`` exists as a fallback
+            rather than as the default.
 
     https://cloud.google.com/bigquery/docs/information-schema-columns
     """
@@ -180,11 +264,16 @@ class BigQueryColumnInfoQueryStatement(IntrospectionExpression):
         table_name: str,
         schema: str,
         catalog: Optional[str] = None,
+        projection: Sequence[str] = COLUMNS_PROJECTION_FULL,
     ):
         """Initialize the column list statement."""
         super().__init__(dialect, schema)
         self.table_name = table_name
         self.catalog = catalog
+        # Every parameter is collected at construction, and the projection is
+        # one of them: the row a caller parses later says nothing about which
+        # names were asked, so the statement is the only place that knows.
+        self.projection: Tuple[str, ...] = tuple(projection)
 
     @property
     def format_method(self) -> str:
@@ -379,9 +468,16 @@ class BigQueryPartitionListQueryStatement(IntrospectionExpression):
     ``NULL``. Unlike ``SCHEMATA`` this view takes a dataset qualifier only,
     never a region qualifier.
 
+    With *table_name* omitted the same question is asked of the whole
+    dataset -- one row per partition of every table -- which is the reading
+    a per-table total comes from: the reducer sums the rows it answers per
+    table, so the dataset-scoped question stays one query rather than one
+    per table.
+
     Args:
         dialect: The BigQuery dialect that renders this statement.
-        table_name: The table whose partitions are wanted.
+        table_name: The table whose partitions are wanted, or ``None`` for
+            the dataset's partitions as a whole.
         schema: The dataset, or a ``project.dataset`` pair. Required.
         catalog: The project to qualify the dataset with, or ``None``.
 
@@ -391,8 +487,8 @@ class BigQueryPartitionListQueryStatement(IntrospectionExpression):
     def __init__(
         self,
         dialect: "BigQueryDialect",
-        table_name: str,
-        schema: str,
+        table_name: Optional[str] = None,
+        schema: Optional[str] = None,
         catalog: Optional[str] = None,
     ):
         """Initialize the partition list statement."""
@@ -404,3 +500,80 @@ class BigQueryPartitionListQueryStatement(IntrospectionExpression):
     def format_method(self) -> str:
         """The dialect formatting method that renders this expression."""
         return "format_bigquery_partition_list_query_statement"
+
+
+class BigQueryColumnDataProfileQueryStatement(ColumnDataProfileQueryStatement):
+    """Ask for one table's per-column profile, answered as a single row.
+
+    Core's class already carries the question: the table, the dataset, and the
+    column list an aggregating dialect cannot do without. This one adds the
+    other fact the SQL needs, which is *which* of those columns the aggregates
+    can read at all.
+
+    BigQuery refuses ``MIN`` and ``MAX`` on ``ARRAY``, ``STRUCT``/``RECORD``,
+    ``JSON``, ``GEOGRAPHY`` and ``RANGE`` columns -- they are not orderable -- and
+    refuses ``COUNT(DISTINCT ...)`` on several of the same types, which are not
+    groupable either. A statement that named such a column in those positions
+    would not answer for the columns it can read: the server rejects the whole
+    query. ``opaque_columns`` names them, and the formatter leaves their
+    distinct count and both bounds as SQL ``NULL`` while still counting their
+    nulls and the table's rows: "BigQuery cannot measure this about this type"
+    rather than a fabricated zero.
+
+    The introspector supplies that list from the column catalogue it reads the
+    names from -- the only place the declared type is known without paying for
+    the scan this statement is about to make.
+
+    The profile is one row rather than one arm per column. A ``UNION ALL`` would
+    be read as one table scan *per arm* and billed accordingly, which for a
+    fifty-column table is fifty scans of the same bytes; one projection reads
+    the table once. It also keeps each column's own bounds type, which a union
+    cannot: BigQuery resolves one common type across a union's arms, and
+    ``min_value`` carrying an ``INT64`` in one arm and a ``STRING`` in another
+    is a type error rather than a coercion.
+
+    ``format_method`` names the BigQuery entry rather than core's: §3 makes the
+    entry the kind's own spelling, so this class declares
+    ``format_bigquery_column_data_profile_query_statement`` and the dialect
+    mixin answers it. Core's statement keeps its own entry, and the mixin's
+    core-named answer reads ``opaque_columns`` when the statement carries it so
+    that core's own statement -- which does not -- still renders, with every
+    column assumed readable.
+    """
+
+    def __init__(
+        self,
+        dialect: "BigQueryDialect",
+        table_name: str,
+        schema: Optional[str] = None,
+        columns: Sequence[str] = (),
+        opaque_columns: Sequence[str] = (),
+    ):
+        """Initialize the column data profile statement.
+
+        Args:
+            dialect: The BigQuery dialect that renders this statement.
+            table_name: The table whose columns are profiled.
+            schema: The dataset, or a ``project.dataset`` pair. Required.
+            columns: Every column of the table, in the order the profile's
+                slots are projected.
+            opaque_columns: The subset of *columns* whose declared type the
+                aggregates cannot read. Their distinct count and bounds are
+                rendered as ``NULL``.
+        """
+        super().__init__(
+            dialect, table_name=table_name, schema=schema, columns=columns
+        )
+        self.opaque_columns = tuple(opaque_columns)
+
+    @property
+    def format_method(self) -> str:
+        """The dialect formatting method that renders this expression."""
+        return "format_bigquery_column_data_profile_query_statement"
+
+    def __repr__(self) -> str:
+        return (
+            f"BigQueryColumnDataProfileQueryStatement("
+            f"table_name={self.table_name!r}, schema={self.schema!r}, "
+            f"columns={self.columns!r}, opaque_columns={self.opaque_columns!r})"
+        )

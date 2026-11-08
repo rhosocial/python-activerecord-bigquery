@@ -2,6 +2,7 @@
 """BigQuery-specific DDL and introspection expressions."""
 
 from .introspection import (
+    BigQueryColumnDataProfileQueryStatement,
     BigQueryColumnInfoQueryStatement,
     BigQueryDatabaseInfoQueryStatement,
     BigQueryDatasetListQueryStatement,
@@ -27,6 +28,7 @@ __all__ = [
     "BigQueryDatabaseInfoQueryStatement",
     "BigQueryTableListQueryStatement",
     "BigQueryColumnInfoQueryStatement",
+    "BigQueryColumnDataProfileQueryStatement",
     "BigQueryIndexInfoQueryStatement",
     "BigQueryViewListQueryStatement",
     "BigQueryViewInfoQueryStatement",

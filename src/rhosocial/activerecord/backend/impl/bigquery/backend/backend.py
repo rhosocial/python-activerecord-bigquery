@@ -25,7 +25,7 @@ class BigQueryBackend(
 
     ``backend.introspector`` answers metadata questions from BigQuery's
     ``INFORMATION_SCHEMA`` views; see
-    :class:`~...introspection.SyncBigQueryIntrospector`.
+    :class:`~...introspection.BigQueryIntrospector`.
     """
 
     def __init__(self, **kwargs):
@@ -379,11 +379,11 @@ class BigQueryBackend(
         ``backend.execute()`` and come back already dict-shaped.
         """
         from ..introspection import (
-            SyncBigQueryIntrospector,
-            SyncBigQueryIntrospectorExecutor,
+            BigQueryIntrospector,
+            BigQueryIntrospectorExecutor,
         )
 
-        return SyncBigQueryIntrospector(self, SyncBigQueryIntrospectorExecutor(self))
+        return BigQueryIntrospector(self, BigQueryIntrospectorExecutor(self))
 
         # -- Emulator REST fast path ---------------------------------------------------
 

@@ -3,18 +3,23 @@
 
 The package's shape follows the other backends' small CLIs: ``__main__.py``
 parses, this module registers and routes, and each subcommand module owns
-its parser and its handler. The four introspection subcommands all live in
-:mod:`~.introspect`, so this module routes their names there directly.
+its parser and its handler. Every introspection subcommand -- the catalogue
+ones, the partitions family this backend answers on its own and the nine
+families the dialect answers or declines -- lives in :mod:`~.introspect`, so
+this module routes their names there directly.
 """
 
 #: The subcommands the package defines. ``__main__`` names them when a run
 #: specifies none.
-COMMAND_NAMES = [
-    "tables",
-    "views",
-    "columns",
-    "datasets",
-]
+#:
+#: Derived from the introspect module's own list rather than restated here,
+#: so adding a family to the mapping there and forgetting it here cannot
+#: happen -- an unlisted subcommand still parses but exits with "unknown
+#: command" in ``get_handler``, which is the wrong error for a registered
+#: one.
+from .introspect import INTROSPECT_TYPES as COMMAND_NAMES  # noqa: E402
+
+COMMAND_NAMES = list(COMMAND_NAMES)
 
 
 def register_commands(subparsers):

@@ -121,9 +121,9 @@ class BigQueryTableStorageInfo:
       is ordered by it rather than by column name.
 
     All three pieces are the cached answers of the questions
-    :meth:`~...introspection.SyncBigQueryIntrospector.list_table_options`,
-    :meth:`~...introspection.SyncBigQueryIntrospector.list_partitions` and
-    :meth:`~...introspection.SyncBigQueryIntrospector.list_columns` already
+    :meth:`~...introspection.BigQueryIntrospector.list_table_options`,
+    :meth:`~...introspection.BigQueryIntrospector.list_partitions` and
+    :meth:`~...introspection.BigQueryIntrospector.list_columns` already
     keep, so a second call for the same table issues no new questions.
     """
 

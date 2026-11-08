@@ -23,6 +23,7 @@ from rhosocial.activerecord.backend.introspection.types import (
     IndexInfo,
     IndexType,
     IntrospectionColumnInfo,
+    IntrospectionDatabaseInfo,
     IntrospectionTableInfo,
     IntrospectionViewInfo,
     TableType,
@@ -31,6 +32,9 @@ from rhosocial.activerecord.backend.introspection.types import (
 from rhosocial.activerecord.backend.impl.bigquery import cli as cli_package
 from rhosocial.activerecord.backend.impl.bigquery.__main__ import main
 from rhosocial.activerecord.backend.impl.bigquery.cli import introspect as cli_introspect
+from rhosocial.activerecord.backend.impl.bigquery.introspection.types import (
+    BigQueryPartitionInfo,
+)
 
 
 class _FakeIntrospector:
@@ -126,6 +130,36 @@ class _FakeIntrospector:
             }
         ]
 
+    def get_database_info(self):
+        self.calls.append(("get_database_info",))
+        return IntrospectionDatabaseInfo(
+            name="my-project",
+            version="3.0.0",
+            version_tuple=(3, 0, 0),
+            vendor="BigQuery",
+            extra={
+                "project": "my-project",
+                "dataset": None,
+                "location": None,
+                "version_source": "backend feature level, not a server version",
+            },
+        )
+
+    def list_partitions(self, table_name, schema=None):
+        self.calls.append(("list_partitions", table_name, schema))
+        return [
+            BigQueryPartitionInfo(
+                table_name=table_name,
+                partition_id="20260101",
+                table_catalog="my-project",
+                table_schema=schema,
+                total_rows=120,
+                total_logical_bytes=2048,
+                total_billable_bytes=4096,
+                storage_tier="ACTIVE",
+            )
+        ]
+
 
 class _FakeBackend:
     """A backend whose introspector is canned and whose client is a sentinel."""
@@ -182,6 +216,17 @@ def test_every_subcommand_is_registered():
         "views",
         "columns",
         "datasets",
+        "database",
+        "partitions",
+        "unused-indexes",
+        "table-stats",
+        "runtime",
+        "index-stats",
+        "dependencies",
+        "ddl",
+        "column-profiles",
+        "value-samples",
+        "join-coverage",
     }
 
 
@@ -217,7 +262,7 @@ def test_an_unknown_command_exits_non_zero():
 
 
 # ---------------------------------------------------------------------------
-# The five subcommands, in each format
+# The subcommands, in each format
 # ---------------------------------------------------------------------------
 
 
@@ -309,6 +354,45 @@ def test_columns_lists_one_tables_columns_as_json(built, capsys):
     assert [row["name"] for row in payload] == ["id"]
     assert payload[0]["nullable"] == "NOT_NULL"
     assert built[0].introspector.calls == [("list_columns", "orders", "my_dataset")]
+
+
+def test_database_reports_the_project_as_json(built, capsys):
+    """The project-level question: one record, and no dataset in the question.
+
+    The answer names the feature level as a feature level rather than a
+    server release, which is what the ``extra`` the introspector fills
+    carries -- a CLI that dropped it would present a number as a version.
+    """
+    _run(["database", "-o", "json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == [
+        {
+            "name": "my-project",
+            "version": "3.0.0",
+            "version_tuple": [3, 0, 0],
+            "vendor": "BigQuery",
+            "encoding": None,
+            "collation": None,
+            "timezone": None,
+            "size_bytes": None,
+            "table_count": None,
+            "extra": {
+                "project": "my-project",
+                "dataset": None,
+                "location": None,
+                "version_source": "backend feature level, not a server version",
+            },
+        }
+    ]
+    assert built[0].introspector.calls == [("get_database_info",)]
+
+
+def test_partitions_lists_one_tables_partitions_as_json(built, capsys):
+    _run(["partitions", "orders", "--dataset", "my_dataset", "-o", "json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload[0]["partition_id"] == "20260101"
+    assert payload[0]["total_billable_bytes"] == 4096
+    assert built[0].introspector.calls == [("list_partitions", "orders", "my_dataset")]
 
 
 # ---------------------------------------------------------------------------

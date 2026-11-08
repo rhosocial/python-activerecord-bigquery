@@ -9,6 +9,9 @@ BigQuery 后端是 [rhosocial-activerecord](https://github.com/rhosocial/python-
 - **[Schema 命名空间](bigquery_specific_features/schema_namespace.md)**：声明
   `__schema_name__`、列引用为何永不带 dataset、不存在会话级当前 dataset 这一事实，
   以及单级限定的局限
+- **[数据库内省](bigquery_specific_features/introspection.md)**：本后端从
+  `INFORMATION_SCHEMA` 回答什么、三个数据族背后的计费扫描、两套 `COLUMNS` 投影与
+  模拟器回退，以及十五个 CLI 类型
 
 ## 关键结论速览
 

@@ -34,9 +34,16 @@ from rhosocial.activerecord.backend.impl.bigquery.config import (
     BigQueryConnectionConfig,
 )
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
+from rhosocial.activerecord.backend.impl.bigquery.expression.introspection import (
+    COLUMNS_PROJECTION_FULL,
+    _EMULATOR_COLUMNS_PROJECTION,
+)
 from rhosocial.activerecord.backend.impl.bigquery.introspection import (
     AsyncBigQueryIntrospector,
-    SyncBigQueryIntrospector,
+    BigQueryIntrospector,
+)
+from rhosocial.activerecord.backend.impl.bigquery.introspection.introspector import (
+    COLUMNS_ASKED_KEY,
 )
 from rhosocial.activerecord.backend.impl.bigquery.introspection.types import (
     BigQueryTableStorageInfo,
@@ -70,7 +77,7 @@ class _RecordingAsyncExecutor:
 
 @pytest.fixture
 def introspector():
-    return SyncBigQueryIntrospector(_BackendStandIn(), _RecordingExecutor())
+    return BigQueryIntrospector(_BackendStandIn(), _RecordingExecutor())
 
 
 @pytest.fixture
@@ -590,3 +597,70 @@ def test_storage_shape_composes_options_partitions_and_columns(introspector):
 def test_async_introspector_declines_index_introspection(async_introspector):
     """The capability is declared once and the async manager inherits it."""
     assert async_introspector.dialect.supports_index_introspection() is False
+
+
+def test_a_name_the_question_did_not_ask_is_not_an_answer_of_no(introspector):
+    """``None`` is "nobody asked", and it is not the same as "the catalog says no".
+
+    An endpoint that lacks a name fails the question rather than answering it
+    NULL, so the fallback projection simply does not select it -- and the row
+    then carries no field for it. Read through a ``None`` default that looks
+    like an answer: ``is_generated`` would arrive as ``False`` and tell a
+    consumer the column is not generated, when the truth is that nothing
+    asked. The parsed column records which names the row carried, and the
+    slots for a name it did not carry say ``None``.
+    """
+    narrow = {
+        name: value
+        for name, value in _column_row(
+            is_generated="NEVER", is_identity="YES", column_default="7"
+        ).items()
+        if name in _EMULATOR_COLUMNS_PROJECTION
+    }
+    narrow["table_catalog"] = "my-project"
+    narrow["table_schema"] = "my_dataset"
+    unasked, wide = introspector.parse_columns(
+        [
+            narrow,
+            _column_row(
+                is_generated="NEVER",
+                is_identity="YES",
+                column_default="7",
+                table_catalog="my-project",
+                table_schema="my_dataset",
+            ),
+        ],
+        "orders",
+        "my_dataset",
+    )
+
+    assert set(unasked.extra[COLUMNS_ASKED_KEY]) == set(_EMULATOR_COLUMNS_PROJECTION)
+    assert unasked.is_generated is None
+    assert unasked.default_value is None
+    assert unasked.generated_expression is None
+    assert unasked.collation is None
+    for name in ("is_identity", "identity_generation", "identity_start", "is_stored"):
+        assert unasked.extra[name] is None
+    assert unasked.extra["is_hidden"] is False
+
+    # The same rows, asked the whole documented list: the answer is a value.
+    assert set(wide.extra[COLUMNS_ASKED_KEY]) == set(COLUMNS_PROJECTION_FULL)
+    assert wide.is_generated is False
+    assert wide.default_value == "7"
+    assert wide.extra["is_identity"] is True
+    assert wide.extra["is_hidden"] is False
+
+
+def test_the_asked_names_survive_an_uppercase_row(introspector):
+    """The record of what was asked is read case-tolerantly, like every value."""
+    narrow = {
+        name.upper(): value
+        for name, value in _column_row().items()
+        if name in _EMULATOR_COLUMNS_PROJECTION
+    }
+    narrow["TABLE_CATALOG"] = "my-project"
+    narrow["TABLE_SCHEMA"] = "my_dataset"
+    (column,) = introspector.parse_columns([narrow], "orders", "my_dataset")
+
+    assert set(column.extra[COLUMNS_ASKED_KEY]) == set(_EMULATOR_COLUMNS_PROJECTION)
+    assert column.is_generated is None
