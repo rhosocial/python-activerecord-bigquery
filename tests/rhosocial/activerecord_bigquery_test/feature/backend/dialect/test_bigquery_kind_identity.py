@@ -65,11 +65,11 @@ class TestThreeSourcesAgree:
         """A guard on the sweep below: an empty package would pass it silently.
 
         The set grew once, when the introspection statements arrived: the
-        four materialized-view statements and the ten questions this backend
-        asks -- the nine INFORMATION_SCHEMA ones and the data-profile family,
-        which reads the rows rather than a view. A class added without
-        updating this guard is caught here rather than passing the
-        parametrised tests silently.
+        four materialized-view statements and the eleven questions this
+        backend asks -- the ten INFORMATION_SCHEMA ones (including ROUTINES)
+        and the data-profile family, which reads the rows rather than a view.
+        A class added without updating this guard is caught here rather than
+        passing the parametrised tests silently.
         """
         assert set(NODES) == {
             f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryAlterMaterializedViewSetOptionsStatement",
@@ -82,6 +82,7 @@ class TestThreeSourcesAgree:
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryIndexInfoQueryStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryViewListQueryStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryViewInfoQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryRoutineListQueryStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryColumnDataProfileQueryStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryDatasetListQueryStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryTableOptionsQueryStatement",

@@ -21,6 +21,7 @@ different answers, and only one of them is what happened.
 | :--- | :--- | :--- |
 | `tables` | `INFORMATION_SCHEMA.TABLES` | Tables and views, with `table_type` distinguishing `BASE TABLE`, `VIEW`, `MATERIALIZED VIEW` and `EXTERNAL`. |
 | `views` | `INFORMATION_SCHEMA.VIEWS` | Views, with their definitions. |
+| `routines` | `INFORMATION_SCHEMA.ROUTINES` | Persistent UDFs (scalar, aggregate and table functions) and stored procedures, with their definition, return type and determinism. |
 | `columns` | `INFORMATION_SCHEMA.COLUMNS` | One table's columns: name, type, nullability, ordinal position, default, and the generation and identity facts a real server answers. |
 | `datasets` | `INFORMATION_SCHEMA.SCHEMATA` | The project's datasets. A dataset is BigQuery's namespace level above a table, so it stands where a schema would elsewhere. |
 | `database` | `SELECT @@project_id` | The project this run connected to. The project-level question, so it takes no dataset and no name. |
@@ -33,11 +34,15 @@ different answers, and only one of them is what happened.
 | `runtime` | — | Refused: BigQuery reports no runtime metrics. |
 | `index-stats` | — | Refused: there are no per-index counters. |
 | `dependencies` | — | Refused: no view names an object's dependants. |
-| `ddl` | — | Refused: `TABLES.ddl` describes tables and external tables, not a routine or a view's definition. |
 
-`NAME` is required for `columns`, `partitions`, `ddl`, `column-profiles`,
-`value-samples` and `join-coverage`; optional for `dependencies`; refused for
-`database`. The list types take no name. A `NAME` given where it is refused
+`ddl` is not offered at all: `supports_ddl_extraction()` answers `False` and
+no extraction statement exists here, so a subcommand would only ever be a
+refusal. `TABLES.ddl` is a field of the table listing, not a DDL-extraction
+family.
+
+`NAME` is required for `columns`, `partitions`, `column-profiles`,
+`value-samples` and `join-coverage`; optional for `routines` and
+`dependencies`; refused for `database`. The list types take no name. A `NAME` given where it is refused
 exits 2 rather than being parsed and dropped, and a flag the type does not read
 (`--column`, `--right-table`, `--right-column`) is refused the same way.
 
@@ -75,6 +80,12 @@ exits 2 rather than being parsed and dropped, and a flag the type does not read
     `column-profiles` reads the whole table and is the most expensive thing
     this CLI can be asked. The sentence on stderr before the rows says so;
     each row's `source='aggregate'` says the figures are exact counts.
+*   **There are no type, sequence or operator types here.** BigQuery has no
+    standalone user-defined types, no sequences and no user-defined
+    operators, so none of those families is invented. Identity columns are
+    reported under `columns`, not as a sequence family. Reservations,
+    capacity commitments and job history are Admin API / operational
+    resources rather than schema objects, so they are out of scope too.
 *   **Nothing here was run against a live project.** The statements are
     written from the official documentation (cited beside each one in the
     source). Verify the first run against your project before relying on the
@@ -92,9 +103,11 @@ exits 2 rather than being parsed and dropped, and a flag the type does not read
 python -m rhosocial.activerecord.backend.impl.bigquery introspect datasets --project my-project
 python -m rhosocial.activerecord.backend.impl.bigquery introspect database --project my-project
 
-# One dataset's tables and views
+# One dataset's tables, views and routines
 python -m rhosocial.activerecord.backend.impl.bigquery introspect tables --dataset events -o json
 python -m rhosocial.activerecord.backend.impl.bigquery introspect views --dataset events
+python -m rhosocial.activerecord.backend.impl.bigquery introspect routines --dataset events
+python -m rhosocial.activerecord.backend.impl.bigquery introspect routines add_one --dataset events
 
 # One table's columns, and its partitions
 python -m rhosocial.activerecord.backend.impl.bigquery introspect columns orders --dataset events
@@ -107,7 +120,7 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect join-coverage 
     --column buyer_id --right-table users --right-column id --dataset events
 
 # A family this project declines: refused, not answered with an empty row
-python -m rhosocial.activerecord.backend.impl.bigquery introspect ddl orders --dataset events
+python -m rhosocial.activerecord.backend.impl.bigquery introspect unused-indexes --dataset events
 
 # Against a local emulator
 python -m rhosocial.activerecord.backend.impl.bigquery introspect tables \

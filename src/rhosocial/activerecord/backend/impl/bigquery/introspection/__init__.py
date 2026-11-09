@@ -14,6 +14,7 @@ from .introspector import (
 from .types import (
     BigQueryDatasetInfo,
     BigQueryPartitionInfo,
+    BigQueryRoutineInfo,
     BigQueryTableOptionInfo,
     BigQueryTableStorageInfo,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "BigQueryIntrospector",
     "BigQueryDatasetInfo",
     "BigQueryPartitionInfo",
+    "BigQueryRoutineInfo",
     "BigQueryTableOptionInfo",
     "BigQueryTableStorageInfo",
 ]

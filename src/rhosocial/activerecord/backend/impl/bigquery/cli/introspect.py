@@ -1,6 +1,7 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/cli/introspect.py
 """The introspection subcommands: the catalogue questions, the engine's own
-``partitions`` family, and the nine families the dialect answers or declines.
+``partitions`` family, the routines family, and the nine families the
+dialect answers or declines.
 
 Each one wires ``backend.introspector`` to an output format:
 
@@ -8,6 +9,7 @@ Each one wires ``backend.introspector`` to an output format:
 Command                   Introspector question
 ``tables``                ``list_tables()``
 ``views``                 ``list_views()``
+``routines [NAME]``       ``list_routines()`` / ``get_routine_info()``
 ``columns NAME``          ``list_columns()``
 ``datasets``              ``list_datasets()`` (the SCHEMATA view)
 ``database``              ``get_database_info()`` (@@project_id)
@@ -17,10 +19,12 @@ Command                   Introspector question
 ``join-coverage NAME``    ``estimate_join_coverage()``
 ========================  =======================================
 
-The six families this backend declines -- ``unused-indexes``,
-``table-stats``, ``runtime``, ``index-stats``, ``dependencies`` and
-``ddl`` -- are listed too, so that asking one of them is answered by the
-capability gate rather than by an "unknown command".
+The five families this backend declines -- ``unused-indexes``,
+``table-stats``, ``runtime``, ``index-stats`` and ``dependencies`` -- are
+listed too, so that asking one of them is answered by the capability gate
+rather than by an "unknown command". ``ddl`` is not offered at all: the
+dialect's ``supports_ddl_extraction()`` is False and no extraction statement
+exists here, so the subcommand would only ever be a refusal.
 
 ``--dataset`` selects the dataset every question is scoped to, and the
 schema argument each question receives is BigQuery's **dataset** -- the two
@@ -72,16 +76,20 @@ from .output import OUTPUT_CHOICES, create_provider
 #: Both are declared by the dialect, so a CLI that could not ask them would
 #: be "answerable but unaskable", the defect §6 exists to prevent.
 #:
-#: BigQuery declares three of the nine families beyond its catalogue and its
+#: BigQuery declares three of the families beyond its catalogue and its
 #: partitions view: the three that read the *rows* (a profile, a value
 #: listing, an overlap measurement), because ``INFORMATION_SCHEMA`` describes
 #: what a column declares and no view reports what its rows hold. The other
-#: six answer False -- there is no unused-index view, no usage counters, no
-#: runtime metrics and no dependency graph in ``INFORMATION_SCHEMA`` -- so
-#: their subcommands exist to be refused rather than to run.
+#: five answer False -- there is no unused-index view, no usage counters, no
+#: runtime metrics, no index counters and no dependency graph in
+#: ``INFORMATION_SCHEMA`` -- so their subcommands exist to be refused rather
+#: than to run. ``ddl`` is absent from this mapping because
+#: ``supports_ddl_extraction()`` is False and there is no extraction statement
+#: here; a subcommand whose capability is permanently false is not advertised.
 _TYPE_CAPABILITIES = {
     "tables": "supports_table_introspection",
     "views": "supports_view_introspection",
+    "routines": "supports_routine_introspection",
     "columns": "supports_column_introspection",
     "datasets": "supports_dataset_introspection",
     "database": "supports_database_info",
@@ -91,7 +99,6 @@ _TYPE_CAPABILITIES = {
     "runtime": "supports_runtime_stats",
     "index-stats": "supports_index_stats",
     "dependencies": "supports_object_dependencies",
-    "ddl": "supports_ddl_extraction",
     "column-profiles": "supports_column_data_profile",
     "value-samples": "supports_column_value_sample",
     "join-coverage": "supports_join_coverage",
@@ -113,18 +120,20 @@ INTROSPECT_TYPES = list(_TYPE_CAPABILITIES)
 #: ``--help`` print, and the two tables cover the same keys: a subcommand
 #: offered without a rule is one whose NAME decision nobody has made.
 #:
-#: ``tables``, ``views`` and ``datasets`` are listings over the whole
-#: dataset or project and take no positional at all; argparse refuses a
-#: stray one. ``database`` answers for the project the run connected to, and
-#: the four counter families for the dataset as a whole, so a name beside
-#: any of them is refused rather than parsed and dropped. ``dependencies``
-#: is the one family that can also answer for one object's edges, so its
-#: name is optional. ``partitions`` is a one-table question: without a name
+#: ``tables`` and ``datasets`` are listings over the whole dataset or
+#: project and take no positional at all; argparse refuses a stray one.
+#: ``database`` answers for the project the run connected to, and the four
+#: counter families for the dataset as a whole, so a name beside any of them
+#: is refused rather than parsed and dropped. ``routines`` is a listing that
+#: can also answer for one named routine, and ``dependencies`` can answer for
+#: one object's edges, so both names are optional. ``partitions`` is a
+#: one-table question: without a name
 #: the read is the dataset-wide one the storage reducer asks, which is a
 #: different question the statement has no filter for.
 _NAME_RULE = {
     "tables": "forbidden",
     "views": "forbidden",
+    "routines": "optional",
     "columns": "required",
     "datasets": "forbidden",
     "database": "forbidden",
@@ -134,7 +143,6 @@ _NAME_RULE = {
     "runtime": "forbidden",
     "index-stats": "forbidden",
     "dependencies": "optional",
-    "ddl": "required",
     "column-profiles": "required",
     "value-samples": "required",
     "join-coverage": "required",
@@ -148,11 +156,11 @@ _NAME_COMMANDS = tuple(
 )
 
 #: The subcommands that can also answer for one named object but answer the
-#: whole family without it. ``dependencies`` narrows to one object's edges
-#: when a name is given; omitting it asks for the whole graph. BigQuery
-#: declines the family, so both spellings reach the same refusal -- but the
-#: name still has to parse, or the refusal would be argparse's instead of
-#: the capability answer.
+#: whole family without it. ``routines`` narrows to one routine when a name
+#: is given; ``dependencies`` narrows to one object's edges. BigQuery
+#: declines the dependency family, so both of its spellings reach the same
+#: refusal -- but the name still has to parse, or the refusal would be
+#: argparse's instead of the capability answer.
 _OPTIONAL_NAME_COMMANDS = tuple(
     name for name, rule in _NAME_RULE.items() if rule == "optional"
 )
@@ -165,6 +173,10 @@ _EPILOG = """Examples:
   # Tables and views in one dataset
   %(prog)s tables --project my-project --dataset my_dataset
   %(prog)s views --project my-project --dataset my_dataset
+
+  # The dataset's routines, and one named routine
+  %(prog)s routines --project my-project --dataset my_dataset
+  %(prog)s routines my_function --project my-project --dataset my_dataset
 
   # One table's columns, and its partitions
   %(prog)s columns orders --project my-project --dataset my_dataset
@@ -179,7 +191,6 @@ _EPILOG = """Examples:
   # The families BigQuery declines -- refused, not answered with an empty row
   %(prog)s unused-indexes --project my-project --dataset my_dataset
   %(prog)s dependencies --project my-project --dataset my_dataset
-  %(prog)s ddl orders --project my-project --dataset my_dataset
 
   # JSON output, and the environment-variable form
   %(prog)s tables -o json
@@ -271,6 +282,7 @@ def create_parser(subparsers):
 _HELP = {
     "tables": "List the tables and views in a dataset",
     "views": "List the views in a dataset",
+    "routines": "List a dataset's routines, or report one named routine",
     "columns": "List one table's columns",
     "datasets": "List the project's datasets",
     # The project-level question: BigQuery answers it from the documented
@@ -290,7 +302,8 @@ _HELP = {
     "runtime": "Live runtime measurements (not supported by BigQuery)",
     "index-stats": "Per-index usage counters (not supported by BigQuery)",
     "dependencies": "The object dependency graph (not supported by BigQuery)",
-    "ddl": "The DDL that recreates one table (not supported by BigQuery)",
+    # ``ddl`` is not offered: supports_ddl_extraction() is False and no
+    # extraction statement exists, so the subcommand would only be refused.
     # The three families that read the rows rather than the catalogue.
     "column-profiles": "Profile every column of a table from its data",
     "value-samples": "List one column's most frequent values",
@@ -300,7 +313,6 @@ _HELP = {
 _POSITIONAL_HELP = {
     "columns": "Table name (required)",
     "partitions": "Table name (required)",
-    "ddl": "Table name (required)",
     "column-profiles": "Table name (required)",
     "value-samples": "Table name (required)",
     "join-coverage": "Left table name (required)",
@@ -559,11 +571,20 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
     def _database_info(introspector):
         return introspector.get_database_info()
 
+    def _routines(introspector):
+        # A family with one listing and one named-object question: the name
+        # is optional, so it narrows the same catalogue read rather than
+        # selecting a different method.
+        if args.name:
+            return introspector.get_routine_info(args.name, schema=schema)
+        return introspector.list_routines(schema=schema)
+
     return {
         "tables": lambda introspector: introspector.list_tables(
             schema=schema, include_system=args.include_system
         ),
         "views": lambda introspector: introspector.list_views(schema=schema),
+        "routines": _routines,
         "columns": lambda introspector: introspector.list_columns(
             args.name, schema=schema
         ),
@@ -587,9 +608,6 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
             object_name=args.name, schema=schema
         ),
         # ---- the one-object and two-object families -------------------
-        "ddl": lambda introspector: introspector.get_ddl_statement(
-            args.name, object_type=None, schema=schema
-        ),
         "column-profiles": lambda introspector: introspector.list_column_data_profiles(
             args.name, schema=schema
         ),
@@ -618,40 +636,6 @@ def _async_questions(args) -> Dict[str, Callable[[Any], Any]]:
     return _questions(args)
 
 
-def _display_ddl(args, provider, statement) -> None:
-    """Show one object's DDL as the engine handed it back.
-
-    A DDL text is a block, not a field of a row: a bordered cell wraps every
-    one of its lines and reads worse than the text itself. So the terminal
-    format prints the engine's own text, and the formats a caller parses
-    keep the record -- schema, object type, object name, ``native`` and the
-    text -- which is what ``native`` is for: it says the engine retrieved
-    this rather than the library assembling it.
-    """
-    record = _serialize_for_output(statement)
-    if isinstance(record, dict):
-        text = record.get("ddl")
-        object_name = record.get("object_name") or args.name
-        object_type = record.get("object_type") or "OBJECT"
-    else:  # pragma: no cover - a statement is a record, not a scalar
-        text, object_name, object_type = statement, args.name, "OBJECT"
-    if not text:
-        # Not "no such table": the object exists and the engine answers
-        # with no text rather than an assembled fragment that would read as
-        # authoritative. The two are worth telling apart, so this exits
-        # without printing an empty row.
-        print(
-            f"Error: no DDL available for '{args.name}'",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    if args.output == "table":
-        print(f"-- {object_type} {object_name}")
-        print(text)
-        return
-    provider.display_results([record], title=f"DDL of {object_name}")
-
-
 def _report(result: Any, args, provider) -> None:
     """Print one question's result.
 
@@ -659,8 +643,20 @@ def _report(result: Any, args, provider) -> None:
     together -- columns and primary key -- are now the ``columns`` command
     and the key columns it reports.
     """
-    if args.command == "ddl":
-        _display_ddl(args, provider, result)
+    if args.command == "routines" and getattr(args, "name", None):
+        # A named-routine answer is one record, not a listing. ``None`` is
+        # "the dataset has no routine with that name", which is not an empty
+        # listing and should not exit 0 with a blank table.
+        if result is None:
+            print(
+                f"Error: no routine named '{args.name}' in the dataset",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        provider.display_results(
+            [_serialize_for_output(result)],
+            title=_TITLES.get(args.command, args.command.title()),
+        )
         return
 
     if args.command == "database":
@@ -728,6 +724,7 @@ def _report(result: Any, args, provider) -> None:
 #: families read better as what they measure than as their subcommand name.
 _TITLES = {
     "database": "Database Info",
+    "routines": "Routines",
     "partitions": "Partitions",
     "unused-indexes": "Indexes with no recorded use",
     "table-stats": "Table usage counters",

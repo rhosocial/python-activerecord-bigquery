@@ -1,5 +1,5 @@
 # tests/rhosocial/activerecord_bigquery_test/feature/backend/introspection/test_introspect_families_cli.py
-"""The nine families, as the BigQuery CLI asks for them.
+"""The eight families, as the BigQuery CLI asks for them.
 
 No project and no credentials are needed here. What is checked is the wiring
 the CLI owns: that each type reaches its introspector method, that NAME and
@@ -9,13 +9,14 @@ server will not answer stays "cannot be measured" instead of becoming an empty
 row. Whether the answer is right is the introspector's question, and the live
 tests carry it.
 
-Six of the nine are gated, not answered: ``INFORMATION_SCHEMA`` describes
+Five of the eight are gated, not answered: ``INFORMATION_SCHEMA`` describes
 objects rather than a statistics collector, so ``unused-indexes``,
-``table-stats``, ``runtime``, ``index-stats``, ``dependencies`` and ``ddl``
-are refused at the capability question. Their branches are still asserted
-here, by holding the gate open, because "the CLI can ask this and is told no"
-and "the CLI cannot ask this" are different contracts and only one of them is
-true.
+``table-stats``, ``runtime``, ``index-stats`` and ``dependencies`` are refused
+at the capability question. Their branches are still asserted here, by holding
+the gate open, because "the CLI can ask this and is told no" and "the CLI
+cannot ask this" are different contracts and only one of them is true. ``ddl``
+is not offered at all -- ``supports_ddl_extraction()`` is False and no
+extraction statement exists -- so it is absent from the advertised surface.
 
 Three answer, and the profile speaks for the one cost a reader has to know:
 BigQuery bills bytes read, so a profile is a full scan. That sentence belongs
@@ -44,12 +45,14 @@ from rhosocial.activerecord.backend.impl.bigquery.mixins import (
 from rhosocial.activerecord.backend.introspection.types import (
     ColumnDataProfile,
     ColumnValueFrequency,
-    DDLStatement,
     JoinCoverage,
     TableType,
 )
+from rhosocial.activerecord.backend.impl.bigquery.introspection.types import (
+    BigQueryRoutineInfo,
+)
 
-#: The nine families this change wires, and the switch that gates each.
+#: The eight families this change wires, and the switch that gates each.
 #: The dialect declares three of them; the rest it declines, and the refusal
 #: is the answer this backend gives rather than an empty row.
 NEW_FAMILIES = {
@@ -58,7 +61,6 @@ NEW_FAMILIES = {
     "runtime": "supports_runtime_stats",
     "index-stats": "supports_index_stats",
     "dependencies": "supports_object_dependencies",
-    "ddl": "supports_ddl_extraction",
     "column-profiles": "supports_column_data_profile",
     "value-samples": "supports_column_value_sample",
     "join-coverage": "supports_join_coverage",
@@ -79,10 +81,10 @@ ROW_FAMILIES = (
     "join-coverage",
 )
 
-#: The two questions the dialect answers from the catalogue, beyond the
-#: listings: the project-level database question and this engine's own
-#: partitions view. Neither is declined, so neither is a refusal.
-CATALOGUE_FAMILIES = ("database", "partitions")
+#: The three questions the dialect answers from the catalogue, beyond the
+#: listings: the project-level database question, the routines family and
+#: this engine's own partitions view. None is declined, so none is a refusal.
+CATALOGUE_FAMILIES = ("database", "routines", "partitions")
 
 
 class _RecordingIntrospector:
@@ -246,6 +248,7 @@ class TestTheNameRuleTable:
         assert introspect_cli._NAME_RULE == {
             "tables": "forbidden",
             "views": "forbidden",
+            "routines": "optional",
             "columns": "required",
             "datasets": "forbidden",
             "database": "forbidden",
@@ -255,7 +258,6 @@ class TestTheNameRuleTable:
             "runtime": "forbidden",
             "index-stats": "forbidden",
             "dependencies": "optional",
-            "ddl": "required",
             "column-profiles": "required",
             "value-samples": "required",
             "join-coverage": "required",
@@ -358,52 +360,6 @@ class TestTheOutputList:
     def test_the_list_is_the_four_formats_the_factory_answers(self):
         """A fifth entry would be advertising an output the factory cannot build."""
         assert output_mod.OUTPUT_CHOICES == ["table", "json", "csv", "tsv"]
-
-
-class TestTheDdlBranch:
-    """The schema object, not a name, is what a caller parses."""
-
-    def _statement(self) -> DDLStatement:
-        return DDLStatement(
-            schema=None,
-            object_type="TABLE",
-            object_name="orders",
-            ddl="CREATE TABLE orders (id INT64)",
-            native=True,
-        )
-
-    def test_the_table_is_asked_for_by_name(self, monkeypatch):
-        introspector = _RecordingIntrospector({"get_ddl_statement": self._statement()})
-
-        _run_sync(monkeypatch, introspector, _args("ddl", "orders"), gate_open=True)
-
-        assert introspector.calls == [
-            ("get_ddl_statement", ("orders",), {"object_type": None, "schema": "my_dataset"})
-        ]
-
-    def test_a_missing_name_is_an_incomplete_invocation(self, monkeypatch, capsys):
-        """A missing required NAME exits 1, like a missing ``--dataset``.
-
-        ``ddl`` is refused by this backend's gate, so the gate is held open
-        to reach the branch's own check: the exit code is the difference
-        between "you did not finish the invocation" (1) and "this project
-        will not answer that" (2), and only one of them is a defect in the
-        request.
-        """
-        with pytest.raises(SystemExit) as excinfo:
-            _run_sync(monkeypatch, _RecordingIntrospector({}), _args("ddl"), gate_open=True)
-
-        assert excinfo.value.code == 1
-        assert "required" in capsys.readouterr().err
-
-    def test_no_ddl_is_an_error_not_an_empty_listing(self, monkeypatch, capsys):
-        introspector = _RecordingIntrospector({"get_ddl_statement": None})
-
-        with pytest.raises(SystemExit) as excinfo:
-            _run_sync(monkeypatch, introspector, _args("ddl", "orders"), gate_open=True)
-
-        assert excinfo.value.code == 1
-        assert "no DDL available" in capsys.readouterr().err
 
 
 class TestTheColumnProfilesBranch:
@@ -672,6 +628,66 @@ class TestTheDatabaseBranch:
         assert "does not take an object name" in capsys.readouterr().err
 
 
+class TestTheRoutinesBranch:
+    """A listing, and the same read narrowed to one named routine."""
+
+    def _routine(self) -> BigQueryRoutineInfo:
+        return BigQueryRoutineInfo(
+            routine_name="add_one",
+            routine_type="FUNCTION",
+            specific_schema="my_dataset",
+            routine_schema="my_dataset",
+            data_type="INT64",
+            routine_body="SQL",
+            routine_definition="x + 1",
+            is_deterministic=True,
+        )
+
+    def test_an_unnamed_run_lists_the_dataset_routines(self, monkeypatch):
+        introspector = _RecordingIntrospector({"list_routines": [self._routine()]})
+
+        _run_sync(monkeypatch, introspector, _args("routines"))
+
+        assert introspector.calls == [("list_routines", (), {"schema": "my_dataset"})]
+
+    def test_a_named_run_asks_for_one_routine(self, monkeypatch):
+        introspector = _RecordingIntrospector({"get_routine_info": self._routine()})
+
+        _run_sync(monkeypatch, introspector, _args("routines", "add_one"))
+
+        assert introspector.calls == [
+            ("get_routine_info", ("add_one",), {"schema": "my_dataset"})
+        ]
+
+    def test_a_missing_routine_is_an_error_not_a_blank_listing(self, monkeypatch, capsys):
+        introspector = _RecordingIntrospector({"get_routine_info": None})
+
+        with pytest.raises(SystemExit) as excinfo:
+            _run_sync(monkeypatch, introspector, _args("routines", "missing"))
+
+        assert excinfo.value.code == 1
+        assert "no routine named 'missing'" in capsys.readouterr().err
+
+    def test_the_named_answer_is_one_record(self, monkeypatch, capsys):
+        introspector = _RecordingIntrospector({"get_routine_info": self._routine()})
+
+        _run_sync(monkeypatch, introspector, _args("routines", "add_one"))
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload[0]["routine_name"] == "add_one"
+        assert payload[0]["routine_type"] == "FUNCTION"
+        assert payload[0]["is_deterministic"] is True
+
+    def test_the_family_is_gated_by_its_own_probe(self):
+        assert (
+            introspect_cli._TYPE_CAPABILITIES["routines"]
+            == "supports_routine_introspection"
+        )
+        assert BigQueryDialect.supports_routine_introspection(
+            BigQueryDialect()
+        ) is True
+
+
 class TestThePartitionsBranch:
     """One table, and one row per partition it holds."""
 
@@ -716,7 +732,7 @@ class TestTheArgumentRules:
             introspect_cli._refuse_unused_arguments(_args(command, column="status"))
 
     def test_a_required_name_is_required_for_the_new_families(self, monkeypatch, capsys):
-        for command in ("ddl", "column-profiles", "value-samples"):
+        for command in ("column-profiles", "value-samples"):
             with pytest.raises(SystemExit) as excinfo:
                 _run_sync(
                     monkeypatch,
@@ -774,7 +790,6 @@ class TestTheCapabilityGate:
             "runtime",
             "index-stats",
             "dependencies",
-            "ddl",
         ):
             with pytest.raises(SystemExit) as excinfo:
                 introspect_cli._require_capability(
@@ -794,18 +809,6 @@ class TestTheAsyncPath:
             ("table-stats", "list_table_usage_stats", {}, [], ((), {"schema": "my_dataset"})),
             ("runtime", "list_runtime_metrics", {}, [], ((), {"schema": "my_dataset"})),
             ("index-stats", "list_index_usage_stats", {}, [], ((), {"schema": "my_dataset"})),
-            (
-                "ddl",
-                "get_ddl_statement",
-                {"name": "orders"},
-                DDLStatement(
-                    object_type="TABLE",
-                    object_name="orders",
-                    ddl="CREATE TABLE orders (id INT64)",
-                    native=True,
-                ),
-                (("orders",), {"object_type": None, "schema": "my_dataset"}),
-            ),
             (
                 "column-profiles",
                 "list_column_data_profiles",
@@ -860,15 +863,29 @@ class TestTheAsyncPath:
                 [],
                 (("orders",), {"schema": "my_dataset"}),
             ),
+            (
+                "routines",
+                "list_routines",
+                {},
+                [],
+                ((), {"schema": "my_dataset"}),
+            ),
+            (
+                "routines",
+                "get_routine_info",
+                {"name": "add_one"},
+                BigQueryRoutineInfo(routine_name="add_one", routine_type="FUNCTION"),
+                (("add_one",), {"schema": "my_dataset"}),
+            ),
         ],
     )
     def test_the_async_branch_calls_the_same_method_with_the_same_arguments(
         self, command, method, args_kwargs, result, expected, monkeypatch
     ):
-        # ``result`` is not ``[]`` everywhere: ``ddl`` answers ``None`` for
-        # "no statement", and a stub that returned an empty list there would
-        # send the branch down the display path instead of the call it is
-        # being asked to reach.
+        # ``result`` is not ``[]`` everywhere: the row families answer a
+        # record or ``None`` for "no measurement", and a stub that returned
+        # an empty list there would send the branch down the display path
+        # instead of the call it is being asked to reach.
         introspector = _AsyncRecordingIntrospector({method: result})
 
         _run_async(
@@ -896,9 +913,9 @@ class TestTheAsyncPath:
 
 class TestTheTypeSurfaceExtension:
     def test_the_advertised_surface_is_fifteen_types(self):
-        """The list the CLI's README states: the four listings, the project
-        and the partitions questions, the six declined families and the three
-        that read the rows."""
+        """The list the CLI's README states: the five listings, the project,
+        routines and partitions questions, the five declined families and the
+        three that read the rows."""
         assert len(introspect_cli.INTROSPECT_TYPES) == 15
         for name in CATALOGUE_FAMILIES:
             assert name in introspect_cli.INTROSPECT_TYPES

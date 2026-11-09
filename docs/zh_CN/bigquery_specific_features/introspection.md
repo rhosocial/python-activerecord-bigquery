@@ -10,6 +10,7 @@ BigQuery 后端回答三个层次的问题：项目与其 dataset **声明**了�
 
 - **项目与 dataset**：`@@project_id`，以及 `INFORMATION_SCHEMA.SCHEMATA`（唯一在项目级作答的视图）
 - **表与视图**：`INFORMATION_SCHEMA.TABLES` / `VIEWS`，并把 dataset 级的 partition 读取归约到每张表的已存字节
+- **例程**：`INFORMATION_SCHEMA.ROUTINES`，用于持久化 UDF（标量、聚合、表函数）与存储过程
 - **列**：`INFORMATION_SCHEMA.COLUMNS`，其投影是唯一能说明某个端点到底携带了哪些列的问题
 - **主键**：`TABLE_CONSTRAINTS` ⋈ `KEY_COLUMN_USAGE`；不存在索引目录
 - **表选项与分区**：`TABLE_OPTIONS` 与 `PARTITIONS`
@@ -47,6 +48,7 @@ BigQuery 后端回答三个层次的问题：项目与其 dataset **声明**了�
 | `supports_partition_info()` | `True` | 一张表的分区 |
 | `supports_extensions()` | `False`（继承） | 已安装的附加组件 |
 | `supports_dataset_introspection()` | `True` | BigQuery 自己的 dataset 族 |
+| `supports_routine_introspection()` | `True` | BigQuery 自己的例程族 |
 
 三个 `False` 行并不是"引擎做不到"，而是"目录里没有这个事实"，并且每一行都说明了缺的是哪一部分。
 
@@ -68,6 +70,7 @@ BigQuery 后端回答三个层次的问题：项目与其 dataset **声明**了�
 | 列 | `list_columns()` | `INFORMATION_SCHEMA.COLUMNS`，按投影提问 |
 | 主键 | `get_primary_key()`、`list_indexes()` | `TABLE_CONSTRAINTS` ⋈ `KEY_COLUMN_USAGE` |
 | 视图 | `list_views()`、`get_view_info()` | `INFORMATION_SCHEMA.VIEWS` |
+| 例程 | `list_routines()`、`get_routine_info()` | `INFORMATION_SCHEMA.ROUTINES` |
 | 表选项 | `list_table_options()` | `INFORMATION_SCHEMA.TABLE_OPTIONS` |
 | 分区 | `list_partitions()` | `INFORMATION_SCHEMA.PARTITIONS` |
 | 存储 | `get_table_storage_info()`、`list_tables()` | 组合 `TABLE_OPTIONS`、`PARTITIONS` 与 `COLUMNS` |
@@ -78,6 +81,7 @@ BigQuery 后端回答三个层次的问题：项目与其 dataset **声明**了�
 - **表。** `TABLE_TYPE` 是 BigQuery 自己的拼写——`BASE TABLE`、`CLONE`、`SNAPSHOT`、`EXTERNAL`、`VIEW`、`MATERIALIZED VIEW`——映射到核心枚举，其中 `CLONE` 与 `SNAPSHOT` 计为基础表，原始拼写保留在 `extra["bigquery_table_type"]`。`include_system` 被忽略：`TABLES` 视图不列出系统表。表记录还把目录的 `ddl` 文本与 `is_typed` / `is_insertable_into` 标志放在 `extra` 里。
 - **Dataset。** `SCHEMATA` 是唯一在项目级作答的视图，也是唯一接受 region 限定符的视图（`region-us`、`region-europe-north1` 等）。它报告 dataset 的位置、DDL 文本、默认排序规则与创建/修改时间。
 - **视图。** `check_option` 在 BigQuery 上被文档规定永远为 `NULL`；仍然查询它，是为了让解析出的对象能这样说，而不是假定如此。`use_standard_sql` 放在 `extra`。
+- **例程。** `routine_type` 是目录自己的词——`FUNCTION`、`AGGREGATE FUNCTION`、`TABLE FUNCTION` 或 `PROCEDURE`。`data_type` 是声明的返回类型，存储过程为 `NULL`；`routine_body` 为 `SQL` 或 `EXTERNAL`，外部情形下 `external_language` 指出 JavaScript；`is_deterministic` 从目录的 `YES`/`NO` 读成布尔值，目录未知时保持 `None`。记录还保留目录的 `created` / `last_altered` 时间、远程函数的 `connection`，以及服务报告时的 `ddl` 文本。
 - **表选项。** 选项以每行一个选项返回——`description`、`expiration_timestamp`、`labels`、`partition_expiration_days`、`require_partition_filter`、`refresh_interval_minutes`，以及外部表的那几个——因此同一选项名可能以不同的 `option_type` 出现多次。正因为如此，它们保持为行，而不折叠成一个字典。
 - **分区。** 未分区表的 `partition_id` 为 `NULL`；分区键为 `NULL` 的那一行所在分区的 `partition_id` 为 `__NULL__`。每行带行数、逻辑字节、计费字节、最后修改时间与存储层级。省略表名时，同一个问题会问整个 dataset——每张表每个分区一行。
 - **已存字节。** 一张表的 `size_bytes` 是其各分区 `total_billable_bytes` 之和，来自**一次** dataset 级读取的归约，而不是每张表读一次。没有任何分区行的表——视图——保持 `None`，表示"引擎不为这个对象存字节"，这与零是不同的答案。`data_size_bytes` 与 `index_size_bytes` 保持 `None`，因为托管存储没有可拆分出去的索引部分；分区级行本身留在 `PARTITIONS` 族里，比共同最低要求更细。
@@ -97,7 +101,21 @@ BigQuery 后端回答三个层次的问题：项目与其 dataset **声明**了�
 
 这里的 `False` 是"无法在此提出这个问题"，不是"什么都没用过"。它并不表示某张表从未被读、或该项目没有依赖；它表示无法**通过这一层**向目录提问，CLI 会直接拒绝该族，而不是执行一条服务会拒绝的语句、或打印一行看起来像"答案为零"的空结果。
 
-`ddl` 族值得特别说明，因为表记录的 `extra` 字典里确实带着 `TABLES.ddl`：那段文本是目录在列表查询中返回的内容，不是一个 DDL 提取族。`ddl` 探针回答 `False`，因为这里没有该族的语句；CLI 仍提供该子命令，只是为了让"问它"成为一次能力拒绝，而不是未知命令。
+`ddl` 族值得特别说明，因为表记录的 `extra` 字典里确实带着 `TABLES.ddl`：那段文本是目录在列表查询中返回的内容，不是一个 DDL 提取族。`ddl` 探针回答 `False`，因为这里没有该族的语句；CLI 根本不提供该子命令——能力永远为 false 的类型不会被公布。
+
+## BigQuery 不存在的对象族
+
+共同内省词汇中的某些族，在本引擎里没有对应对象。它们在这里没有实现，也不会为它们提供一个永远返回空列表的空族；新增一个总是回答 `[]` 的 `types` 或 `sequences` 类型，等于宣称服务暴露了一个它并没有的目录。
+
+| 族 | 为什么没有实现 |
+|----|----------------|
+| 类型 | BigQuery 没有独立的用户自定义类型。`COLUMNS.data_type` 说明一列声明的类型；项目级或 dataset 级没有可单独列出的类型对象，也没有 enum、domain、composite、range 的**类型**目录。 |
+| 序列 | BigQuery 没有序列，也没有 `nextval` 式生成器。身份列及其边界由 `INFORMATION_SCHEMA.COLUMNS`（`is_identity`、`identity_start`、`identity_increment` 等）报告，那属于列族，而不是序列族。 |
+| 运算符、运算符类、运算符族 | BigQuery 暴露函数与例程，不暴露用户自定义运算符。不存在 `pg_operator` 式的目录。 |
+| 预留（reservations）、容量承诺（capacity commitments） | 这些是 BigQuery **Admin API** 资源，不是 `INFORMATION_SCHEMA` 对象。它们还是项目/组织级容量配置，而不是可据以推断模型的 schema 元数据，因此被刻意排除在内省之外。需要管理容量时请使用 Admin API（`google-cloud-bigquery-reservation`）。 |
+| 作业（jobs） | `INFORMATION_SCHEMA.JOBS*` 是项目级作业历史，不是 schema。它是运维遥测而非可描述的结构，只保留有限时间窗口，也不是模型生成器应当读取的族。作业历史与监控 API 才是正确的入口。 |
+
+`ROUTINES` 是这张表附近唯一**被实现**的族，因为 BigQuery 确实有持久化例程，而且目录有文档说明它们。
 
 ## 费用：每个数据族都是一次计费读取
 
@@ -209,6 +227,7 @@ print(coverage.left_coverage, coverage.right_coverage)
 - 真实 BigQuery 会回答完整的 24 列 `COLUMNS` 投影，而模拟器只回答 10 列。代码的写法是：向真实服务器请求有文档的清单，只有失败的端点才回退——但完整清单那条路径本身，并未在本仓库的 CI 中对真实服务执行过。
 - 模拟器是层壳，不是服务本身：它不计费、并不实现全部功能，而且工作流会在各 shard 之间重启它，因为随着表和作业累积它会退化。在那里能解析并返回行的语句，是 BigQuery **应当**接受的语句；它不是"真实项目已回答过它"的证明。
 - 凡是在模拟器与服务之间行为不同的地方——上面的列投影就是可见的一例——代码都写成优先真实服务、并向模拟器降级，而不是反过来。
+- `routines` 族比上述验证更新：它的语句与解析器有离线测试覆盖，但本仓库尚未在真实项目或模拟器上实际执行过 `INFORMATION_SCHEMA.ROUTINES`。
 
 ## 门槛与版本检查
 
@@ -235,6 +254,10 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect datasets \
 # 一个 dataset 的表、视图与分区
 python -m rhosocial.activerecord.backend.impl.bigquery introspect tables \
   --project my-project --dataset my_dataset
+python -m rhosocial.activerecord.backend.impl.bigquery introspect routines \
+  --project my-project --dataset my_dataset
+python -m rhosocial.activerecord.backend.impl.bigquery introspect routines add_one \
+  --project my-project --dataset my_dataset
 python -m rhosocial.activerecord.backend.impl.bigquery introspect partitions orders \
   --project my-project --dataset my_dataset
 
@@ -246,8 +269,6 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect value-samples 
 
 # 本后端拒绝的族——被拒绝，而不是回答一行空结果
 python -m rhosocial.activerecord.backend.impl.bigquery introspect unused-indexes \
-  --project my-project --dataset my_dataset
-python -m rhosocial.activerecord.backend.impl.bigquery introspect ddl orders \
   --project my-project --dataset my_dataset
 ```
 
@@ -263,6 +284,7 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect ddl orders \
 |------|------|------|
 | `tables` | dataset 中的表与视图 | 不接受 |
 | `views` | dataset 中的视图 | 不接受 |
+| `routines` | dataset 的例程，或一个具名例程 | 可选（例程） |
 | `columns` | 一张表的列 | 必填（表） |
 | `datasets` | 项目的 dataset | 不接受 |
 | `database` | 本次运行所连接的项目 | 不接受 |
@@ -275,11 +297,10 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect ddl orders \
 | `runtime` | 实时运行时测量 | 不接受 |
 | `index-stats` | 每索引使用计数 | 不接受 |
 | `dependencies` | 对象依赖图 | 可选（对象） |
-| `ddl` | 重建一张表的 DDL | 必填（表） |
 
-十五个类型，公布的清单衍生自同一份把每个类型绑定到其开关的映射，因此不可能出现"CLI 提供了某一族、但探针忘了它"的情况。
+十五个类型，公布的清单衍生自同一份把每个类型绑定到其开关的映射，因此不可能出现"CLI 提供了某一族、但探针忘了它"的情况。`ddl` 不在其中：`supports_ddl_extraction()` 为 `False`，且这里没有提取语句，因此该类型不被公布。
 
-`database` 与 `partitions` 之所以在这里，是因为方言回答了它们、CLI 却问不到：`database` 是项目级的问题，`partitions` 是引擎自己的族——每分区一行，带行数与所占字节，比表列表归约到的共同最低要求更细。一个问不到方言所声明内容的 CLI，就是"能回答却无法提问"。
+`database`、`routines` 与 `partitions` 之所以在这里，是因为方言回答了它们、CLI 却问不到：`database` 是项目级的问题，`routines` 是持久化函数/存储过程族，`partitions` 是引擎自己的族——每分区一行，带行数与所占字节，比表列表归约到的共同最低要求更细。一个问不到方言所声明内容的 CLI，就是"能回答却无法提问"。
 
 该命令**没有 `info` 子命令**，因此没有第二份输出格式清单：每个 `introspect` 类型都支持 `-o table`（默认）、`json`、`csv` 或 `tsv`，`--rich-ascii` 把表格边框换成 ASCII。也没有 `--limit`：`value-samples` 由内省器自己的默认值（`VALUE_SAMPLE_LIMIT`，100）界定，因此这个数字不会被写两遍。
 

@@ -8,6 +8,9 @@ than smuggling them into ``extra`` on an unrelated object:
 
 ``BigQueryDatasetInfo``
     A dataset, from ``INFORMATION_SCHEMA.SCHEMATA``.
+``BigQueryRoutineInfo``
+    A persistent function or procedure, from
+    ``INFORMATION_SCHEMA.ROUTINES``.
 ``BigQueryTableOptionInfo``
     One table option, from ``INFORMATION_SCHEMA.TABLE_OPTIONS``.
 ``BigQueryPartitionInfo``
@@ -26,6 +29,8 @@ Documentation (all read 2026-10-24 UTC):
 
 * ``INFORMATION_SCHEMA.SCHEMATA``
   https://cloud.google.com/bigquery/docs/information-schema-datasets-schemata
+* ``INFORMATION_SCHEMA.ROUTINES``
+  https://cloud.google.com/bigquery/docs/information-schema-routines
 * ``INFORMATION_SCHEMA.TABLE_OPTIONS``
   https://cloud.google.com/bigquery/docs/information-schema-table-options
 * ``INFORMATION_SCHEMA.PARTITIONS``
@@ -60,6 +65,53 @@ class BigQueryDatasetInfo:
     default_collation_name: Optional[str] = None
     #: Present for cross-region replicated datasets; ``NULL`` otherwise.
     sync_status: Optional[str] = None
+
+
+@dataclass
+class BigQueryRoutineInfo:
+    """One row of ``INFORMATION_SCHEMA.ROUTINES``.
+
+    A routine is a persistent user-defined function or a stored procedure.
+    ``routine_type`` is the catalog's own word -- ``FUNCTION``,
+    ``AGGREGATE FUNCTION``, ``TABLE FUNCTION`` or ``PROCEDURE`` -- and
+    ``data_type`` is the declared return type, which is ``NULL`` for a
+    procedure. ``routine_body`` says whether the body is SQL (``SQL``) or
+    external (``EXTERNAL`` for a JavaScript UDF), and
+    ``routine_definition`` carries the body's text.
+
+    Field names follow the catalog, lowercased, so each one can be traced
+    back to the documented column without a mapping table. The
+    ``specific_*`` and ``routine_*`` pairs both name the project and dataset
+    in the catalog's own way; they are kept because SQL-standard
+    ``SPECIFIC_*`` identity is what distinguishes overloaded routines.
+
+    https://cloud.google.com/bigquery/docs/information-schema-routines
+    """
+
+    routine_name: str
+    routine_type: str
+    specific_catalog: Optional[str] = None
+    specific_schema: Optional[str] = None
+    specific_name: Optional[str] = None
+    routine_catalog: Optional[str] = None
+    routine_schema: Optional[str] = None
+    #: The declared return type; ``None`` for a stored procedure.
+    data_type: Optional[str] = None
+    #: ``SQL``, or ``EXTERNAL`` for a JavaScript UDF.
+    routine_body: Optional[str] = None
+    routine_definition: Optional[str] = None
+    #: ``JAVASCRIPT`` for a JavaScript UDF, ``None`` for a SQL routine.
+    external_language: Optional[str] = None
+    #: ``True``/``False`` from the catalog's ``YES``/``NO``; ``None`` if unknown.
+    is_deterministic: Optional[bool] = None
+    #: Documented as always ``NULL``.
+    security_type: Optional[str] = None
+    created: Optional[datetime] = None
+    last_altered: Optional[datetime] = None
+    #: The remote-function connection, when the routine has one.
+    connection: Optional[str] = None
+    #: The ``CREATE FUNCTION`` / ``CREATE PROCEDURE`` text the catalog reports.
+    ddl: Optional[str] = None
 
 
 @dataclass
@@ -137,6 +189,7 @@ class BigQueryTableStorageInfo:
 
 __all__ = [
     "BigQueryDatasetInfo",
+    "BigQueryRoutineInfo",
     "BigQueryTableOptionInfo",
     "BigQueryPartitionInfo",
     "BigQueryTableStorageInfo",
