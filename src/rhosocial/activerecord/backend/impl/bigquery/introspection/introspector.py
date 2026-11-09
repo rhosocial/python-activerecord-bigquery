@@ -13,6 +13,7 @@ columns                 ``INFORMATION_SCHEMA.COLUMNS``
 indexes                 none -- BigQuery has no index catalogue
 primary key             ``TABLE_CONSTRAINTS`` + ``KEY_COLUMN_USAGE``
 views                   ``INFORMATION_SCHEMA.VIEWS``
+routines                ``INFORMATION_SCHEMA.ROUTINES``
 datasets                ``INFORMATION_SCHEMA.SCHEMATA``
 table options           ``INFORMATION_SCHEMA.TABLE_OPTIONS``
 partitions              ``INFORMATION_SCHEMA.PARTITIONS``
@@ -75,6 +76,7 @@ Documentation:
 * ``TABLES`` https://cloud.google.com/bigquery/docs/information-schema-tables
 * ``COLUMNS`` https://cloud.google.com/bigquery/docs/information-schema-columns
 * ``VIEWS`` https://cloud.google.com/bigquery/docs/information-schema-views
+* ``ROUTINES`` https://cloud.google.com/bigquery/docs/information-schema-routines
 * ``TABLE_CONSTRAINTS``
   https://cloud.google.com/bigquery/docs/information-schema-table-constraints
 * ``KEY_COLUMN_USAGE``
@@ -134,6 +136,7 @@ from ..expression.introspection import (
     BigQueryDatasetListQueryStatement,
     BigQueryIndexInfoQueryStatement,
     BigQueryPartitionListQueryStatement,
+    BigQueryRoutineListQueryStatement,
     BigQueryTableListQueryStatement,
     BigQueryTableOptionsQueryStatement,
     BigQueryViewInfoQueryStatement,
@@ -142,6 +145,7 @@ from ..expression.introspection import (
 from .types import (
     BigQueryDatasetInfo,
     BigQueryPartitionInfo,
+    BigQueryRoutineInfo,
     BigQueryTableOptionInfo,
     BigQueryTableStorageInfo,
 )
@@ -486,6 +490,25 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         catalog, dataset = self._dataset_scoped(schema)
         return BigQueryViewInfoQueryStatement(
             self.dialect, view_name=view_name, schema=dataset, catalog=catalog
+        )
+
+    def routine_list_statement(
+        self, *, schema: Optional[str], routine_name: Optional[str] = None
+    ) -> "BigQueryRoutineListQueryStatement":
+        """Return the ``INFORMATION_SCHEMA.ROUTINES`` statement.
+
+        With no name the statement lists the dataset's routines; with one it
+        filters the same question to that row, which is how
+        :meth:`get_routine_info` asks.
+
+        https://cloud.google.com/bigquery/docs/information-schema-routines
+        """
+        catalog, dataset = self._dataset_scoped(schema)
+        return BigQueryRoutineListQueryStatement(
+            self.dialect,
+            schema=dataset,
+            catalog=catalog,
+            routine_name=routine_name,
         )
 
     def trigger_list_statement(
@@ -858,6 +881,41 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         del rows, schema
         return []
 
+    def parse_routines(
+        self, rows: List[Dict[str, Any]], schema: Optional[str]
+    ) -> List[BigQueryRoutineInfo]:
+        """Parse ``ROUTINES`` rows into one record per routine.
+
+        ``is_deterministic`` arrives as the catalog's ``YES``/``NO``/``NULL``
+        and is read as ``True``/``False``/``None``; every other slot keeps
+        the catalog's own spelling. ``specific_schema`` and
+        ``routine_schema`` both name the dataset, so a row that carries
+        neither falls back to the schema argument the question was scoped to.
+        """
+        label = self._schema_label(schema)
+        return [
+            BigQueryRoutineInfo(
+                routine_name=_row_get(row, "routine_name") or "",
+                routine_type=_row_get(row, "routine_type") or "",
+                specific_catalog=_row_get(row, "specific_catalog"),
+                specific_schema=_row_get(row, "specific_schema") or label,
+                specific_name=_row_get(row, "specific_name"),
+                routine_catalog=_row_get(row, "routine_catalog"),
+                routine_schema=_row_get(row, "routine_schema") or label,
+                data_type=_row_get(row, "data_type"),
+                routine_body=_row_get(row, "routine_body"),
+                routine_definition=_row_get(row, "routine_definition"),
+                external_language=_row_get(row, "external_language"),
+                is_deterministic=_as_bool(_row_get(row, "is_deterministic")),
+                security_type=_row_get(row, "security_type"),
+                created=_row_get(row, "created"),
+                last_altered=_row_get(row, "last_altered"),
+                connection=_row_get(row, "connection"),
+                ddl=_row_get(row, "ddl"),
+            )
+            for row in rows
+        ]
+
     def parse_datasets(self, rows: List[Dict[str, Any]]) -> List[BigQueryDatasetInfo]:
         return [
             BigQueryDatasetInfo(
@@ -1102,6 +1160,55 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
         self._cache.set(key, result)
         return result
 
+    def list_routines(
+        self, schema: Optional[str] = None
+    ) -> List[BigQueryRoutineInfo]:
+        """List a dataset's routines from ``INFORMATION_SCHEMA.ROUTINES``.
+
+        One row per persistent user-defined function, aggregate function,
+        table function or stored procedure. The cache key carries the schema
+        the question was scoped to, so two datasets do not answer each other.
+        """
+        key = self._cache.key(
+            IntrospectionScope.SCHEMA,
+            schema or self.default_schema,
+            extra="routines",
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.routine_list_statement(schema=schema).to_sql()
+        result = self.parse_routines(self._executor.execute(sql, params), schema)
+        self._cache.set(key, result)
+        return result
+
+    def get_routine_info(
+        self, routine_name: str, schema: Optional[str] = None
+    ) -> Optional[BigQueryRoutineInfo]:
+        """Return one named routine, or ``None`` when the dataset has none.
+
+        The question is the same ``ROUTINES`` read as :meth:`list_routines`,
+        filtered by ``routine_name``. A missing name is not an error here:
+        the caller decides whether "no such routine" is a failure.
+        """
+        key = self._cache.key(
+            IntrospectionScope.SCHEMA,
+            routine_name,
+            schema=schema,
+            extra="routine",
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.routine_list_statement(
+            schema=schema, routine_name=routine_name
+        ).to_sql()
+        rows = self.parse_routines(self._executor.execute(sql, params), schema)
+        if not rows:
+            return None
+        self._cache.set(key, rows[0])
+        return rows[0]
+
     def list_table_options(
         self, table_name: str, schema: Optional[str] = None
     ) -> List[BigQueryTableOptionInfo]:
@@ -1341,6 +1448,52 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         result = self.parse_datasets(await self._executor.execute(sql, params))
         self._cache.set(key, result)
         return result
+
+    async def list_routines(
+        self, schema: Optional[str] = None
+    ) -> List[BigQueryRoutineInfo]:
+        """List a dataset's routines (async).
+
+        The async twin of :meth:`BigQueryIntrospector.list_routines`: same
+        statement, same parser and same cache key.
+        """
+        key = self._cache.key(
+            IntrospectionScope.SCHEMA,
+            schema or self.default_schema,
+            extra="routines",
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.routine_list_statement(schema=schema).to_sql()
+        result = self.parse_routines(await self._executor.execute(sql, params), schema)
+        self._cache.set(key, result)
+        return result
+
+    async def get_routine_info(
+        self, routine_name: str, schema: Optional[str] = None
+    ) -> Optional[BigQueryRoutineInfo]:
+        """Return one named routine, or ``None`` (async).
+
+        The async twin of :meth:`BigQueryIntrospector.get_routine_info`.
+        """
+        key = self._cache.key(
+            IntrospectionScope.SCHEMA,
+            routine_name,
+            schema=schema,
+            extra="routine",
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.routine_list_statement(
+            schema=schema, routine_name=routine_name
+        ).to_sql()
+        rows = self.parse_routines(await self._executor.execute(sql, params), schema)
+        if not rows:
+            return None
+        self._cache.set(key, rows[0])
+        return rows[0]
 
     async def list_table_options(
         self, table_name: str, schema: Optional[str] = None

@@ -48,6 +48,9 @@ from rhosocial.activerecord.backend.introspection.types import (
     JoinCoverage,
     TableType,
 )
+from rhosocial.activerecord.backend.impl.bigquery.introspection.types import (
+    BigQueryRoutineInfo,
+)
 
 #: The nine families this change wires, and the switch that gates each.
 #: The dialect declares three of them; the rest it declines, and the refusal
@@ -79,10 +82,10 @@ ROW_FAMILIES = (
     "join-coverage",
 )
 
-#: The two questions the dialect answers from the catalogue, beyond the
-#: listings: the project-level database question and this engine's own
-#: partitions view. Neither is declined, so neither is a refusal.
-CATALOGUE_FAMILIES = ("database", "partitions")
+#: The three questions the dialect answers from the catalogue, beyond the
+#: listings: the project-level database question, the routines family and
+#: this engine's own partitions view. None is declined, so none is a refusal.
+CATALOGUE_FAMILIES = ("database", "routines", "partitions")
 
 
 class _RecordingIntrospector:
@@ -246,6 +249,7 @@ class TestTheNameRuleTable:
         assert introspect_cli._NAME_RULE == {
             "tables": "forbidden",
             "views": "forbidden",
+            "routines": "optional",
             "columns": "required",
             "datasets": "forbidden",
             "database": "forbidden",
@@ -672,6 +676,66 @@ class TestTheDatabaseBranch:
         assert "does not take an object name" in capsys.readouterr().err
 
 
+class TestTheRoutinesBranch:
+    """A listing, and the same read narrowed to one named routine."""
+
+    def _routine(self) -> BigQueryRoutineInfo:
+        return BigQueryRoutineInfo(
+            routine_name="add_one",
+            routine_type="FUNCTION",
+            specific_schema="my_dataset",
+            routine_schema="my_dataset",
+            data_type="INT64",
+            routine_body="SQL",
+            routine_definition="x + 1",
+            is_deterministic=True,
+        )
+
+    def test_an_unnamed_run_lists_the_dataset_routines(self, monkeypatch):
+        introspector = _RecordingIntrospector({"list_routines": [self._routine()]})
+
+        _run_sync(monkeypatch, introspector, _args("routines"))
+
+        assert introspector.calls == [("list_routines", (), {"schema": "my_dataset"})]
+
+    def test_a_named_run_asks_for_one_routine(self, monkeypatch):
+        introspector = _RecordingIntrospector({"get_routine_info": self._routine()})
+
+        _run_sync(monkeypatch, introspector, _args("routines", "add_one"))
+
+        assert introspector.calls == [
+            ("get_routine_info", ("add_one",), {"schema": "my_dataset"})
+        ]
+
+    def test_a_missing_routine_is_an_error_not_a_blank_listing(self, monkeypatch, capsys):
+        introspector = _RecordingIntrospector({"get_routine_info": None})
+
+        with pytest.raises(SystemExit) as excinfo:
+            _run_sync(monkeypatch, introspector, _args("routines", "missing"))
+
+        assert excinfo.value.code == 1
+        assert "no routine named 'missing'" in capsys.readouterr().err
+
+    def test_the_named_answer_is_one_record(self, monkeypatch, capsys):
+        introspector = _RecordingIntrospector({"get_routine_info": self._routine()})
+
+        _run_sync(monkeypatch, introspector, _args("routines", "add_one"))
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload[0]["routine_name"] == "add_one"
+        assert payload[0]["routine_type"] == "FUNCTION"
+        assert payload[0]["is_deterministic"] is True
+
+    def test_the_family_is_gated_by_its_own_probe(self):
+        assert (
+            introspect_cli._TYPE_CAPABILITIES["routines"]
+            == "supports_routine_introspection"
+        )
+        assert BigQueryDialect.supports_routine_introspection(
+            BigQueryDialect()
+        ) is True
+
+
 class TestThePartitionsBranch:
     """One table, and one row per partition it holds."""
 
@@ -860,6 +924,20 @@ class TestTheAsyncPath:
                 [],
                 (("orders",), {"schema": "my_dataset"}),
             ),
+            (
+                "routines",
+                "list_routines",
+                {},
+                [],
+                ((), {"schema": "my_dataset"}),
+            ),
+            (
+                "routines",
+                "get_routine_info",
+                {"name": "add_one"},
+                BigQueryRoutineInfo(routine_name="add_one", routine_type="FUNCTION"),
+                (("add_one",), {"schema": "my_dataset"}),
+            ),
         ],
     )
     def test_the_async_branch_calls_the_same_method_with_the_same_arguments(
@@ -895,11 +973,11 @@ class TestTheAsyncPath:
 
 
 class TestTheTypeSurfaceExtension:
-    def test_the_advertised_surface_is_fifteen_types(self):
-        """The list the CLI's README states: the four listings, the project
-        and the partitions questions, the six declined families and the three
-        that read the rows."""
-        assert len(introspect_cli.INTROSPECT_TYPES) == 15
+    def test_the_advertised_surface_is_sixteen_types(self):
+        """The list the CLI's README states: the five listings, the project,
+        routines and partitions questions, the six declined families and the
+        three that read the rows."""
+        assert len(introspect_cli.INTROSPECT_TYPES) == 16
         for name in CATALOGUE_FAMILIES:
             assert name in introspect_cli.INTROSPECT_TYPES
 

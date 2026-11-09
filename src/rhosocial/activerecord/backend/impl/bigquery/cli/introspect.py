@@ -1,6 +1,7 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/cli/introspect.py
 """The introspection subcommands: the catalogue questions, the engine's own
-``partitions`` family, and the nine families the dialect answers or declines.
+``partitions`` family, the routines family, and the nine families the
+dialect answers or declines.
 
 Each one wires ``backend.introspector`` to an output format:
 
@@ -8,6 +9,7 @@ Each one wires ``backend.introspector`` to an output format:
 Command                   Introspector question
 ``tables``                ``list_tables()``
 ``views``                 ``list_views()``
+``routines [NAME]``       ``list_routines()`` / ``get_routine_info()``
 ``columns NAME``          ``list_columns()``
 ``datasets``              ``list_datasets()`` (the SCHEMATA view)
 ``database``              ``get_database_info()`` (@@project_id)
@@ -82,6 +84,7 @@ from .output import OUTPUT_CHOICES, create_provider
 _TYPE_CAPABILITIES = {
     "tables": "supports_table_introspection",
     "views": "supports_view_introspection",
+    "routines": "supports_routine_introspection",
     "columns": "supports_column_introspection",
     "datasets": "supports_dataset_introspection",
     "database": "supports_database_info",
@@ -113,18 +116,20 @@ INTROSPECT_TYPES = list(_TYPE_CAPABILITIES)
 #: ``--help`` print, and the two tables cover the same keys: a subcommand
 #: offered without a rule is one whose NAME decision nobody has made.
 #:
-#: ``tables``, ``views`` and ``datasets`` are listings over the whole
-#: dataset or project and take no positional at all; argparse refuses a
-#: stray one. ``database`` answers for the project the run connected to, and
-#: the four counter families for the dataset as a whole, so a name beside
-#: any of them is refused rather than parsed and dropped. ``dependencies``
-#: is the one family that can also answer for one object's edges, so its
-#: name is optional. ``partitions`` is a one-table question: without a name
+#: ``tables`` and ``datasets`` are listings over the whole dataset or
+#: project and take no positional at all; argparse refuses a stray one.
+#: ``database`` answers for the project the run connected to, and the four
+#: counter families for the dataset as a whole, so a name beside any of them
+#: is refused rather than parsed and dropped. ``routines`` is a listing that
+#: can also answer for one named routine, and ``dependencies`` can answer for
+#: one object's edges, so both names are optional. ``partitions`` is a
+#: one-table question: without a name
 #: the read is the dataset-wide one the storage reducer asks, which is a
 #: different question the statement has no filter for.
 _NAME_RULE = {
     "tables": "forbidden",
     "views": "forbidden",
+    "routines": "optional",
     "columns": "required",
     "datasets": "forbidden",
     "database": "forbidden",
@@ -148,11 +153,11 @@ _NAME_COMMANDS = tuple(
 )
 
 #: The subcommands that can also answer for one named object but answer the
-#: whole family without it. ``dependencies`` narrows to one object's edges
-#: when a name is given; omitting it asks for the whole graph. BigQuery
-#: declines the family, so both spellings reach the same refusal -- but the
-#: name still has to parse, or the refusal would be argparse's instead of
-#: the capability answer.
+#: whole family without it. ``routines`` narrows to one routine when a name
+#: is given; ``dependencies`` narrows to one object's edges. BigQuery
+#: declines the dependency family, so both of its spellings reach the same
+#: refusal -- but the name still has to parse, or the refusal would be
+#: argparse's instead of the capability answer.
 _OPTIONAL_NAME_COMMANDS = tuple(
     name for name, rule in _NAME_RULE.items() if rule == "optional"
 )
@@ -165,6 +170,10 @@ _EPILOG = """Examples:
   # Tables and views in one dataset
   %(prog)s tables --project my-project --dataset my_dataset
   %(prog)s views --project my-project --dataset my_dataset
+
+  # The dataset's routines, and one named routine
+  %(prog)s routines --project my-project --dataset my_dataset
+  %(prog)s routines my_function --project my-project --dataset my_dataset
 
   # One table's columns, and its partitions
   %(prog)s columns orders --project my-project --dataset my_dataset
@@ -271,6 +280,7 @@ def create_parser(subparsers):
 _HELP = {
     "tables": "List the tables and views in a dataset",
     "views": "List the views in a dataset",
+    "routines": "List a dataset's routines, or report one named routine",
     "columns": "List one table's columns",
     "datasets": "List the project's datasets",
     # The project-level question: BigQuery answers it from the documented
@@ -559,11 +569,20 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
     def _database_info(introspector):
         return introspector.get_database_info()
 
+    def _routines(introspector):
+        # A family with one listing and one named-object question: the name
+        # is optional, so it narrows the same catalogue read rather than
+        # selecting a different method.
+        if args.name:
+            return introspector.get_routine_info(args.name, schema=schema)
+        return introspector.list_routines(schema=schema)
+
     return {
         "tables": lambda introspector: introspector.list_tables(
             schema=schema, include_system=args.include_system
         ),
         "views": lambda introspector: introspector.list_views(schema=schema),
+        "routines": _routines,
         "columns": lambda introspector: introspector.list_columns(
             args.name, schema=schema
         ),
@@ -663,6 +682,22 @@ def _report(result: Any, args, provider) -> None:
         _display_ddl(args, provider, result)
         return
 
+    if args.command == "routines" and getattr(args, "name", None):
+        # A named-routine answer is one record, not a listing. ``None`` is
+        # "the dataset has no routine with that name", which is not an empty
+        # listing and should not exit 0 with a blank table.
+        if result is None:
+            print(
+                f"Error: no routine named '{args.name}' in the dataset",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        provider.display_results(
+            [_serialize_for_output(result)],
+            title=_TITLES.get(args.command, args.command.title()),
+        )
+        return
+
     if args.command == "database":
         # One record, not a listing: the answer describes the project the run
         # connected to, and ``list()`` on it would iterate the object's
@@ -728,6 +763,7 @@ def _report(result: Any, args, provider) -> None:
 #: families read better as what they measure than as their subcommand name.
 _TITLES = {
     "database": "Database Info",
+    "routines": "Routines",
     "partitions": "Partitions",
     "unused-indexes": "Indexes with no recorded use",
     "table-stats": "Table usage counters",

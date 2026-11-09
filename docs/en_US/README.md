@@ -12,8 +12,8 @@ a **dataset**, and unlike every other backend, column references never carry it.
   session-level current dataset, and the limits of single-level qualification
 - **[Database Introspection](bigquery_specific_features/introspection.md)**: what this
   backend answers from `INFORMATION_SCHEMA`, the billed scans behind the three data
-  families, the two `COLUMNS` projections and the emulator fallback, and the fifteen
-  CLI types
+  families, routines, the two `COLUMNS` projections and the emulator fallback, and the
+  sixteen CLI types
 - **[Temporal Expressions](bigquery_specific_features/datetime_expressions.md)**:
   the `seconds_between` spelling — `TIMESTAMP_DIFF(end, start, MILLISECOND) / 1000.0`,
   argument order, bind order, sign, and the one-millisecond resolution limit

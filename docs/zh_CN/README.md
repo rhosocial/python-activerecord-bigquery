@@ -11,7 +11,7 @@ BigQuery 后端是 [rhosocial-activerecord](https://github.com/rhosocial/python-
   以及单级限定的局限
 - **[数据库内省](bigquery_specific_features/introspection.md)**：本后端从
   `INFORMATION_SCHEMA` 回答什么、三个数据族背后的计费扫描、两套 `COLUMNS` 投影与
-  模拟器回退，以及十五个 CLI 类型
+  模拟器回退、例程（routines），以及十六个 CLI 类型
 - **[时间表达式](bigquery_specific_features/datetime_expressions.md)**：
   `seconds_between` 的写法——`TIMESTAMP_DIFF(end, start, MILLISECOND) / 1000.0`、
   参数顺序、绑定顺序、符号，以及一毫秒的精度上限

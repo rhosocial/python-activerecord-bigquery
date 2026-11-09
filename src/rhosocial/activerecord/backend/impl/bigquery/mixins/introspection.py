@@ -67,6 +67,7 @@ from ..expression.introspection import (
     BigQueryColumnInfoQueryStatement,
     BigQueryDatabaseInfoQueryStatement,
     BigQueryIndexInfoQueryStatement,
+    BigQueryRoutineListQueryStatement,
     BigQueryTableListQueryStatement,
     BigQueryViewInfoQueryStatement,
     BigQueryViewListQueryStatement,
@@ -96,6 +97,7 @@ if TYPE_CHECKING:  # pragma: no cover
         BigQueryDatasetListQueryStatement,
         BigQueryIndexInfoQueryStatement,
         BigQueryPartitionListQueryStatement,
+        BigQueryRoutineListQueryStatement,
         BigQueryTableListQueryStatement,
         BigQueryTableOptionsQueryStatement,
         BigQueryViewInfoQueryStatement,
@@ -154,6 +156,17 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         The capability for the ``introspect datasets`` family. A dataset
         is BigQuery's namespace level above a table -- there is no
         schema under it, so this is the only namespace switch."""
+        return True
+
+    def supports_routine_introspection(self) -> bool:
+        """BigQuery answers for its routines from ``INFORMATION_SCHEMA.ROUTINES``.
+
+        A routine is a persistent user-defined function (scalar, aggregate or
+        table function) or a stored procedure. The view is dataset-scoped,
+        like ``VIEWS``, and documents one row per routine.
+
+        https://cloud.google.com/bigquery/docs/information-schema-routines
+        """
         return True
 
     # ------------------------------------------------------------------ #
@@ -702,6 +715,60 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 Column(self, "table_name"),
                 Literal(self, expr.view_name),
             ),
+        )
+        return self.format_query_statement(query)
+
+    def format_bigquery_routine_list_query_statement(
+        self, expr: "BigQueryRoutineListQueryStatement"
+    ) -> Tuple[str, tuple]:
+        """Render the ``ROUTINES`` question.
+
+        The projection is the documented column order. ``routine_type``
+        distinguishes ``FUNCTION``, ``AGGREGATE FUNCTION``, ``TABLE
+        FUNCTION`` and ``PROCEDURE``; ``data_type`` is the return type
+        (``NULL`` for a procedure); ``routine_definition`` carries the SQL
+        body or the
+        JavaScript definition; and ``connection`` names the remote-function
+        connection when one backs the routine.
+
+        A ``routine_name`` narrows the same question to one row, which is
+        how the ``get`` half of the family is asked. The name is a bind
+        parameter, like every other caller value in this dialect.
+
+        https://cloud.google.com/bigquery/docs/information-schema-routines
+        """
+        condition = None
+        if expr.routine_name is not None:
+            condition = ComparisonPredicate(
+                self,
+                ComparisonPredicate.coerce_operator("="),
+                Column(self, "routine_name"),
+                Literal(self, expr.routine_name),
+            )
+        query = QueryStatement(
+            self,
+            select=self._columns(
+                "specific_catalog",
+                "specific_schema",
+                "specific_name",
+                "routine_catalog",
+                "routine_schema",
+                "routine_name",
+                "routine_type",
+                "data_type",
+                "routine_body",
+                "routine_definition",
+                "external_language",
+                "is_deterministic",
+                "security_type",
+                "created",
+                "last_altered",
+                "connection",
+                "ddl",
+            ),
+            from_=self._information_schema_source("ROUTINES", expr.catalog, expr.schema),
+            where=condition,
+            order_by=self._order_by_first("routine_name"),
         )
         return self.format_query_statement(query)
 

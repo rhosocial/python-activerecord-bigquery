@@ -10,6 +10,7 @@ The BigQuery backend answers three layers of questions: what the project and its
 
 - **Project and datasets**: `@@project_id`, and `INFORMATION_SCHEMA.SCHEMATA` (the one view that answers at project level)
 - **Tables and views**: `INFORMATION_SCHEMA.TABLES` / `VIEWS`, with the dataset-scoped partitions read reduced onto each table's stored bytes
+- **Routines**: `INFORMATION_SCHEMA.ROUTINES`, for persistent UDFs (scalar, aggregate, table functions) and stored procedures
 - **Columns**: `INFORMATION_SCHEMA.COLUMNS`, whose projection is the only question that says which of its columns an endpoint carries
 - **Primary keys**: `TABLE_CONSTRAINTS` ⋈ `KEY_COLUMN_USAGE`; there is no index catalogue
 - **Table options and partitions**: `TABLE_OPTIONS` and `PARTITIONS`
@@ -47,6 +48,7 @@ Read the `False` rows first: a probe that answers `False` says the question cann
 | `supports_partition_info()` | `True` | One table's partitions |
 | `supports_extensions()` | `False` (inherited) | Installed add-on components |
 | `supports_dataset_introspection()` | `True` | BigQuery's own dataset family |
+| `supports_routine_introspection()` | `True` | BigQuery's own routines family |
 
 Three of the `False` rows are not "the engine cannot": they are "the catalogue does not carry it", and each says which part is missing.
 
@@ -68,6 +70,7 @@ A `True` promises only that the statement renders and the project accepts it. It
 | Columns | `list_columns()` | `INFORMATION_SCHEMA.COLUMNS`, asked with a projection |
 | Primary key | `get_primary_key()`, `list_indexes()` | `TABLE_CONSTRAINTS` ⋈ `KEY_COLUMN_USAGE` |
 | Views | `list_views()`, `get_view_info()` | `INFORMATION_SCHEMA.VIEWS` |
+| Routines | `list_routines()`, `get_routine_info()` | `INFORMATION_SCHEMA.ROUTINES` |
 | Table options | `list_table_options()` | `INFORMATION_SCHEMA.TABLE_OPTIONS` |
 | Partitions | `list_partitions()` | `INFORMATION_SCHEMA.PARTITIONS` |
 | Storage | `get_table_storage_info()`, `list_tables()` | `TABLE_OPTIONS`, `PARTITIONS` and `COLUMNS`, composed |
@@ -78,6 +81,7 @@ A few consequences of each statement, in the order a reader will meet them:
 - **Tables.** `TABLE_TYPE` is BigQuery's own spelling — `BASE TABLE`, `CLONE`, `SNAPSHOT`, `EXTERNAL`, `VIEW`, `MATERIALIZED VIEW` — mapped onto core's enum with `CLONE` and `SNAPSHOT` counted as base tables, and the original spelling kept in `extra["bigquery_table_type"]`. `include_system` is ignored: the `TABLES` view lists no system tables. The table row also carries the catalog's `ddl` text and the `is_typed` / `is_insertable_into` flags in `extra`.
 - **Datasets.** `SCHEMATA` is the one view that answers at project level, and the only one that accepts a region qualifier (`region-us`, `region-europe-north1`, ...). It reports the dataset's location, DDL text, default collation and creation/modification times.
 - **Views.** `check_option` is documented as always `NULL` for BigQuery; it is selected so the parsed object can say so rather than assume it. `use_standard_sql` rides in `extra`.
+- **Routines.** `routine_type` is the catalog's own word — `FUNCTION`, `AGGREGATE FUNCTION`, `TABLE FUNCTION` or `PROCEDURE`. `data_type` is the declared return type and is `NULL` for a procedure; `routine_body` says `SQL` or `EXTERNAL`, with `external_language` naming JavaScript for the external case; `is_deterministic` is read from the catalog's `YES`/`NO` into a boolean and stays `None` when the catalog does not know. The record also keeps the catalog's `created` / `last_altered` times, the remote-function `connection`, and the `ddl` text when the service reports one.
 - **Table options.** Options arrive one row per option — `description`, `expiration_timestamp`, `labels`, `partition_expiration_days`, `require_partition_filter`, `refresh_interval_minutes`, and the external-table ones — so the same option name can appear more than once with a different `option_type`. They are kept as rows rather than folded into a dict for that reason.
 - **Partitions.** `partition_id` is `NULL` for an unpartitioned table and `__NULL__` for the partition holding rows whose partitioning key is `NULL`. Each row carries rows, logical bytes, billable bytes, last-modified time and storage tier. With the table name omitted the same question is asked of the whole dataset — one row per partition of every table.
 - **Stored bytes.** A table's `size_bytes` is the sum of its partitions' `total_billable_bytes`, reduced from **one** dataset-scoped read rather than one read per table. A table with no partition rows — a view — keeps `None`, which is "not an object this engine stores bytes for", a different answer from zero. `data_size_bytes` and `index_size_bytes` stay `None` because managed storage has no index side to split off; the partition rows themselves stay on the `PARTITIONS` family, which is finer than the common minimum.
@@ -98,6 +102,20 @@ All six answer `False`, and they are inherited rather than declared here — the
 A `False` here is "the question cannot be asked here", not "nothing was used". It does not say that a table was never read or that the project has no dependencies; it says the catalog cannot be asked *through this layer*, and the CLI refuses the family rather than running a statement the service would reject or printing an empty row that reads like an answer of zero.
 
 The `ddl` family is the one worth stating carefully, because a table record does carry `TABLES.ddl` in its `extra` dict: that text is what the catalog hands back on the listing, not a DDL-extraction family. The `ddl` probe answers `False` because the family has no statement here, and the CLI offers the subcommand only so that asking it is a capability refusal rather than an unknown command.
+
+## Object Families BigQuery Does Not Have
+
+Some families in the common introspection vocabulary name objects this engine has no equivalent of. They are not implemented here, and no empty family is offered for them; adding a `types` or `sequences` type that always answers `[]` would claim a catalogue the service does not expose.
+
+| Family | Why there is no implementation |
+|--------|----------------------------------|
+| Types | BigQuery has no standalone user-defined types. `COLUMNS.data_type` names a column's declared type; there is no project- or dataset-level type object to list separately, and no enum, domain, composite or range *type* catalogue. |
+| Sequences | BigQuery has no sequences and no `nextval`-style generator. Identity columns and their bounds are reported through `INFORMATION_SCHEMA.COLUMNS` (`is_identity`, `identity_start`, `identity_increment`, ...), which is the column family, not a sequence family. |
+| Operators, operator classes, operator families | BigQuery exposes functions and routines, not user-defined operators. There is no `pg_operator`-style catalogue. |
+| Reservations, capacity commitments | These are BigQuery **Admin API** resources, not `INFORMATION_SCHEMA` objects. They are also project/organization-level capacity configuration rather than schema metadata a model could be inferred from, so they are intentionally left out of introspection. Use the Admin API (`google-cloud-bigquery-reservation`) when capacity management is the question. |
+| Jobs | `INFORMATION_SCHEMA.JOBS*` is project-level job history, not schema. It is operational telemetry rather than a describable structure, is retained for a limited window, and is not a family a model generator should read. The service's job history and monitoring APIs are the right entry point. |
+
+`ROUTINES` is the one family in this table's neighbourhood that *is* implemented, because BigQuery does have persistent routines and the catalog documents them.
 
 ## Cost: Every Data Family Is a Billed Read
 
@@ -209,6 +227,7 @@ Two smaller facts about the same view: a column whose `is_hidden` is `YES` is a 
 - A real BigQuery answers the full 24-column `COLUMNS` projection; the emulator answers 10. The code is written so a real server is asked the documented list and only an endpoint that fails it falls back — but the full-list path itself has not been exercised against a real service in this repository's CI.
 - The emulator is a shim, not the service: it does not bill, it does not implement everything, and the workflow restarts it between shards because it degrades as tables accumulate. A statement that parses and returns rows there is a statement BigQuery should accept; it is not proof that a real project answered it.
 - Anything whose behaviour differs between the emulator and the service — the column projection above is the visible one — is written to prefer the service and to degrade to the emulator, not the other way round.
+- The `routines` family is newer than that verification: its statement and parser are covered by offline tests, but no live project or emulator run has exercised `INFORMATION_SCHEMA.ROUTINES` from this repository yet.
 
 ## Floors and Version Gates
 
@@ -234,6 +253,10 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect datasets \
 
 # One dataset's tables, views and partitions
 python -m rhosocial.activerecord.backend.impl.bigquery introspect tables \
+  --project my-project --dataset my_dataset
+python -m rhosocial.activerecord.backend.impl.bigquery introspect routines \
+  --project my-project --dataset my_dataset
+python -m rhosocial.activerecord.backend.impl.bigquery introspect routines add_one \
   --project my-project --dataset my_dataset
 python -m rhosocial.activerecord.backend.impl.bigquery introspect partitions orders \
   --project my-project --dataset my_dataset
@@ -263,6 +286,7 @@ No command fabricates an answer: without a dataset the introspector raises with 
 |------|-------------|------|
 | `tables` | Tables and views in a dataset | not accepted |
 | `views` | Views in a dataset | not accepted |
+| `routines` | The dataset's routines, or one named routine | optional (routine) |
 | `columns` | One table's columns | required (table) |
 | `datasets` | The project's datasets | not accepted |
 | `database` | The project this run is connected to | not accepted |
@@ -277,9 +301,9 @@ No command fabricates an answer: without a dataset the introspector raises with 
 | `dependencies` | The object dependency graph | optional (object) |
 | `ddl` | The DDL that recreates one table | required (table) |
 
-Fifteen types, and the advertised list is derived from the same mapping that gates each type on its switch, so a family cannot be offered by the CLI and forgotten by the probe.
+Sixteen types, and the advertised list is derived from the same mapping that gates each type on its switch, so a family cannot be offered by the CLI and forgotten by the probe.
 
-`database` and `partitions` are here because the dialect answers them and the CLI could not ask: `database` is the project-level question, and `partitions` is the engine's own family — one row per partition with the rows and the bytes each holds, finer than the common minimum the table listing reduces onto. A CLI that could not ask what the dialect declares would be "answerable but unaskable".
+`database`, `routines` and `partitions` are here because the dialect answers them and the CLI could not ask: `database` is the project-level question, `routines` is the persistent-function/procedure family, and `partitions` is the engine's own family — one row per partition with the rows and the bytes each holds, finer than the common minimum the table listing reduces onto. A CLI that could not ask what the dialect declares would be "answerable but unaskable".
 
 This command has **no `info` subcommand**, so there is no second output-format list: every `introspect` type takes `-o table` (the default), `json`, `csv` or `tsv`, and `--rich-ascii` switches the table borders to ASCII. There is also no `--limit`: `value-samples` is bounded by the introspector's own default (`VALUE_SAMPLE_LIMIT`, 100), so the number is not written in two places.
 

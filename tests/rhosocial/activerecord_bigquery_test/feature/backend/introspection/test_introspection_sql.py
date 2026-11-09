@@ -48,6 +48,7 @@ from rhosocial.activerecord.backend.impl.bigquery.expression.introspection impor
     BigQueryDatasetListQueryStatement,
     BigQueryIndexInfoQueryStatement,
     BigQueryPartitionListQueryStatement,
+    BigQueryRoutineListQueryStatement,
     BigQueryTableListQueryStatement,
     BigQueryTableOptionsQueryStatement,
     BigQueryViewInfoQueryStatement,
@@ -253,6 +254,46 @@ def test_single_view_query_binds_the_view_name(dialect):
     assert params == ("my_view",)
 
 
+def test_routines_query_lists_the_documented_projection(dialect):
+    sql, params = BigQueryRoutineListQueryStatement(
+        dialect, schema="my_dataset", catalog="my-project"
+    ).to_sql()
+    assert "FROM `my-project`.`my_dataset`.INFORMATION_SCHEMA.ROUTINES" in sql
+    for column in (
+        "specific_catalog",
+        "specific_schema",
+        "specific_name",
+        "routine_catalog",
+        "routine_schema",
+        "routine_name",
+        "routine_type",
+        "data_type",
+        "routine_body",
+        "routine_definition",
+        "external_language",
+        "is_deterministic",
+        "security_type",
+        "created",
+        "last_altered",
+        "connection",
+        "ddl",
+    ):
+        assert f"`{column}`" in sql
+    assert "WHERE" not in sql
+    assert sql.rstrip().endswith("ORDER BY `routine_name`")
+    assert params == ()
+
+
+def test_routine_query_binds_the_name_when_one_is_asked_for(dialect):
+    sql, params = BigQueryRoutineListQueryStatement(
+        dialect, schema="my_dataset", catalog="my-project", routine_name="add_one"
+    ).to_sql()
+    assert "FROM `my-project`.`my_dataset`.INFORMATION_SCHEMA.ROUTINES" in sql
+    assert "WHERE `routine_name` = ?" in sql
+    assert "ORDER BY `routine_name`" in sql
+    assert params == ("add_one",)
+
+
 def test_dataset_query_renders_the_project_and_region_qualifiers(dialect):
     sql, params = BigQueryDatasetListQueryStatement(
         dialect, catalog="my-project", location="US"
@@ -362,6 +403,21 @@ def test_every_builder_binds_caller_data_only(introspector):
         table_name="orders", schema="my_dataset"
     ).to_sql()
     assert params == ("orders",)
+    _sql, params = introspector.routine_list_statement(
+        schema="my_dataset", routine_name="add_one"
+    ).to_sql()
+    assert params == ("add_one",)
+
+
+def test_the_routine_builder_uses_the_configured_project_and_dataset(introspector):
+    introspector, _executor = introspector
+    sql, params = introspector.routine_list_statement(schema="my_dataset").to_sql()
+    assert "FROM `my-project`.`my_dataset`.INFORMATION_SCHEMA.ROUTINES" in sql
+    assert params == ()
+
+
+def test_the_routine_probe_declares_the_family(dialect):
+    assert dialect.supports_routine_introspection() is True
 
 
 def test_the_foreign_key_builder_refuses(introspector):

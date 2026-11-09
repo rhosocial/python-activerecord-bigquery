@@ -525,6 +525,158 @@ def test_partitions_parse_counts_and_tiers(introspector):
     assert partitions[0].last_modified_time == modified
 
 
+def test_routines_parse_the_documented_fields(introspector):
+    created = datetime(2026, 10, 24, 12, 0, 0)
+    routines = introspector.parse_routines(
+        [
+            {
+                "specific_catalog": "my-project",
+                "specific_schema": "my_dataset",
+                "specific_name": "add_one",
+                "routine_catalog": "my-project",
+                "routine_schema": "my_dataset",
+                "routine_name": "add_one",
+                "routine_type": "FUNCTION",
+                "data_type": "INT64",
+                "routine_body": "SQL",
+                "routine_definition": "x + 1",
+                "external_language": None,
+                "is_deterministic": "YES",
+                "security_type": None,
+                "created": created,
+                "last_altered": created,
+                "connection": None,
+                "ddl": "CREATE FUNCTION myproject.mydataset.add_one(x INT64) AS (x + 1)",
+            },
+            {
+                "routine_name": "load_orders",
+                "routine_type": "PROCEDURE",
+                "data_type": None,
+                "routine_body": "SQL",
+                "routine_definition": "INSERT INTO orders SELECT * FROM staging",
+                "is_deterministic": "NO",
+            },
+            {
+                "routine_name": "js_regexp",
+                "routine_type": "FUNCTION",
+                "data_type": "STRING",
+                "routine_body": "EXTERNAL",
+                "routine_definition": "return x.match(/a/);",
+                "external_language": "JAVASCRIPT",
+                "is_deterministic": None,
+                "connection": "us.my-connection",
+            },
+        ],
+        "my_dataset",
+    )
+    add_one, load_orders, js_regexp = routines
+    assert add_one.routine_name == "add_one"
+    assert add_one.routine_type == "FUNCTION"
+    assert add_one.data_type == "INT64"
+    assert add_one.routine_body == "SQL"
+    assert add_one.routine_definition == "x + 1"
+    assert add_one.is_deterministic is True
+    assert add_one.created == created
+    assert add_one.ddl.startswith("CREATE FUNCTION")
+    assert add_one.specific_schema == "my_dataset"
+    assert load_orders.routine_type == "PROCEDURE"
+    assert load_orders.data_type is None
+    assert load_orders.is_deterministic is False
+    # A row carrying no schema slots falls back to the question's dataset.
+    assert load_orders.routine_schema == "my_dataset"
+    assert js_regexp.routine_body == "EXTERNAL"
+    assert js_regexp.external_language == "JAVASCRIPT"
+    assert js_regexp.is_deterministic is None
+    assert js_regexp.connection == "us.my-connection"
+
+
+def test_routines_accept_uppercase_row_keys(introspector):
+    """A driver or fixture that preserves the catalog's own spelling."""
+    routines = introspector.parse_routines(
+        [{"ROUTINE_NAME": "add_one", "ROUTINE_TYPE": "FUNCTION", "IS_DETERMINISTIC": "YES"}],
+        "my_dataset",
+    )
+    assert routines[0].routine_name == "add_one"
+    assert routines[0].routine_type == "FUNCTION"
+    assert routines[0].is_deterministic is True
+
+
+class _CannedRoutineExecutor:
+    """Answers canned routine rows and records the question."""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    def execute(self, sql, params=()):
+        self.calls.append((sql, params))
+        return self.rows
+
+
+class _CannedRoutineAsyncExecutor(_CannedRoutineExecutor):
+    async def execute(self, sql, params=()):
+        self.calls.append((sql, params))
+        return self.rows
+
+
+ROUTINE_ROWS = [
+    {
+        "routine_name": "add_one",
+        "routine_type": "FUNCTION",
+        "specific_schema": "my_dataset",
+        "routine_schema": "my_dataset",
+        "data_type": "INT64",
+        "is_deterministic": "YES",
+    }
+]
+
+
+def test_list_routines_asks_the_routines_view_once_and_caches_it():
+    executor = _CannedRoutineExecutor(ROUTINE_ROWS)
+    introspector_obj = BigQueryIntrospector(_BackendStandIn(), executor)
+
+    routines = introspector_obj.list_routines(schema="my_dataset")
+    assert [r.routine_name for r in routines] == ["add_one"]
+    assert len(executor.calls) == 1
+    assert "INFORMATION_SCHEMA.ROUTINES" in executor.calls[0][0]
+    assert executor.calls[0][1] == ()
+
+    # The second read is the cached answer, not a second question.
+    assert introspector_obj.list_routines(schema="my_dataset") is routines
+    assert len(executor.calls) == 1
+
+
+def test_get_routine_info_filters_by_name_and_returns_none_when_absent():
+    executor = _CannedRoutineExecutor(ROUTINE_ROWS)
+    introspector_obj = BigQueryIntrospector(_BackendStandIn(), executor)
+
+    info = introspector_obj.get_routine_info("add_one", schema="my_dataset")
+    assert info.routine_name == "add_one"
+    sql, params = executor.calls[0]
+    assert "INFORMATION_SCHEMA.ROUTINES" in sql
+    assert "WHERE `routine_name` = ?" in sql
+    assert params == ("add_one",)
+
+    executor.rows = []
+    executor.calls = []
+    introspector_obj2 = BigQueryIntrospector(_BackendStandIn(), executor)
+    assert introspector_obj2.get_routine_info("missing", schema="my_dataset") is None
+    assert executor.calls[0][1] == ("missing",)
+
+
+async def test_list_routines_and_get_routine_info_async():
+    executor = _CannedRoutineAsyncExecutor(ROUTINE_ROWS)
+    introspector_obj = AsyncBigQueryIntrospector(_BackendStandIn(), executor)
+
+    routines = await introspector_obj.list_routines(schema="my_dataset")
+    assert [r.routine_name for r in routines] == ["add_one"]
+    assert "INFORMATION_SCHEMA.ROUTINES" in executor.calls[0][0]
+
+    info = await introspector_obj.get_routine_info("add_one", schema="my_dataset")
+    assert info.routine_name == "add_one"
+    assert executor.calls[1][1] == ("add_one",)
+
+
 def test_database_info_reports_the_project_and_the_backend_level(introspector):
     info = introspector.parse_database_info([{"catalog_name": "my-project"}])
     assert info.name == "my-project"

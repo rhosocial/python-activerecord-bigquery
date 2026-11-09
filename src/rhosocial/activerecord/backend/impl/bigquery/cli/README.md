@@ -11,7 +11,7 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect <TYPE> [NAME] 
 
 ## What it can ask about
 
-Fifteen types, each gated by the dialect capability switch that answers for it
+Sixteen types, each gated by the dialect capability switch that answers for it
 (`_TYPE_CAPABILITIES` in `introspect.py`). A type whose switch is `False` is
 refused with exit code 2 rather than answered with an empty row: "this project
 cannot report per-index use counters" and "this project has no counters" are
@@ -21,6 +21,7 @@ different answers, and only one of them is what happened.
 | :--- | :--- | :--- |
 | `tables` | `INFORMATION_SCHEMA.TABLES` | Tables and views, with `table_type` distinguishing `BASE TABLE`, `VIEW`, `MATERIALIZED VIEW` and `EXTERNAL`. |
 | `views` | `INFORMATION_SCHEMA.VIEWS` | Views, with their definitions. |
+| `routines` | `INFORMATION_SCHEMA.ROUTINES` | Persistent UDFs (scalar, aggregate and table functions) and stored procedures, with their definition, return type and determinism. |
 | `columns` | `INFORMATION_SCHEMA.COLUMNS` | One table's columns: name, type, nullability, ordinal position, default, and the generation and identity facts a real server answers. |
 | `datasets` | `INFORMATION_SCHEMA.SCHEMATA` | The project's datasets. A dataset is BigQuery's namespace level above a table, so it stands where a schema would elsewhere. |
 | `database` | `SELECT @@project_id` | The project this run connected to. The project-level question, so it takes no dataset and no name. |
@@ -36,8 +37,8 @@ different answers, and only one of them is what happened.
 | `ddl` | — | Refused: `TABLES.ddl` describes tables and external tables, not a routine or a view's definition. |
 
 `NAME` is required for `columns`, `partitions`, `ddl`, `column-profiles`,
-`value-samples` and `join-coverage`; optional for `dependencies`; refused for
-`database`. The list types take no name. A `NAME` given where it is refused
+`value-samples` and `join-coverage`; optional for `routines` and
+`dependencies`; refused for `database`. The list types take no name. A `NAME` given where it is refused
 exits 2 rather than being parsed and dropped, and a flag the type does not read
 (`--column`, `--right-table`, `--right-column`) is refused the same way.
 
@@ -75,6 +76,12 @@ exits 2 rather than being parsed and dropped, and a flag the type does not read
     `column-profiles` reads the whole table and is the most expensive thing
     this CLI can be asked. The sentence on stderr before the rows says so;
     each row's `source='aggregate'` says the figures are exact counts.
+*   **There are no type, sequence or operator types here.** BigQuery has no
+    standalone user-defined types, no sequences and no user-defined
+    operators, so none of those families is invented. Identity columns are
+    reported under `columns`, not as a sequence family. Reservations,
+    capacity commitments and job history are Admin API / operational
+    resources rather than schema objects, so they are out of scope too.
 *   **Nothing here was run against a live project.** The statements are
     written from the official documentation (cited beside each one in the
     source). Verify the first run against your project before relying on the
@@ -92,9 +99,11 @@ exits 2 rather than being parsed and dropped, and a flag the type does not read
 python -m rhosocial.activerecord.backend.impl.bigquery introspect datasets --project my-project
 python -m rhosocial.activerecord.backend.impl.bigquery introspect database --project my-project
 
-# One dataset's tables and views
+# One dataset's tables, views and routines
 python -m rhosocial.activerecord.backend.impl.bigquery introspect tables --dataset events -o json
 python -m rhosocial.activerecord.backend.impl.bigquery introspect views --dataset events
+python -m rhosocial.activerecord.backend.impl.bigquery introspect routines --dataset events
+python -m rhosocial.activerecord.backend.impl.bigquery introspect routines add_one --dataset events
 
 # One table's columns, and its partitions
 python -m rhosocial.activerecord.backend.impl.bigquery introspect columns orders --dataset events

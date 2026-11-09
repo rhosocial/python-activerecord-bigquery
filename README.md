@@ -188,6 +188,31 @@ CI shards the emulator across several containers on distinct ports; see
   VIEW`.
 - **No connection pooling** in the backend itself.
 
+## Introspection
+
+`backend.introspector` answers metadata questions from the project's
+`INFORMATION_SCHEMA` views: datasets, tables, columns, views, primary keys,
+partitions, and persistent routines (`INFORMATION_SCHEMA.ROUTINES` — UDFs,
+aggregate and table functions, and stored procedures). The `introspect`
+CLI exposes the same families.
+
+Some introspection families from other engines have no BigQuery equivalent,
+and none is invented here:
+
+- **Types** — no standalone user-defined types; `COLUMNS.data_type` is the
+  only type surface.
+- **Sequences** — no sequences; identity columns are reported by the
+  `columns` family.
+- **Operators / operator classes / operator families** — no user-defined
+  operators.
+- **Reservations and capacity commitments** — Admin API capacity objects,
+  not `INFORMATION_SCHEMA` schema metadata.
+- **Jobs** — project-level job history (`INFORMATION_SCHEMA.JOBS*`), not a
+  describable schema object.
+
+See [Database Introspection](docs/en_US/bigquery_specific_features/introspection.md)
+for the full contract.
+
 ## Testing
 
 ```bash

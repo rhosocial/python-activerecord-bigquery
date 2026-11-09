@@ -34,6 +34,7 @@ from rhosocial.activerecord.backend.impl.bigquery.__main__ import main
 from rhosocial.activerecord.backend.impl.bigquery.cli import introspect as cli_introspect
 from rhosocial.activerecord.backend.impl.bigquery.introspection.types import (
     BigQueryPartitionInfo,
+    BigQueryRoutineInfo,
 )
 
 
@@ -130,6 +131,30 @@ class _FakeIntrospector:
             }
         ]
 
+    def list_routines(self, schema=None):
+        self.calls.append(("list_routines", schema))
+        return [
+            BigQueryRoutineInfo(
+                routine_name="add_one",
+                routine_type="FUNCTION",
+                routine_schema=schema,
+                data_type="INT64",
+                is_deterministic=True,
+            )
+        ]
+
+    def get_routine_info(self, routine_name, schema=None):
+        self.calls.append(("get_routine_info", routine_name, schema))
+        if routine_name != "add_one":
+            return None
+        return BigQueryRoutineInfo(
+            routine_name="add_one",
+            routine_type="FUNCTION",
+            routine_schema=schema,
+            data_type="INT64",
+            is_deterministic=True,
+        )
+
     def get_database_info(self):
         self.calls.append(("get_database_info",))
         return IntrospectionDatabaseInfo(
@@ -214,6 +239,7 @@ def test_every_subcommand_is_registered():
     assert set(COMMAND_NAMES) == {
         "tables",
         "views",
+        "routines",
         "columns",
         "datasets",
         "database",
@@ -346,6 +372,49 @@ def test_datasets_lists_datasets_as_json(built, capsys):
     assert [row["schema_name"] for row in payload] == ["my_dataset"]
     assert payload[0]["catalog_name"] == "my-project"
     assert built[0].introspector.calls == [("list_datasets",)]
+
+
+def test_routines_lists_the_dataset_routines_as_json(built, capsys):
+    _run(["routines", "--dataset", "my_dataset", "-o", "json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert [row["routine_name"] for row in payload] == ["add_one"]
+    assert payload[0]["routine_type"] == "FUNCTION"
+    assert payload[0]["is_deterministic"] is True
+    assert built[0].introspector.calls == [("list_routines", "my_dataset")]
+
+
+def test_a_named_routine_is_one_record_as_json(built, capsys):
+    _run(["routines", "add_one", "--dataset", "my_dataset", "-o", "json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == [
+        {
+            "routine_name": "add_one",
+            "routine_type": "FUNCTION",
+            "specific_catalog": None,
+            "specific_schema": None,
+            "specific_name": None,
+            "routine_catalog": None,
+            "routine_schema": "my_dataset",
+            "data_type": "INT64",
+            "routine_body": None,
+            "routine_definition": None,
+            "external_language": None,
+            "is_deterministic": True,
+            "security_type": None,
+            "created": None,
+            "last_altered": None,
+            "connection": None,
+            "ddl": None,
+        }
+    ]
+    assert built[0].introspector.calls == [("get_routine_info", "add_one", "my_dataset")]
+
+
+def test_a_missing_routine_exits_non_zero(built, capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        _run(["routines", "missing", "--dataset", "my_dataset", "-o", "json"])
+    assert exc_info.value.code == 1
+    assert "no routine named 'missing'" in capsys.readouterr().err
 
 
 def test_columns_lists_one_tables_columns_as_json(built, capsys):

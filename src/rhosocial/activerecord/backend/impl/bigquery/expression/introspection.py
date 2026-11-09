@@ -48,6 +48,7 @@ columns                 ``INFORMATION_SCHEMA.COLUMNS``
 primary keys            ``INFORMATION_SCHEMA.TABLE_CONSTRAINTS``
                         joined to ``KEY_COLUMN_USAGE``
 views                   ``INFORMATION_SCHEMA.VIEWS``
+routines                ``INFORMATION_SCHEMA.ROUTINES``
 datasets                ``INFORMATION_SCHEMA.SCHEMATA``
 table options           ``INFORMATION_SCHEMA.TABLE_OPTIONS``
 partitions              ``INFORMATION_SCHEMA.PARTITIONS``
@@ -151,6 +152,7 @@ __all__ = [
     "BigQueryIndexInfoQueryStatement",
     "BigQueryViewListQueryStatement",
     "BigQueryViewInfoQueryStatement",
+    "BigQueryRoutineListQueryStatement",
     "BigQueryDatasetListQueryStatement",
     "BigQueryTableOptionsQueryStatement",
     "BigQueryPartitionListQueryStatement",
@@ -380,6 +382,45 @@ class BigQueryViewInfoQueryStatement(IntrospectionExpression):
     def format_method(self) -> str:
         """The dialect formatting method that renders this expression."""
         return "format_bigquery_view_info_query_statement"
+
+
+class BigQueryRoutineListQueryStatement(IntrospectionExpression):
+    """The ``INFORMATION_SCHEMA.ROUTINES`` question.
+
+    BigQuery routines are the persistent user-defined functions, aggregate
+    functions, table functions and stored procedures a dataset holds. The
+    view is dataset-scoped, like ``VIEWS``, and the documented projection is
+    asked for in the order the catalog documents.
+
+    The ``routine_name`` slot is how one named routine is asked for: with a
+    name the same question is filtered to that row, which is the ``get`` half
+    of the family. Omitting it lists the dataset's routines.
+
+    Args:
+        dialect: The BigQuery dialect that renders this statement.
+        schema: The dataset, or a ``project.dataset`` pair. Required.
+        catalog: The project to qualify the dataset with, or ``None``.
+        routine_name: The routine to narrow to, or ``None`` for the listing.
+
+    https://cloud.google.com/bigquery/docs/information-schema-routines
+    """
+
+    def __init__(
+        self,
+        dialect: "BigQueryDialect",
+        schema: str,
+        catalog: Optional[str] = None,
+        routine_name: Optional[str] = None,
+    ):
+        """Initialize the routine list statement."""
+        super().__init__(dialect, schema)
+        self.catalog = catalog
+        self.routine_name = routine_name
+
+    @property
+    def format_method(self) -> str:
+        """The dialect formatting method that renders this expression."""
+        return "format_bigquery_routine_list_query_statement"
 
 
 class BigQueryDatasetListQueryStatement(IntrospectionExpression):
