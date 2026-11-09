@@ -101,7 +101,7 @@ All six answer `False`, and they are inherited rather than declared here — the
 
 A `False` here is "the question cannot be asked here", not "nothing was used". It does not say that a table was never read or that the project has no dependencies; it says the catalog cannot be asked *through this layer*, and the CLI refuses the family rather than running a statement the service would reject or printing an empty row that reads like an answer of zero.
 
-The `ddl` family is the one worth stating carefully, because a table record does carry `TABLES.ddl` in its `extra` dict: that text is what the catalog hands back on the listing, not a DDL-extraction family. The `ddl` probe answers `False` because the family has no statement here, and the CLI offers the subcommand only so that asking it is a capability refusal rather than an unknown command.
+The `ddl` family is worth stating carefully, because a table record does carry `TABLES.ddl` in its `extra` dict: that text is what the catalog hands back on the listing, not a DDL-extraction family. The `ddl` probe answers `False` because the family has no statement here, and the CLI does not offer the subcommand at all -- a type whose capability is permanently false is not advertised.
 
 ## Object Families BigQuery Does Not Have
 
@@ -270,8 +270,6 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect value-samples 
 # The families this backend declines -- refused, not answered with an empty row
 python -m rhosocial.activerecord.backend.impl.bigquery introspect unused-indexes \
   --project my-project --dataset my_dataset
-python -m rhosocial.activerecord.backend.impl.bigquery introspect ddl orders \
-  --project my-project --dataset my_dataset
 ```
 
 Connection settings come from flags or from the environment: `--project` (`BIGQUERY_PROJECT` or `GOOGLE_CLOUD_PROJECT`), `--dataset` (`BIGQUERY_DATASET`), `--location` (`BIGQUERY_LOCATION`), `--credentials-path` (`BIGQUERY_CREDENTIALS_PATH` or `GOOGLE_APPLICATION_CREDENTIALS`), `--credentials-json` (`BIGQUERY_CREDENTIALS_JSON`), `--api-endpoint` (`BIGQUERY_API_ENDPOINT`, e.g. `http://localhost:9050` for the emulator). `--use-async` runs the same commands through the async backend.
@@ -299,9 +297,8 @@ No command fabricates an answer: without a dataset the introspector raises with 
 | `runtime` | Live runtime measurements | not accepted |
 | `index-stats` | Per-index usage counters | not accepted |
 | `dependencies` | The object dependency graph | optional (object) |
-| `ddl` | The DDL that recreates one table | required (table) |
 
-Sixteen types, and the advertised list is derived from the same mapping that gates each type on its switch, so a family cannot be offered by the CLI and forgotten by the probe.
+Fifteen types, and the advertised list is derived from the same mapping that gates each type on its switch, so a family cannot be offered by the CLI and forgotten by the probe. `ddl` is not among them: `supports_ddl_extraction()` is `False` and no extraction statement exists, so the type is not advertised.
 
 `database`, `routines` and `partitions` are here because the dialect answers them and the CLI could not ask: `database` is the project-level question, `routines` is the persistent-function/procedure family, and `partitions` is the engine's own family — one row per partition with the rows and the bytes each holds, finer than the common minimum the table listing reduces onto. A CLI that could not ask what the dialect declares would be "answerable but unaskable".
 

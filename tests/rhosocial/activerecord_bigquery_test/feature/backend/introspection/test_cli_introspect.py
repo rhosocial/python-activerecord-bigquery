@@ -249,7 +249,6 @@ def test_every_subcommand_is_registered():
         "runtime",
         "index-stats",
         "dependencies",
-        "ddl",
         "column-profiles",
         "value-samples",
         "join-coverage",
@@ -284,6 +283,18 @@ def test_an_unknown_command_exits_non_zero():
     with pytest.raises(SystemExit) as exc_info:
         _run(["nope"])
     # argparse refuses an unregistered subcommand before the handler runs.
+    assert exc_info.value.code == 2
+
+
+def test_ddl_is_not_an_advertised_command():
+    """``ddl`` is not offered: its capability is permanently false here.
+
+    ``supports_ddl_extraction()`` answers ``False`` and no extraction
+    statement exists, so argparse rejects the name as an invalid choice
+    (exit 2) rather than the CLI advertising it and refusing it later.
+    """
+    with pytest.raises(SystemExit) as exc_info:
+        _run(["ddl", "orders"])
     assert exc_info.value.code == 2
 
 

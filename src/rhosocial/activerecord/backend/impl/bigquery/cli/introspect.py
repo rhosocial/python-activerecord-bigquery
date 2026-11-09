@@ -19,10 +19,12 @@ Command                   Introspector question
 ``join-coverage NAME``    ``estimate_join_coverage()``
 ========================  =======================================
 
-The six families this backend declines -- ``unused-indexes``,
-``table-stats``, ``runtime``, ``index-stats``, ``dependencies`` and
-``ddl`` -- are listed too, so that asking one of them is answered by the
-capability gate rather than by an "unknown command".
+The five families this backend declines -- ``unused-indexes``,
+``table-stats``, ``runtime``, ``index-stats`` and ``dependencies`` -- are
+listed too, so that asking one of them is answered by the capability gate
+rather than by an "unknown command". ``ddl`` is not offered at all: the
+dialect's ``supports_ddl_extraction()`` is False and no extraction statement
+exists here, so the subcommand would only ever be a refusal.
 
 ``--dataset`` selects the dataset every question is scoped to, and the
 schema argument each question receives is BigQuery's **dataset** -- the two
@@ -74,13 +76,16 @@ from .output import OUTPUT_CHOICES, create_provider
 #: Both are declared by the dialect, so a CLI that could not ask them would
 #: be "answerable but unaskable", the defect §6 exists to prevent.
 #:
-#: BigQuery declares three of the nine families beyond its catalogue and its
+#: BigQuery declares three of the families beyond its catalogue and its
 #: partitions view: the three that read the *rows* (a profile, a value
 #: listing, an overlap measurement), because ``INFORMATION_SCHEMA`` describes
 #: what a column declares and no view reports what its rows hold. The other
-#: six answer False -- there is no unused-index view, no usage counters, no
-#: runtime metrics and no dependency graph in ``INFORMATION_SCHEMA`` -- so
-#: their subcommands exist to be refused rather than to run.
+#: five answer False -- there is no unused-index view, no usage counters, no
+#: runtime metrics, no index counters and no dependency graph in
+#: ``INFORMATION_SCHEMA`` -- so their subcommands exist to be refused rather
+#: than to run. ``ddl`` is absent from this mapping because
+#: ``supports_ddl_extraction()`` is False and there is no extraction statement
+#: here; a subcommand whose capability is permanently false is not advertised.
 _TYPE_CAPABILITIES = {
     "tables": "supports_table_introspection",
     "views": "supports_view_introspection",
@@ -94,7 +99,6 @@ _TYPE_CAPABILITIES = {
     "runtime": "supports_runtime_stats",
     "index-stats": "supports_index_stats",
     "dependencies": "supports_object_dependencies",
-    "ddl": "supports_ddl_extraction",
     "column-profiles": "supports_column_data_profile",
     "value-samples": "supports_column_value_sample",
     "join-coverage": "supports_join_coverage",
@@ -139,7 +143,6 @@ _NAME_RULE = {
     "runtime": "forbidden",
     "index-stats": "forbidden",
     "dependencies": "optional",
-    "ddl": "required",
     "column-profiles": "required",
     "value-samples": "required",
     "join-coverage": "required",
@@ -188,7 +191,6 @@ _EPILOG = """Examples:
   # The families BigQuery declines -- refused, not answered with an empty row
   %(prog)s unused-indexes --project my-project --dataset my_dataset
   %(prog)s dependencies --project my-project --dataset my_dataset
-  %(prog)s ddl orders --project my-project --dataset my_dataset
 
   # JSON output, and the environment-variable form
   %(prog)s tables -o json
@@ -300,7 +302,8 @@ _HELP = {
     "runtime": "Live runtime measurements (not supported by BigQuery)",
     "index-stats": "Per-index usage counters (not supported by BigQuery)",
     "dependencies": "The object dependency graph (not supported by BigQuery)",
-    "ddl": "The DDL that recreates one table (not supported by BigQuery)",
+    # ``ddl`` is not offered: supports_ddl_extraction() is False and no
+    # extraction statement exists, so the subcommand would only be refused.
     # The three families that read the rows rather than the catalogue.
     "column-profiles": "Profile every column of a table from its data",
     "value-samples": "List one column's most frequent values",
@@ -310,7 +313,6 @@ _HELP = {
 _POSITIONAL_HELP = {
     "columns": "Table name (required)",
     "partitions": "Table name (required)",
-    "ddl": "Table name (required)",
     "column-profiles": "Table name (required)",
     "value-samples": "Table name (required)",
     "join-coverage": "Left table name (required)",
@@ -606,9 +608,6 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
             object_name=args.name, schema=schema
         ),
         # ---- the one-object and two-object families -------------------
-        "ddl": lambda introspector: introspector.get_ddl_statement(
-            args.name, object_type=None, schema=schema
-        ),
         "column-profiles": lambda introspector: introspector.list_column_data_profiles(
             args.name, schema=schema
         ),
@@ -637,40 +636,6 @@ def _async_questions(args) -> Dict[str, Callable[[Any], Any]]:
     return _questions(args)
 
 
-def _display_ddl(args, provider, statement) -> None:
-    """Show one object's DDL as the engine handed it back.
-
-    A DDL text is a block, not a field of a row: a bordered cell wraps every
-    one of its lines and reads worse than the text itself. So the terminal
-    format prints the engine's own text, and the formats a caller parses
-    keep the record -- schema, object type, object name, ``native`` and the
-    text -- which is what ``native`` is for: it says the engine retrieved
-    this rather than the library assembling it.
-    """
-    record = _serialize_for_output(statement)
-    if isinstance(record, dict):
-        text = record.get("ddl")
-        object_name = record.get("object_name") or args.name
-        object_type = record.get("object_type") or "OBJECT"
-    else:  # pragma: no cover - a statement is a record, not a scalar
-        text, object_name, object_type = statement, args.name, "OBJECT"
-    if not text:
-        # Not "no such table": the object exists and the engine answers
-        # with no text rather than an assembled fragment that would read as
-        # authoritative. The two are worth telling apart, so this exits
-        # without printing an empty row.
-        print(
-            f"Error: no DDL available for '{args.name}'",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    if args.output == "table":
-        print(f"-- {object_type} {object_name}")
-        print(text)
-        return
-    provider.display_results([record], title=f"DDL of {object_name}")
-
-
 def _report(result: Any, args, provider) -> None:
     """Print one question's result.
 
@@ -678,10 +643,6 @@ def _report(result: Any, args, provider) -> None:
     together -- columns and primary key -- are now the ``columns`` command
     and the key columns it reports.
     """
-    if args.command == "ddl":
-        _display_ddl(args, provider, result)
-        return
-
     if args.command == "routines" and getattr(args, "name", None):
         # A named-routine answer is one record, not a listing. ``None`` is
         # "the dataset has no routine with that name", which is not an empty

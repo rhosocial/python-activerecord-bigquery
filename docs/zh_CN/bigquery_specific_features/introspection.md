@@ -101,7 +101,7 @@ BigQuery 后端回答三个层次的问题：项目与其 dataset **声明**了�
 
 这里的 `False` 是"无法在此提出这个问题"，不是"什么都没用过"。它并不表示某张表从未被读、或该项目没有依赖；它表示无法**通过这一层**向目录提问，CLI 会直接拒绝该族，而不是执行一条服务会拒绝的语句、或打印一行看起来像"答案为零"的空结果。
 
-`ddl` 族值得特别说明，因为表记录的 `extra` 字典里确实带着 `TABLES.ddl`：那段文本是目录在列表查询中返回的内容，不是一个 DDL 提取族。`ddl` 探针回答 `False`，因为这里没有该族的语句；CLI 仍提供该子命令，只是为了让"问它"成为一次能力拒绝，而不是未知命令。
+`ddl` 族值得特别说明，因为表记录的 `extra` 字典里确实带着 `TABLES.ddl`：那段文本是目录在列表查询中返回的内容，不是一个 DDL 提取族。`ddl` 探针回答 `False`，因为这里没有该族的语句；CLI 根本不提供该子命令——能力永远为 false 的类型不会被公布。
 
 ## BigQuery 不存在的对象族
 
@@ -270,8 +270,6 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect value-samples 
 # 本后端拒绝的族——被拒绝，而不是回答一行空结果
 python -m rhosocial.activerecord.backend.impl.bigquery introspect unused-indexes \
   --project my-project --dataset my_dataset
-python -m rhosocial.activerecord.backend.impl.bigquery introspect ddl orders \
-  --project my-project --dataset my_dataset
 ```
 
 连接设置来自命令行参数或环境变量：`--project`（`BIGQUERY_PROJECT` 或 `GOOGLE_CLOUD_PROJECT`）、`--dataset`（`BIGQUERY_DATASET`）、`--location`（`BIGQUERY_LOCATION`）、`--credentials-path`（`BIGQUERY_CREDENTIALS_PATH` 或 `GOOGLE_APPLICATION_CREDENTIALS`）、`--credentials-json`（`BIGQUERY_CREDENTIALS_JSON`）、`--api-endpoint`（`BIGQUERY_API_ENDPOINT`，例如模拟器的 `http://localhost:9050`）。`--use-async` 让同样的命令走异步后端。
@@ -299,9 +297,8 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect ddl orders \
 | `runtime` | 实时运行时测量 | 不接受 |
 | `index-stats` | 每索引使用计数 | 不接受 |
 | `dependencies` | 对象依赖图 | 可选（对象） |
-| `ddl` | 重建一张表的 DDL | 必填（表） |
 
-十六个类型，公布的清单衍生自同一份把每个类型绑定到其开关的映射，因此不可能出现"CLI 提供了某一族、但探针忘了它"的情况。
+十五个类型，公布的清单衍生自同一份把每个类型绑定到其开关的映射，因此不可能出现"CLI 提供了某一族、但探针忘了它"的情况。`ddl` 不在其中：`supports_ddl_extraction()` 为 `False`，且这里没有提取语句，因此该类型不被公布。
 
 `database`、`routines` 与 `partitions` 之所以在这里，是因为方言回答了它们、CLI 却问不到：`database` 是项目级的问题，`routines` 是持久化函数/存储过程族，`partitions` 是引擎自己的族——每分区一行，带行数与所占字节，比表列表归约到的共同最低要求更细。一个问不到方言所声明内容的 CLI，就是"能回答却无法提问"。
 

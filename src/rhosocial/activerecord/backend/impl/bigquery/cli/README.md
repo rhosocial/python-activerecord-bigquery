@@ -11,7 +11,7 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect <TYPE> [NAME] 
 
 ## What it can ask about
 
-Sixteen types, each gated by the dialect capability switch that answers for it
+Fifteen types, each gated by the dialect capability switch that answers for it
 (`_TYPE_CAPABILITIES` in `introspect.py`). A type whose switch is `False` is
 refused with exit code 2 rather than answered with an empty row: "this project
 cannot report per-index use counters" and "this project has no counters" are
@@ -34,9 +34,13 @@ different answers, and only one of them is what happened.
 | `runtime` | — | Refused: BigQuery reports no runtime metrics. |
 | `index-stats` | — | Refused: there are no per-index counters. |
 | `dependencies` | — | Refused: no view names an object's dependants. |
-| `ddl` | — | Refused: `TABLES.ddl` describes tables and external tables, not a routine or a view's definition. |
 
-`NAME` is required for `columns`, `partitions`, `ddl`, `column-profiles`,
+`ddl` is not offered at all: `supports_ddl_extraction()` answers `False` and
+no extraction statement exists here, so a subcommand would only ever be a
+refusal. `TABLES.ddl` is a field of the table listing, not a DDL-extraction
+family.
+
+`NAME` is required for `columns`, `partitions`, `column-profiles`,
 `value-samples` and `join-coverage`; optional for `routines` and
 `dependencies`; refused for `database`. The list types take no name. A `NAME` given where it is refused
 exits 2 rather than being parsed and dropped, and a flag the type does not read
@@ -116,7 +120,7 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect join-coverage 
     --column buyer_id --right-table users --right-column id --dataset events
 
 # A family this project declines: refused, not answered with an empty row
-python -m rhosocial.activerecord.backend.impl.bigquery introspect ddl orders --dataset events
+python -m rhosocial.activerecord.backend.impl.bigquery introspect unused-indexes --dataset events
 
 # Against a local emulator
 python -m rhosocial.activerecord.backend.impl.bigquery introspect tables \
