@@ -2,6 +2,8 @@
 from contextlib import asynccontextmanager
 from typing import Optional
 
+from rhosocial.activerecord.logging.defaults import get_logger
+
 
 class AsyncBigQueryTransactionManager:
     def __init__(self, backend):
@@ -20,8 +22,7 @@ class AsyncBigQueryTransactionManager:
             except Exception:
                 # The original exception must propagate; a backend that
                 # rejects ROLLBACK (e.g. the emulator) should not mask it.
-                import logging
-                logging.getLogger(__name__).warning(
+                get_logger("rhosocial.activerecord.transaction").warning(
                     "Failed to roll back BigQuery transaction", exc_info=True
                 )
             raise

@@ -3,10 +3,15 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from rhosocial.activerecord.backend.base import StorageBackend
+from rhosocial.activerecord.backend.base.execution_logging import (
+    log_execution_error, log_execution_start, log_execution_summary,
+)
 from rhosocial.activerecord.backend.errors import (
     ConnectionError, DatabaseError, IntegrityError, QueryError,
 )
+from rhosocial.activerecord.backend.options import ExecutionOptions, LogContext
 from rhosocial.activerecord.backend.result import QueryResult
+from rhosocial.activerecord.backend.schema import StatementType
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.introspection.backend_mixin import (
     IntrospectorBackendMixin,
@@ -16,6 +21,45 @@ from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
 from ..transaction import BigQueryTransactionManager
 from .qualified_names import BigQueryQualifiedNameMixin
+
+
+class ExecutionSummaryCursor:
+    """Cursor stand-in for the shared execution summary.
+
+    BigQuery has no DB-API cursor: the affected-row count already lives on
+    the :class:`~rhosocial.activerecord.backend.result.QueryResult`.  The
+    shared summary helper only reads ``rowcount``, so the count is exposed
+    through that one attribute instead of duplicating the helper.
+    """
+
+    __slots__ = ("rowcount",)
+
+    def __init__(self, rowcount: int) -> None:
+        self.rowcount = rowcount
+
+
+def log_result_summary(
+    backend: Any,
+    stmt_type: StatementType,
+    sql: str,
+    result: QueryResult,
+    options: Optional[ExecutionOptions],
+) -> None:
+    """Emit the shared ``INFO`` summary for one completed BigQuery execution.
+
+    The canonical DEBUG SQL line and INFO DML/DQL/DDL/TCL summary stay in
+    :mod:`rhosocial.activerecord.backend.base.execution_logging`; this
+    adapter only supplies the row count and rows BigQuery already returned.
+    """
+    log_execution_summary(
+        backend,
+        stmt_type,
+        sql,
+        ExecutionSummaryCursor(result.affected_rows or 0),
+        result.data,
+        result.duration or 0.0,
+        options,
+    )
 
 
 class BigQueryBackend(
@@ -81,7 +125,7 @@ class BigQueryBackend(
                     client_options=client_options,
                 )
             self._connected = True
-            self.log(logging.INFO, "Connected to BigQuery")
+            self.log(logging.DEBUG, "Connected to BigQuery")
         except Exception as e:
             raise ConnectionError(f"Failed to connect to BigQuery: {e}") from e
 
@@ -299,17 +343,30 @@ class BigQueryBackend(
             return 'BYTES'
         return 'STRING'
 
-    def execute(self, sql: str, params: Optional[Tuple] = None, returning: Optional[Any] = None, column_adapters: Optional[Dict] = None, *, options: Optional[Any] = None) -> QueryResult:
+    def execute(
+        self,
+        sql: str,
+        params: Optional[Tuple] = None,
+        returning: Optional[Any] = None,
+        column_adapters: Optional[Dict] = None,
+        *,
+        options: Optional[Any] = None,
+    ) -> QueryResult:
         """
         Execute a SQL statement against BigQuery.
 
         Accepts the base-class style ``options`` (ExecutionOptions) keyword.
         Statement type resolution order: options.stmt_type >
         process_result_set heuristic > SQL prefix detection.
-        """
-        from rhosocial.activerecord.backend.result import QueryResult
-        from rhosocial.activerecord.backend.schema import StatementType
 
+        This backend replaces the core execution pipeline (there is no DB-API
+        cursor), so it owns the two execution log records the core layer
+        defines: one ``DEBUG`` record with the SQL text and redacted
+        parameters, and one ``INFO`` summary.  Both come from
+        :mod:`rhosocial.activerecord.backend.base.execution_logging`; the
+        backend-specific part is only the row count, which BigQuery reports
+        on the job rather than on a cursor.
+        """
         if options is not None:
             column_adapters = column_adapters or getattr(options, 'column_adapters', None)
             column_mapping = getattr(options, 'column_mapping', None)
@@ -320,13 +377,21 @@ class BigQueryBackend(
         else:
             column_mapping = None
             is_select = sql.strip().upper().startswith(("SELECT", "WITH"))
+        stmt_type = getattr(options, 'stmt_type', None) if options is not None else None
+        if stmt_type is None:
+            stmt_type = StatementType.DQL if is_select else StatementType.OTHER
+        log_execution_start(self, sql, params, options)
         try:
             if self._is_emulator_mode():
                 # Emulator fast path: one ``jobs.query`` REST call per SQL
                 # statement. The full client job lifecycle (submit + poll +
                 # getQueryResults) costs ~6s per statement against the
                 # emulator while a single jobs.query call completes in ~2s.
-                return self._execute_via_rest(sql, params, is_select, column_adapters, column_mapping)
+                result = self._execute_via_rest(
+                    sql, params, is_select, column_adapters, column_mapping
+                )
+                log_result_summary(self, stmt_type, sql, result, options)
+                return result
             if not getattr(self, '_connected', False) or getattr(self, '_client', None) is None:
                 self.connect()
             job_config = self._build_job_config(params)
@@ -359,8 +424,11 @@ class BigQueryBackend(
                 affected_rows = job.num_dml_affected_rows or 0
                 result_data = None
             duration = (job.ended - job.started).total_seconds() if job.started and job.ended else None
-            return QueryResult(data=result_data, affected_rows=affected_rows, duration=duration)
+            result = QueryResult(data=result_data, affected_rows=affected_rows, duration=duration)
+            log_result_summary(self, stmt_type, sql, result, options)
+            return result
         except Exception as e:
+            log_execution_error(self, e, options)
             self._handle_error(e)
 
     @property
@@ -558,12 +626,17 @@ class BigQueryBackend(
     # only intended for single-writer workloads.
 
     def _next_pk_value(self, table: str, schema_name: Optional[str], pk_column: str) -> int:
-        from rhosocial.activerecord.backend.options import ExecutionOptions
-        from rhosocial.activerecord.backend.schema import StatementType
-
         key = (schema_name, table, pk_column)
         sql, params = self._next_pk_expression(table, schema_name, pk_column).to_sql()
-        result = self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
+        options = ExecutionOptions(
+            stmt_type=StatementType.DQL,
+            log_context=LogContext(
+                operation="select",
+                object_name=table,
+                schema=schema_name,
+            ),
+        )
+        result = self.execute(sql, params, options=options)
         row = result.data[0]
         value = row.get("next_id") if isinstance(row, dict) else row[0]
         # Stay monotonic across deletes: MAX(pk)+1 reuses the id of a just
@@ -640,14 +713,12 @@ class BigQueryBackend(
         # rows, and the BigQuery analyzer rejects an untyped NULL CASE result
         # ("Value of type INT64 cannot be assigned to ..."). Reusing the
         # column itself is also the safe semantics.
-        from rhosocial.activerecord.backend.base.operations import is_sql_expression
+        from rhosocial.activerecord.backend.base.operations import execution_log_context
         from rhosocial.activerecord.backend.expression import (
             Column, Literal, UpdateStatement, ComparisonPredicate, InPredicate,
         )
         from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
         from rhosocial.activerecord.backend.expression.objects import Table
-        from rhosocial.activerecord.backend.options import ExecutionOptions
-        from rhosocial.activerecord.backend.schema import StatementType
 
         pk_col = Column(self.dialect, options.pk_column)
         assignments = {}
@@ -680,6 +751,7 @@ class BigQueryBackend(
             stmt_type=StatementType.DML,
             column_adapters=options.column_adapters,
             column_mapping=options.column_mapping,
+            log_context=execution_log_context(options, "bulk_update"),
         )
         result = self.execute(sql, params, options=exec_options)
         if options.auto_commit:
@@ -702,11 +774,16 @@ class BigQueryBackend(
     def _count_matching(self, table: str, schema_name: Optional[str], where) -> Optional[int]:
         if where is None:
             return None
-        from rhosocial.activerecord.backend.options import ExecutionOptions
-        from rhosocial.activerecord.backend.schema import StatementType
-
         sql, params = self._count_expression(table, schema_name, where).to_sql()
-        result = self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
+        options = ExecutionOptions(
+            stmt_type=StatementType.DQL,
+            log_context=LogContext(
+                operation="count",
+                object_name=table,
+                schema=schema_name,
+            ),
+        )
+        result = self.execute(sql, params, options=options)
         if not result.data:
             return None
         row = result.data[0]
