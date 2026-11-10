@@ -12,6 +12,10 @@ that require unregistered provider keys are skipped by the testsuite itself.
 """
 
 from rhosocial.activerecord.testsuite.core.registry import ProviderRegistry
+from rhosocial.activerecord.testsuite.feature.cli.providers import (
+    GenericAsyncCLIProvider,
+    GenericSyncCLIProvider,
+)
 
 from .basic import BasicAsyncProvider, BasicSyncProvider
 from .query import QueryAsyncProvider, QuerySyncProvider
@@ -40,3 +44,7 @@ provider_registry.register("feature.relation.IRelationAsyncProvider", RelationAs
 provider_registry.register("feature.query.IQueryProvider", QuerySyncProvider)
 provider_registry.register("feature.query.IQuerySyncProvider", QuerySyncProvider)
 provider_registry.register("feature.query.IQueryAsyncProvider", QueryAsyncProvider)
+
+# Register CLI providers, assembled from the basic and mixins providers above.
+provider_registry.register("feature.cli.ICLISyncProvider", GenericSyncCLIProvider)
+provider_registry.register("feature.cli.ICLIAsyncProvider", GenericAsyncCLIProvider)
