@@ -1,9 +1,15 @@
 """BigQuery asynchronous backend implementation."""
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from rhosocial.activerecord.backend.base import AsyncStorageBackend
+from rhosocial.activerecord.backend.base.execution_logging import (
+    log_execution_error, log_execution_start,
+)
 from rhosocial.activerecord.backend.errors import ConnectionError, DatabaseError
+from rhosocial.activerecord.backend.options import ExecutionOptions, LogContext
 from rhosocial.activerecord.backend.result import QueryResult
+from rhosocial.activerecord.backend.schema import StatementType
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.introspection.backend_mixin import (
     IntrospectorBackendMixin,
@@ -12,6 +18,7 @@ from rhosocial.activerecord.backend.introspection.backend_mixin import (
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
 from ..async_transaction import AsyncBigQueryTransactionManager
+from .backend import log_result_summary
 from .qualified_names import BigQueryQualifiedNameMixin
 
 
@@ -76,6 +83,7 @@ class AsyncBigQueryBackend(
                 project = getattr(config, 'project', None)
                 self._client = bigquery.Client(project=project, client_options=client_options)
             self._connected = True
+            self.log(logging.DEBUG, "Connected to BigQuery")
         except Exception as e:
             raise ConnectionError(f"Failed to connect to BigQuery: {e}") from e
 
@@ -125,8 +133,23 @@ class AsyncBigQueryBackend(
             self, AsyncBigQueryIntrospectorExecutor(self)
         )
 
-    async def execute(self, sql: str, params: Optional[Tuple] = None, returning: Optional[Any] = None, column_adapters: Optional[Dict] = None, *, options: Optional[Any] = None) -> QueryResult:
-        from rhosocial.activerecord.backend.schema import StatementType
+    async def execute(
+        self,
+        sql: str,
+        params: Optional[Tuple] = None,
+        returning: Optional[Any] = None,
+        column_adapters: Optional[Dict] = None,
+        *,
+        options: Optional[Any] = None,
+    ) -> QueryResult:
+        """
+        Execute a SQL statement against BigQuery asynchronously.
+
+        Mirrors :meth:`BigQueryBackend.execute`: the core execution pipeline
+        is replaced (there is no DB-API cursor), so this method emits the
+        shared ``DEBUG`` SQL record and ``INFO`` summary through
+        :mod:`rhosocial.activerecord.backend.base.execution_logging`.
+        """
         from .backend import BigQueryBackend
 
         if options is not None:
@@ -139,12 +162,18 @@ class AsyncBigQueryBackend(
         else:
             column_mapping = None
             is_select = sql.strip().upper().startswith(("SELECT", "WITH"))
+        stmt_type = getattr(options, 'stmt_type', None) if options is not None else None
+        if stmt_type is None:
+            stmt_type = StatementType.DQL if is_select else StatementType.OTHER
+        log_execution_start(self, sql, params, options)
         try:
             if getattr(self.config, 'api_endpoint', None):
                 # Emulator REST fast path: see BigQueryBackend.execute.
-                return BigQueryBackend._execute_via_rest(
+                result = BigQueryBackend._execute_via_rest(
                     self, sql, params, is_select, column_adapters, column_mapping
                 )
+                log_result_summary(self, stmt_type, sql, result, options)
+                return result
             if not getattr(self, '_connected', False) or getattr(self, '_client', None) is None:
                 await self.connect()
             job_config = BigQueryBackend._build_job_config(params)
@@ -154,7 +183,6 @@ class AsyncBigQueryBackend(
                 exc = job.exception()
                 if exc is not None:
                     raise exc
-                from rhosocial.activerecord.backend.errors import DatabaseError
                 raise DatabaseError(str(job.errors))
             if is_select:
                 rows_iter = job.result()
@@ -173,18 +201,26 @@ class AsyncBigQueryBackend(
                 affected_rows = job.num_dml_affected_rows or 0
                 result_data = None
             duration = (job.ended - job.started).total_seconds() if job.started and job.ended else None
-            return QueryResult(data=result_data, affected_rows=affected_rows, duration=duration)
+            result = QueryResult(data=result_data, affected_rows=affected_rows, duration=duration)
+            log_result_summary(self, stmt_type, sql, result, options)
+            return result
         except Exception as e:
+            log_execution_error(self, e, options)
             self._handle_error(e)
 
     # -- Client-side PK generation (see BigQueryBackend for rationale) ----------
 
     async def _next_pk_value(self, table: str, schema_name, pk_column: str) -> int:
-        from rhosocial.activerecord.backend.options import ExecutionOptions
-        from rhosocial.activerecord.backend.schema import StatementType
-
         sql, params = self._next_pk_expression(table, schema_name, pk_column).to_sql()
-        result = await self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
+        options = ExecutionOptions(
+            stmt_type=StatementType.DQL,
+            log_context=LogContext(
+                operation="select",
+                object_name=table,
+                schema=schema_name,
+            ),
+        )
+        result = await self.execute(sql, params, options=options)
         row = result.data[0]
         value = row.get("next_id") if isinstance(row, dict) else row[0]
         key = (schema_name, table, pk_column)
@@ -247,13 +283,12 @@ class AsyncBigQueryBackend(
 
     async def bulk_update(self, options) -> QueryResult:
         # See BigQueryBackend.bulk_update: explicit ELSE branch per CASE.
+        from rhosocial.activerecord.backend.base.operations import execution_log_context
         from rhosocial.activerecord.backend.expression import (
             Column, Literal, UpdateStatement, ComparisonPredicate, InPredicate,
         )
         from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
         from rhosocial.activerecord.backend.expression.objects import Table
-        from rhosocial.activerecord.backend.options import ExecutionOptions
-        from rhosocial.activerecord.backend.schema import StatementType
 
         pk_col = Column(self.dialect, options.pk_column)
         assignments = {}
@@ -283,10 +318,11 @@ class AsyncBigQueryBackend(
             stmt_type=StatementType.DML,
             column_adapters=options.column_adapters,
             column_mapping=options.column_mapping,
+            log_context=execution_log_context(options, "bulk_update"),
         )
         result = await self.execute(sql, params, options=exec_options)
         if options.auto_commit:
-            self._handle_auto_commit_if_needed()
+            await self._handle_auto_commit_if_needed()
         if result.affected_rows == 0 and self._is_emulator_mode():
             result.affected_rows = len(getattr(options, "pk_values", None) or [])
         return result
@@ -299,11 +335,16 @@ class AsyncBigQueryBackend(
     async def _count_matching(self, table: str, schema_name, where):
         if where is None:
             return None
-        from rhosocial.activerecord.backend.options import ExecutionOptions
-        from rhosocial.activerecord.backend.schema import StatementType
-
         sql, params = self._count_expression(table, schema_name, where).to_sql()
-        result = await self.execute(sql, params, options=ExecutionOptions(stmt_type=StatementType.DQL))
+        options = ExecutionOptions(
+            stmt_type=StatementType.DQL,
+            log_context=LogContext(
+                operation="count",
+                object_name=table,
+                schema=schema_name,
+            ),
+        )
+        result = await self.execute(sql, params, options=options)
         if not result.data:
             return None
         row = result.data[0]
@@ -410,12 +451,12 @@ class AsyncBigQueryBackend(
         """See :meth:`BigQueryBackend.introspect_and_adapt`."""
         if not getattr(self, '_client', None):
             return
-        import logging
         try:
             dataset_name = getattr(self.config, 'dataset', None)
             if dataset_name:
                 self._client.get_dataset(dataset_name)
             else:
                 list(self._client.list_datasets(max_results=1))
+            self.log(logging.DEBUG, "BigQuery introspection completed")
         except Exception as e:
             self.log(logging.WARNING, f"BigQuery introspection failed: {e}")
