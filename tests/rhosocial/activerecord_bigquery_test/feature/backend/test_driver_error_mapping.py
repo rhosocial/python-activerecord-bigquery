@@ -234,3 +234,18 @@ def test_emulator_http_error_keeps_status_specific_class(status, expected_class)
     # real HTTP status, otherwise 429/503/504 lose their transient mapping.
     with pytest.raises(expected_class):
         BigQueryBackend._raise_http_error(status, "emulator error")
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (gexc.BadRequest("Duplicate key value violates unique constraint"), "integrity"),
+        (gexc.BadRequest("Syntax error: unexpected end of input"), "query"),
+        (builtins.ConnectionError("Connection reset by peer"), "connection"),
+        (RuntimeError("unexpected storage failure"), "generic"),
+    ],
+    ids=["integrity", "query", "connection", "generic"],
+)
+def test_classify_error_keeps_legacy_category_contract(backend, error, expected):
+    """``_classify_error`` still answers the historical category strings."""
+    assert backend._classify_error(error) == expected
