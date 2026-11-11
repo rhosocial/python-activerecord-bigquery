@@ -20,11 +20,10 @@ permissions:
 env:
   # rhosocial-activerecord and rhosocial-activerecord-testsuite dev releases are
   # not published to PyPI; install them from git.
-  # This branch pins the core and testsuite feature branches so the error-taxonomy
-  # and execute-contract changes under review are installed together. Restore the
-  # release-branch pins once those branches are merged.
-  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/error-taxonomy"
-  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/error-taxonomy"
+  # Core and testsuite are installed from their release branches; this backend
+  # tracks the matching release cycle.
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@release/v1.0.0.dev30"
+  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@release/v1.0.0.dev17"
 
 jobs:
   test:
