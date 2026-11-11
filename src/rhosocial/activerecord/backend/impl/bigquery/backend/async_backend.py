@@ -1,12 +1,12 @@
 """BigQuery asynchronous backend implementation."""
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from rhosocial.activerecord.backend.base import AsyncStorageBackend
 from rhosocial.activerecord.backend.base.execution_logging import (
     log_execution_error, log_execution_start,
 )
-from rhosocial.activerecord.backend.errors import ConnectionError, DatabaseError
+from rhosocial.activerecord.backend.errors import DatabaseError
 from rhosocial.activerecord.backend.options import ExecutionOptions, LogContext
 from rhosocial.activerecord.backend.result import QueryResult
 from rhosocial.activerecord.backend.schema import StatementType
@@ -18,7 +18,10 @@ from rhosocial.activerecord.backend.introspection.backend_mixin import (
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
 from ..async_transaction import AsyncBigQueryTransactionManager
-from .backend import log_result_summary
+from .backend import (
+    _classify_bigquery_error, _translate_bigquery_error,
+    _translate_connect_error, _translate_job_errors, log_result_summary,
+)
 from .qualified_names import BigQueryQualifiedNameMixin
 
 
@@ -85,7 +88,9 @@ class AsyncBigQueryBackend(
             self._connected = True
             self.log(logging.DEBUG, "Connected to BigQuery")
         except Exception as e:
-            raise ConnectionError(f"Failed to connect to BigQuery: {e}") from e
+            # The connection phase always surfaces ``ConnectionError``; the
+            # translator only decides whether the failure is transient.
+            raise _translate_connect_error(e) from e
 
     async def disconnect(self) -> None:
         if hasattr(self, '_client') and self._client:
@@ -149,6 +154,18 @@ class AsyncBigQueryBackend(
         is replaced (there is no DB-API cursor), so this method emits the
         shared ``DEBUG`` SQL record and ``INFO`` summary through
         :mod:`rhosocial.activerecord.backend.base.execution_logging`.
+
+        Transaction semantics: every BigQuery query job commits its own
+        statement asynchronously, so there is no connection-level
+        commit/autocommit hook and the auto-commit phase cannot raise
+        ``TransactionError``. Explicit transactions issue ``BEGIN
+        TRANSACTION`` / ``COMMIT TRANSACTION`` through this method (see
+        :class:`~..async_transaction.AsyncBigQueryTransactionManager`).
+
+        Raises:
+            DatabaseError: the phase-specific taxonomy error: driver
+                failures are mapped by :func:`_translate_bigquery_error` and
+                framework errors pass through unchanged.
         """
         from .backend import BigQueryBackend
 
@@ -183,7 +200,9 @@ class AsyncBigQueryBackend(
                 exc = job.exception()
                 if exc is not None:
                     raise exc
-                raise DatabaseError(str(job.errors))
+                # No driver exception to chain (emulator-style job errors):
+                # classify the message like a status-less driver reply.
+                raise _translate_job_errors(job.errors)
             if is_select:
                 rows_iter = job.result()
                 # See BigQueryBackend.execute: rows are converted to dicts and
@@ -207,6 +226,9 @@ class AsyncBigQueryBackend(
         except Exception as e:
             log_execution_error(self, e, options)
             self._handle_error(e)
+            # _handle_error() is required to raise. The fallback keeps a
+            # backend that forgot from turning a failure into a None result.
+            raise DatabaseError(str(e)) from e
 
     # -- Client-side PK generation (see BigQueryBackend for rationale) ----------
 
@@ -294,7 +316,7 @@ class AsyncBigQueryBackend(
         assignments = {}
         for field_name, values in options.field_values.items():
             cases = []
-            for pk_val, field_val in zip(options.pk_values, values):
+            for pk_val, field_val in zip(options.pk_values, values):  # noqa: B905 - Python 3.8 has no zip(strict=)
                 condition = ComparisonPredicate(self.dialect, "=", pk_col, Literal(self.dialect, pk_val))
                 result_expr = Literal(self.dialect, field_val)
                 cases.append((condition, result_expr))
@@ -370,62 +392,34 @@ class AsyncBigQueryBackend(
         return result
 
     def _handle_error(self, error: Exception) -> None:
-        from rhosocial.activerecord.backend.errors import (
-            ConnectionError, IntegrityError, QueryError, DatabaseError,
-        )
-        category = self._classify_error(error)
-        if category == 'connection':
-            raise ConnectionError(str(error)) from error
-        elif category == 'integrity':
-            raise IntegrityError(str(error)) from error
-        elif category == 'query':
-            raise QueryError(str(error)) from error
-        else:
-            raise DatabaseError(str(error)) from error
+        """Translate a driver exception into a taxonomy error and raise it.
+
+        Delegates to :func:`~.backend._translate_bigquery_error` so the sync
+        and async backends classify identically; the original driver error
+        stays chained as the cause. Framework errors are re-raised unchanged,
+        preserving their phase-specific type.
+        """
+        if isinstance(error, DatabaseError):
+            raise error
+        raise _translate_bigquery_error(error) from error
+
+    async def _handle_auto_commit(self) -> None:
+        """No-op: a BigQuery query job commits its own statement.
+
+        There is no connection-level commit or autocommit hook, so the
+        auto-commit phase has no failure mode and never raises
+        ``TransactionError``. Explicit transactions are driven with
+        ``BEGIN TRANSACTION`` / ``COMMIT TRANSACTION`` statements by
+        :class:`~..async_transaction.AsyncBigQueryTransactionManager`.
+        """
 
     def _classify_error(self, error: Exception) -> str:
-        """Classify a google-cloud / google-api-core exception into an
-        error category used by :meth:`_handle_error`.
+        """Return the legacy category name for *error*.
 
-        Returns one of: 'connection', 'integrity', 'query', 'generic'.
+        Kept for callers that used this method before the taxonomy split;
+        :func:`~.backend._translate_bigquery_error` is authoritative.
         """
-        try:
-            from google.api_core import exceptions as gexc
-        except ImportError:  # google-cloud-bigquery not installed
-            return 'generic'
-
-        if isinstance(error, gexc.InternalServerError):
-            # BigQuery (and the emulator) often reports query analysis /
-            # execution failures as jobInternalError 500s; only treat a bare
-            # internal error as a connection problem.
-            msg = str(error).lower()
-            integrity_hints = ('constraint failed', 'duplicate', 'not null',
-                               'primary key', 'foreign key', 'unique')
-            query_hints = ('failed to analyze', 'failed to parse', 'failed to exec',
-                           'not found', 'syntax error', 'unrecognized', 'invalid',
-                           'type mismatch', 'no such table', 'already exists')
-            if any(h in msg for h in integrity_hints):
-                return 'integrity'
-            if any(h in msg for h in query_hints):
-                return 'query'
-            return 'connection'
-        if isinstance(error, (
-            gexc.ServiceUnavailable, gexc.DeadlineExceeded, gexc.GatewayTimeout,
-            gexc.Aborted, gexc.Unauthenticated,
-            gexc.ResourceExhausted, gexc.TooManyRequests,
-        )):
-            return 'connection'
-        if isinstance(error, (gexc.AlreadyExists, gexc.FailedPrecondition,
-                              gexc.PermissionDenied)):
-            return 'integrity'
-        if isinstance(error, (gexc.BadRequest, gexc.InvalidArgument,
-                              gexc.NotFound)):
-            msg = str(error).lower()
-            if any(k in msg for k in ('duplicate', 'constraint', 'primary key',
-                                      'foreign key', 'not null')):
-                return 'integrity'
-            return 'query'
-        return 'generic'
+        return _classify_bigquery_error(error)
 
     def get_server_version(self) -> Tuple[int, ...]:
         return self._version
