@@ -149,6 +149,11 @@ def _translate_bigquery_error(error: Exception) -> DatabaseError:
     explicit ``transient`` flag for infrastructure failures. Callers raise it
     with ``from error`` so the original driver traceback stays chained.
 
+    Framework :class:`DatabaseError` subclasses are returned unchanged: they
+    already carry the phase-specific type (``ConnectionError``,
+    ``TypeConversionError``, ``TransactionError`` ...) and re-translating them
+    would flatten that type into a generic ``DatabaseError``.
+
     Mapping (HTTP status / api_core class -> taxonomy error):
 
     * 401 ``Unauthorized`` / ``Unauthenticated``, 403 ``Forbidden`` /
@@ -165,6 +170,12 @@ def _translate_bigquery_error(error: Exception) -> DatabaseError:
     * Connection/socket failures -> ``ConnectionError`` (transient).
     * Anything else -> ``DatabaseError``.
     """
+    if isinstance(error, DatabaseError):
+        # Framework errors keep their type and diagnostics. Translating them
+        # again would turn ConnectionError / TypeConversionError /
+        # TransactionError into a generic DatabaseError.
+        return error
+
     status = _driver_status(error)
     message = str(error)
     operation = "execute"
@@ -229,6 +240,47 @@ def _translate_bigquery_error(error: Exception) -> DatabaseError:
         if category == "query":
             return translated(QueryError)
     return translated(DatabaseError)
+
+
+def _translate_job_errors(errors: Any) -> DatabaseError:
+    """Build the taxonomy error for a job that reported ``errors``.
+
+    The google client normally surfaces job failures through
+    ``job.exception()``, but some implementations (notably
+    goccy/bigquery-emulator) only populate ``job.errors``. The list carries
+    the driver's own verdict in its message, so it is fed through the same
+    message refinement the translator applies to status-less
+    ``GoogleAPIError`` replies: a query-analysis failure becomes a
+    ``QueryError`` instead of a bare ``DatabaseError``.
+    """
+    message = str(errors)
+    try:
+        from google.api_core.exceptions import GoogleAPIError
+    except ImportError:  # driver import already succeeded in practice
+        return attach_diagnostics(
+            DatabaseError(message), operation="execute", backend="bigquery"
+        )
+    return _translate_bigquery_error(GoogleAPIError(message))
+
+
+def _translate_connect_error(error: Exception) -> ConnectionError:
+    """Translate a client-construction failure into a ``ConnectionError``.
+
+    Connection acquisition has one contract type: authentication or permission
+    refusals are ``ConnectionError`` with ``transient=False``, while lost
+    sockets and timeouts are ``ConnectionError`` with ``transient=True``. The
+    execute translator supplies the category; this wrapper only fixes the type
+    and the phase label.
+    """
+    translated = _translate_bigquery_error(error)
+    transient = bool(getattr(translated, "transient", False))
+    return attach_diagnostics(
+        ConnectionError(f"Failed to connect to BigQuery: {error}"),
+        operation="connect",
+        driver_code=_driver_status(error),
+        backend="bigquery",
+        transient=transient,
+    )
 
 
 def _classify_bigquery_error(error: Exception) -> str:
@@ -313,7 +365,9 @@ class BigQueryBackend(
             self._connected = True
             self.log(logging.DEBUG, "Connected to BigQuery")
         except Exception as e:
-            raise ConnectionError(f"Failed to connect to BigQuery: {e}") from e
+            # The connection phase always surfaces ``ConnectionError``; the
+            # translator only decides whether the failure is transient.
+            raise _translate_connect_error(e) from e
 
     def disconnect(self) -> None:
         if hasattr(self, '_client') and self._client:
@@ -352,9 +406,22 @@ class BigQueryBackend(
 
         The status/class-based mapping lives in
         :func:`_translate_bigquery_error`; the original driver exception is
-        kept as the cause of the raised error.
+        kept as the cause of the raised error. Framework errors are re-raised
+        unchanged, preserving their phase-specific type.
         """
+        if isinstance(error, DatabaseError):
+            raise error
         raise _translate_bigquery_error(error) from error
+
+    def _handle_auto_commit(self) -> None:
+        """No-op: a BigQuery query job commits its own statement.
+
+        There is no connection-level commit or autocommit hook, so the
+        auto-commit phase has no failure mode and never raises
+        ``TransactionError``. Explicit transactions are driven with
+        ``BEGIN TRANSACTION`` / ``COMMIT TRANSACTION`` statements by
+        :class:`~..transaction.BigQueryTransactionManager`.
+        """
 
     def _classify_error(self, error: Exception) -> str:
         """Return the legacy category name for *error*.
@@ -514,6 +581,18 @@ class BigQueryBackend(
         :mod:`rhosocial.activerecord.backend.base.execution_logging`; the
         backend-specific part is only the row count, which BigQuery reports
         on the job rather than on a cursor.
+
+        Transaction semantics: every BigQuery query job commits its own
+        statement, so there is no connection-level commit/autocommit hook and
+        the auto-commit phase cannot raise ``TransactionError``. Explicit
+        transactions issue ``BEGIN TRANSACTION`` / ``COMMIT TRANSACTION``
+        through this method (see
+        :class:`~..transaction.BigQueryTransactionManager`).
+
+        Raises:
+            DatabaseError: the phase-specific taxonomy error: driver
+                failures are mapped by :func:`_translate_bigquery_error` and
+                framework errors pass through unchanged.
         """
         if options is not None:
             column_adapters = column_adapters or getattr(options, 'column_adapters', None)
@@ -552,7 +631,9 @@ class BigQueryBackend(
                 exc = job.exception()
                 if exc is not None:
                     raise exc
-                raise DatabaseError(str(job.errors))
+                # No driver exception to chain (emulator-style job errors):
+                # classify the message like a status-less driver reply.
+                raise _translate_job_errors(job.errors)
             if is_select:
                 rows_iter = job.result()
                 # The model layer expects dictionary rows keyed by column name
@@ -578,6 +659,9 @@ class BigQueryBackend(
         except Exception as e:
             log_execution_error(self, e, options)
             self._handle_error(e)
+            # _handle_error() is required to raise. The fallback keeps a
+            # backend that forgot from turning a failure into a None result.
+            raise DatabaseError(str(e)) from e
 
     @property
     def transaction_manager(self):

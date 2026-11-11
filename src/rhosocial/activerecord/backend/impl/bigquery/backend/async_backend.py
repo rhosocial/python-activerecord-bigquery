@@ -6,7 +6,7 @@ from rhosocial.activerecord.backend.base import AsyncStorageBackend
 from rhosocial.activerecord.backend.base.execution_logging import (
     log_execution_error, log_execution_start,
 )
-from rhosocial.activerecord.backend.errors import ConnectionError, DatabaseError
+from rhosocial.activerecord.backend.errors import DatabaseError
 from rhosocial.activerecord.backend.options import ExecutionOptions, LogContext
 from rhosocial.activerecord.backend.result import QueryResult
 from rhosocial.activerecord.backend.schema import StatementType
@@ -19,7 +19,8 @@ from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
 from ..async_transaction import AsyncBigQueryTransactionManager
 from .backend import (
-    _classify_bigquery_error, _translate_bigquery_error, log_result_summary,
+    _classify_bigquery_error, _translate_bigquery_error,
+    _translate_connect_error, _translate_job_errors, log_result_summary,
 )
 from .qualified_names import BigQueryQualifiedNameMixin
 
@@ -87,7 +88,9 @@ class AsyncBigQueryBackend(
             self._connected = True
             self.log(logging.DEBUG, "Connected to BigQuery")
         except Exception as e:
-            raise ConnectionError(f"Failed to connect to BigQuery: {e}") from e
+            # The connection phase always surfaces ``ConnectionError``; the
+            # translator only decides whether the failure is transient.
+            raise _translate_connect_error(e) from e
 
     async def disconnect(self) -> None:
         if hasattr(self, '_client') and self._client:
@@ -151,6 +154,18 @@ class AsyncBigQueryBackend(
         is replaced (there is no DB-API cursor), so this method emits the
         shared ``DEBUG`` SQL record and ``INFO`` summary through
         :mod:`rhosocial.activerecord.backend.base.execution_logging`.
+
+        Transaction semantics: every BigQuery query job commits its own
+        statement asynchronously, so there is no connection-level
+        commit/autocommit hook and the auto-commit phase cannot raise
+        ``TransactionError``. Explicit transactions issue ``BEGIN
+        TRANSACTION`` / ``COMMIT TRANSACTION`` through this method (see
+        :class:`~..async_transaction.AsyncBigQueryTransactionManager`).
+
+        Raises:
+            DatabaseError: the phase-specific taxonomy error: driver
+                failures are mapped by :func:`_translate_bigquery_error` and
+                framework errors pass through unchanged.
         """
         from .backend import BigQueryBackend
 
@@ -185,7 +200,9 @@ class AsyncBigQueryBackend(
                 exc = job.exception()
                 if exc is not None:
                     raise exc
-                raise DatabaseError(str(job.errors))
+                # No driver exception to chain (emulator-style job errors):
+                # classify the message like a status-less driver reply.
+                raise _translate_job_errors(job.errors)
             if is_select:
                 rows_iter = job.result()
                 # See BigQueryBackend.execute: rows are converted to dicts and
@@ -209,6 +226,9 @@ class AsyncBigQueryBackend(
         except Exception as e:
             log_execution_error(self, e, options)
             self._handle_error(e)
+            # _handle_error() is required to raise. The fallback keeps a
+            # backend that forgot from turning a failure into a None result.
+            raise DatabaseError(str(e)) from e
 
     # -- Client-side PK generation (see BigQueryBackend for rationale) ----------
 
@@ -376,9 +396,22 @@ class AsyncBigQueryBackend(
 
         Delegates to :func:`~.backend._translate_bigquery_error` so the sync
         and async backends classify identically; the original driver error
-        stays chained as the cause.
+        stays chained as the cause. Framework errors are re-raised unchanged,
+        preserving their phase-specific type.
         """
+        if isinstance(error, DatabaseError):
+            raise error
         raise _translate_bigquery_error(error) from error
+
+    async def _handle_auto_commit(self) -> None:
+        """No-op: a BigQuery query job commits its own statement.
+
+        There is no connection-level commit or autocommit hook, so the
+        auto-commit phase has no failure mode and never raises
+        ``TransactionError``. Explicit transactions are driven with
+        ``BEGIN TRANSACTION`` / ``COMMIT TRANSACTION`` statements by
+        :class:`~..async_transaction.AsyncBigQueryTransactionManager`.
+        """
 
     def _classify_error(self, error: Exception) -> str:
         """Return the legacy category name for *error*.
