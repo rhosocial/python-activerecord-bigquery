@@ -23,8 +23,8 @@ env:
   # This branch pins the core and testsuite feature branches so the error-taxonomy
   # and execute-contract changes under review are installed together. Restore the
   # release-branch pins once those branches are merged.
-  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/error-taxonomy"
-  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/error-taxonomy"
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/declaration-surface"
+  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/declaration-surface"
 
 jobs:
   test:
