@@ -18,7 +18,9 @@ from rhosocial.activerecord.backend.introspection.backend_mixin import (
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
 from ..async_transaction import AsyncBigQueryTransactionManager
-from .backend import log_result_summary
+from .backend import (
+    _classify_bigquery_error, _translate_bigquery_error, log_result_summary,
+)
 from .qualified_names import BigQueryQualifiedNameMixin
 
 
@@ -370,62 +372,21 @@ class AsyncBigQueryBackend(
         return result
 
     def _handle_error(self, error: Exception) -> None:
-        from rhosocial.activerecord.backend.errors import (
-            ConnectionError, IntegrityError, QueryError, DatabaseError,
-        )
-        category = self._classify_error(error)
-        if category == 'connection':
-            raise ConnectionError(str(error)) from error
-        elif category == 'integrity':
-            raise IntegrityError(str(error)) from error
-        elif category == 'query':
-            raise QueryError(str(error)) from error
-        else:
-            raise DatabaseError(str(error)) from error
+        """Translate a driver exception into a taxonomy error and raise it.
+
+        Delegates to :func:`~.backend._translate_bigquery_error` so the sync
+        and async backends classify identically; the original driver error
+        stays chained as the cause.
+        """
+        raise _translate_bigquery_error(error) from error
 
     def _classify_error(self, error: Exception) -> str:
-        """Classify a google-cloud / google-api-core exception into an
-        error category used by :meth:`_handle_error`.
+        """Return the legacy category name for *error*.
 
-        Returns one of: 'connection', 'integrity', 'query', 'generic'.
+        Kept for callers that used this method before the taxonomy split;
+        :func:`~.backend._translate_bigquery_error` is authoritative.
         """
-        try:
-            from google.api_core import exceptions as gexc
-        except ImportError:  # google-cloud-bigquery not installed
-            return 'generic'
-
-        if isinstance(error, gexc.InternalServerError):
-            # BigQuery (and the emulator) often reports query analysis /
-            # execution failures as jobInternalError 500s; only treat a bare
-            # internal error as a connection problem.
-            msg = str(error).lower()
-            integrity_hints = ('constraint failed', 'duplicate', 'not null',
-                               'primary key', 'foreign key', 'unique')
-            query_hints = ('failed to analyze', 'failed to parse', 'failed to exec',
-                           'not found', 'syntax error', 'unrecognized', 'invalid',
-                           'type mismatch', 'no such table', 'already exists')
-            if any(h in msg for h in integrity_hints):
-                return 'integrity'
-            if any(h in msg for h in query_hints):
-                return 'query'
-            return 'connection'
-        if isinstance(error, (
-            gexc.ServiceUnavailable, gexc.DeadlineExceeded, gexc.GatewayTimeout,
-            gexc.Aborted, gexc.Unauthenticated,
-            gexc.ResourceExhausted, gexc.TooManyRequests,
-        )):
-            return 'connection'
-        if isinstance(error, (gexc.AlreadyExists, gexc.FailedPrecondition,
-                              gexc.PermissionDenied)):
-            return 'integrity'
-        if isinstance(error, (gexc.BadRequest, gexc.InvalidArgument,
-                              gexc.NotFound)):
-            msg = str(error).lower()
-            if any(k in msg for k in ('duplicate', 'constraint', 'primary key',
-                                      'foreign key', 'not null')):
-                return 'integrity'
-            return 'query'
-        return 'generic'
+        return _classify_bigquery_error(error)
 
     def get_server_version(self) -> Tuple[int, ...]:
         return self._version

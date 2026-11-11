@@ -1,4 +1,5 @@
 """BigQuery synchronous backend implementation."""
+import builtins
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -7,7 +8,8 @@ from rhosocial.activerecord.backend.base.execution_logging import (
     log_execution_error, log_execution_start, log_execution_summary,
 )
 from rhosocial.activerecord.backend.errors import (
-    ConnectionError, DatabaseError, IntegrityError, QueryError,
+    ConnectionError, DatabaseError, IntegrityError, OperationalError, QueryError,
+    attach_diagnostics,
 )
 from rhosocial.activerecord.backend.options import ExecutionOptions, LogContext
 from rhosocial.activerecord.backend.result import QueryResult
@@ -60,6 +62,190 @@ def log_result_summary(
         result.duration or 0.0,
         options,
     )
+
+
+# -- Driver error taxonomy ----------------------------------------------------
+# google-cloud-bigquery 3.x reports service failures as
+# ``google.api_core.exceptions`` instances carrying an HTTP status in
+# ``code``. Recognition follows the taxonomy rule of status/class first and
+# message text second: the class decides the category, and a message only
+# refines a 4xx/5xx reply that the class alone cannot place.
+#
+# BigQuery has no deadlock or lock-wait concept. Concurrent DML is serialized
+# by the service or rejected with a 409 ``Aborted`` reply, which is mapped to
+# a transient ``OperationalError`` -- this backend never raises
+# ``DeadlockError`` or ``LockError``.
+
+_INTEGRITY_MESSAGE_HINTS = (
+    "already exists",
+    "constraint",
+    "duplicate",
+    "foreign key",
+    "not null",
+    "primary key",
+    "unique",
+)
+_QUERY_MESSAGE_HINTS = (
+    "failed to analyze",
+    "failed to exec",
+    "failed to parse",
+    "invalid table",
+    "no such table",
+    "not found",
+    "syntax error",
+    "type mismatch",
+    "unrecognized column",
+    "unrecognized name",
+)
+
+
+def _driver_status(error: Exception) -> Optional[int]:
+    """Read the HTTP status a google.api_core exception carries.
+
+    ``google.api_core.exceptions`` set ``code`` to an ``http.HTTPStatus``;
+    ``isinstance(code, int)`` is true because ``HTTPStatus`` is an ``int``
+    subclass. Non-driver exceptions answer ``None``.
+    """
+    code = getattr(error, "code", None)
+    if isinstance(code, int) and not isinstance(code, bool):
+        return int(code)
+    return None
+
+
+def _is_transport_error(error: Exception) -> bool:
+    """Whether *error* is a lost connection or a socket-level timeout."""
+    if isinstance(error, (builtins.ConnectionError, builtins.TimeoutError)):
+        return True
+    try:
+        from requests import exceptions as requests_exceptions
+    except ImportError:  # google-cloud-bigquery not installed
+        requests_exceptions = None
+    if requests_exceptions is not None and isinstance(
+        error, (requests_exceptions.ConnectionError, requests_exceptions.Timeout)
+    ):
+        return True
+    try:
+        from google.auth.exceptions import TransportError
+    except ImportError:
+        return False
+    return isinstance(error, TransportError)
+
+
+def _message_category(message: str) -> Optional[str]:
+    """Classify a driver message as ``"integrity"``, ``"query"`` or ``None``."""
+    lower = message.lower()
+    if any(hint in lower for hint in _INTEGRITY_MESSAGE_HINTS):
+        return "integrity"
+    if any(hint in lower for hint in _QUERY_MESSAGE_HINTS):
+        return "query"
+    return None
+
+
+def _translate_bigquery_error(error: Exception) -> DatabaseError:
+    """Translate a BigQuery driver exception into a taxonomy error.
+
+    The returned instance is annotated with ``operation="execute"``, the
+    driver HTTP status as ``driver_code``, ``backend="bigquery"``, and an
+    explicit ``transient`` flag for infrastructure failures. Callers raise it
+    with ``from error`` so the original driver traceback stays chained.
+
+    Mapping (HTTP status / api_core class -> taxonomy error):
+
+    * 401 ``Unauthorized`` / ``Unauthenticated``, 403 ``Forbidden`` /
+      ``PermissionDenied`` -> ``DatabaseError`` (no retry).
+    * 404 ``NotFound`` -> ``QueryError`` (unknown table, dataset or column).
+    * 409 ``AlreadyExists`` / ``Conflict`` -> ``IntegrityError``; 409
+      ``Aborted`` -> transient ``OperationalError`` (no lock semantics).
+    * 429 ``TooManyRequests`` / ``ResourceExhausted``, 503
+      ``ServiceUnavailable``, 504 ``GatewayTimeout`` / ``DeadlineExceeded``,
+      500 ``InternalServerError`` -> transient ``OperationalError``.
+    * 400 ``BadRequest`` / ``InvalidArgument`` / ``FailedPrecondition`` ->
+      ``QueryError``, or ``IntegrityError`` when the message names a
+      constraint or an already-existing object.
+    * Connection/socket failures -> ``ConnectionError`` (transient).
+    * Anything else -> ``DatabaseError``.
+    """
+    status = _driver_status(error)
+    message = str(error)
+    operation = "execute"
+    backend = "bigquery"
+
+    try:
+        from google.api_core import exceptions as gexc
+    except ImportError:  # google-cloud-bigquery not installed
+        gexc = None
+
+    def translated(error_class: type, transient: Optional[bool] = None) -> DatabaseError:
+        return attach_diagnostics(
+            error_class(message),
+            operation=operation,
+            driver_code=status,
+            backend=backend,
+            transient=transient,
+        )
+
+    if _is_transport_error(error):
+        return translated(ConnectionError, transient=True)
+
+    if status in (401, 403):
+        # Authentication and permission refusals do not improve on retry.
+        return translated(DatabaseError, transient=False)
+
+    if status == 404:
+        return translated(QueryError)
+
+    if status == 409:
+        if gexc is not None and isinstance(error, gexc.Aborted):
+            # BigQuery has no deadlock/lock-wait concept: an aborted job is
+            # a transient concurrency outcome, not a lock error.
+            return translated(OperationalError, transient=True)
+        return translated(IntegrityError)
+
+    if status in (429, 503, 504):
+        return translated(OperationalError, transient=True)
+
+    if status is not None and status >= 500:
+        # BigQuery (and the emulator) reports query-analysis failures as
+        # jobInternalError 500s; refine those by message before declaring
+        # the reply transient.
+        category = _message_category(message)
+        if category == "integrity":
+            return translated(IntegrityError)
+        if category == "query":
+            return translated(QueryError)
+        return translated(OperationalError, transient=True)
+
+    if status is not None and 400 <= status < 500:
+        if _message_category(message) == "integrity":
+            return translated(IntegrityError)
+        return translated(QueryError)
+
+    if gexc is not None and isinstance(error, gexc.GoogleAPIError):
+        # Driver errors without an HTTP status (emulator REST replies,
+        # wrapped job errors) still get the message fallback.
+        category = _message_category(message)
+        if category == "integrity":
+            return translated(IntegrityError)
+        if category == "query":
+            return translated(QueryError)
+    return translated(DatabaseError)
+
+
+def _classify_bigquery_error(error: Exception) -> str:
+    """Return the legacy category string for a driver exception.
+
+    The taxonomy translation in :func:`_translate_bigquery_error` is
+    authoritative; this keeps the historical ``_classify_error`` contract
+    (``connection`` / ``integrity`` / ``query`` / ``generic``) available.
+    """
+    translated = _translate_bigquery_error(error)
+    if isinstance(translated, IntegrityError):
+        return "integrity"
+    if isinstance(translated, QueryError):
+        return "query"
+    if isinstance(translated, (ConnectionError, OperationalError)):
+        return "connection"
+    return "generic"
 
 
 class BigQueryBackend(
@@ -162,59 +348,21 @@ class BigQueryBackend(
             return False
 
     def _handle_error(self, error: Exception) -> None:
-        category = self._classify_error(error)
-        if category == 'connection':
-            raise ConnectionError(str(error)) from error
-        elif category == 'integrity':
-            raise IntegrityError(str(error)) from error
-        elif category == 'query':
-            raise QueryError(str(error)) from error
-        else:
-            raise DatabaseError(str(error)) from error
+        """Translate a driver exception into a taxonomy error and raise it.
+
+        The status/class-based mapping lives in
+        :func:`_translate_bigquery_error`; the original driver exception is
+        kept as the cause of the raised error.
+        """
+        raise _translate_bigquery_error(error) from error
 
     def _classify_error(self, error: Exception) -> str:
-        """Classify a google-cloud / google-api-core exception into an
-        error category used by :meth:`_handle_error`.
+        """Return the legacy category name for *error*.
 
-        Returns one of: 'connection', 'integrity', 'query', 'generic'.
+        Kept for callers that used this method before the taxonomy split;
+        :func:`_translate_bigquery_error` is authoritative.
         """
-        try:
-            from google.api_core import exceptions as gexc
-        except ImportError:  # google-cloud-bigquery not installed
-            return 'generic'
-
-        if isinstance(error, gexc.InternalServerError):
-            # BigQuery (and the emulator) often reports query analysis /
-            # execution failures as jobInternalError 500s; only treat a bare
-            # internal error as a connection problem.
-            msg = str(error).lower()
-            integrity_hints = ('constraint failed', 'duplicate', 'not null',
-                               'primary key', 'foreign key', 'unique')
-            query_hints = ('failed to analyze', 'failed to parse', 'failed to exec',
-                           'not found', 'syntax error', 'unrecognized', 'invalid',
-                           'type mismatch', 'no such table', 'already exists')
-            if any(h in msg for h in integrity_hints):
-                return 'integrity'
-            if any(h in msg for h in query_hints):
-                return 'query'
-            return 'connection'
-        if isinstance(error, (
-            gexc.ServiceUnavailable, gexc.DeadlineExceeded, gexc.GatewayTimeout,
-            gexc.Aborted, gexc.Unauthenticated,
-            gexc.ResourceExhausted, gexc.TooManyRequests,
-        )):
-            return 'connection'
-        if isinstance(error, (gexc.AlreadyExists, gexc.FailedPrecondition,
-                              gexc.PermissionDenied)):
-            return 'integrity'
-        if isinstance(error, (gexc.BadRequest, gexc.InvalidArgument,
-                              gexc.NotFound)):
-            msg = str(error).lower()
-            if any(k in msg for k in ('duplicate', 'constraint', 'primary key',
-                                      'foreign key', 'not null')):
-                return 'integrity'
-            return 'query'
-        return 'generic'
+        return _classify_bigquery_error(error)
 
     def get_server_version(self) -> Tuple[int, ...]:
         return self._version
@@ -602,15 +750,25 @@ class BigQueryBackend(
     @staticmethod
     def _raise_http_error(status: int, message: str):
         """Map an emulator HTTP error response onto the google exception types
-        that :meth:`_classify_error` understands."""
+        that :func:`_translate_bigquery_error` understands."""
         from google.api_core import exceptions as gexc
 
         if status == 400:
             raise gexc.BadRequest(message)
+        if status == 401:
+            raise gexc.Unauthorized(message)
+        if status == 403:
+            raise gexc.Forbidden(message)
         if status == 404:
             raise gexc.NotFound(message)
         if status == 409:
             raise gexc.AlreadyExists(message)
+        if status == 429:
+            raise gexc.TooManyRequests(message)
+        if status == 503:
+            raise gexc.ServiceUnavailable(message)
+        if status == 504:
+            raise gexc.GatewayTimeout(message)
         if status >= 500:
             raise gexc.InternalServerError(message)
         raise gexc.GoogleAPIError(f"HTTP {status}: {message}")
