@@ -351,7 +351,6 @@ class BigQueryBackend(
                     client_options=client_options,
                 )
             elif getattr(config, 'credentials_json', None):
-                import json
                 self._client = bigquery.Client.from_service_account_info(
                     config.credentials_json,
                     client_options=client_options,
@@ -387,7 +386,6 @@ class BigQueryBackend(
                 return True
             return False
         try:
-            from google.cloud import bigquery
             dataset_ref = self._client.dataset(getattr(self.config, 'dataset', None) or 'default')
             list(self._client.list_dataset_refs(dataset_ref))
             return True

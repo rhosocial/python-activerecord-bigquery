@@ -1,6 +1,6 @@
 """BigQuery asynchronous backend implementation."""
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from rhosocial.activerecord.backend.base import AsyncStorageBackend
 from rhosocial.activerecord.backend.base.execution_logging import (
@@ -316,7 +316,7 @@ class AsyncBigQueryBackend(
         assignments = {}
         for field_name, values in options.field_values.items():
             cases = []
-            for pk_val, field_val in zip(options.pk_values, values):
+            for pk_val, field_val in zip(options.pk_values, values):  # noqa: B905 - Python 3.8 has no zip(strict=)
                 condition = ComparisonPredicate(self.dialect, "=", pk_col, Literal(self.dialect, pk_val))
                 result_expr = Literal(self.dialect, field_val)
                 cases.append((condition, result_expr))
