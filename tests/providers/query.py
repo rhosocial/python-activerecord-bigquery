@@ -19,7 +19,7 @@ Adaptations from the MySQL reference provider
 """
 
 import logging
-from typing import Dict, List, Optional, Set, Tuple, Type
+from typing import List, Optional, Set, Tuple, Type
 
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 
@@ -105,7 +105,7 @@ class QueryProviderBase:
             collection.append(backend_instance)
 
     def _set_schema(self, model_class: Type[ActiveRecord], dataset: Optional[str]) -> None:
-        model_class.__schema_name__ = dataset
+        model_class.schema_name = classmethod(lambda cls: dataset)
 
 
 class QuerySyncProvider(QueryProviderBase, IQuerySyncProvider):
@@ -174,7 +174,7 @@ class QuerySyncProvider(QueryProviderBase, IQuerySyncProvider):
             model_class.__connection_config__ = first_model.__connection_config__
             model_class.__backend_class__ = first_model.__backend_class__
             model_class.__backend__ = shared_backend
-            model_class.__schema_name__ = first_model.__schema_name__
+            model_class.schema_name = classmethod(lambda cls: first_model.schema_name())
             self._reset_table(shared_backend, _dataset_of(shared_backend.config), table_name)
             result.append(model_class)
         return tuple(result)
@@ -314,7 +314,7 @@ class QueryAsyncProvider(QueryProviderBase, IQueryAsyncProvider):
         model_class.__connection_config__ = config
         model_class.__backend_class__ = AsyncBigQueryBackend
         model_class.__backend__ = backend
-        model_class.__schema_name__ = _dataset_of(config)
+        model_class.schema_name = classmethod(lambda cls: _dataset_of(config))
         return backend
 
     async def _setup_async_model(

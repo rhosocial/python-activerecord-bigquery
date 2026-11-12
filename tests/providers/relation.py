@@ -124,7 +124,7 @@ class RelationSyncProvider(RelationProviderBase, IRelationSyncProvider):
         model_class.__connection_config__ = config
         model_class.__backend_class__ = backend_class
         model_class.__backend__ = backend
-        model_class.__schema_name__ = dataset
+        model_class.schema_name = classmethod(lambda cls: dataset)
 
     def _setup_employee_department(self, scenario_name):
         backend_class, config = get_scenario(scenario_name)
@@ -132,7 +132,7 @@ class RelationSyncProvider(RelationProviderBase, IRelationSyncProvider):
         backend = Employee.backend()
         self._active_backends.append(backend)
         self._configure_with_shared_backend(Department, config, backend_class, backend, _dataset_of(config))
-        Employee.__schema_name__ = _dataset_of(config)
+        Employee.schema_name = classmethod(lambda cls: _dataset_of(config))
         self._reset_tables(backend, _EMPLOYEE_DEPARTMENT_TABLES)
         return Employee, Department
 
@@ -142,7 +142,7 @@ class RelationSyncProvider(RelationProviderBase, IRelationSyncProvider):
         backend = Author.backend()
         self._active_backends.append(backend)
         dataset = _dataset_of(config)
-        Author.__schema_name__ = dataset
+        Author.schema_name = classmethod(lambda cls: dataset)
         self._configure_with_shared_backend(Book, config, backend_class, backend, dataset)
         self._configure_with_shared_backend(Chapter, config, backend_class, backend, dataset)
         self._configure_with_shared_backend(Profile, config, backend_class, backend, dataset)
@@ -156,7 +156,7 @@ class RelationSyncProvider(RelationProviderBase, IRelationSyncProvider):
             backend = User.backend()
             self._active_backends.append(backend)
             dataset = _dataset_of(config)
-            User.__schema_name__ = dataset
+            User.schema_name = classmethod(lambda cls: dataset)
             self._configure_with_shared_backend(Post, config, backend_class, backend, dataset)
             self._configure_with_shared_backend(Comment, config, backend_class, backend, dataset)
             self._reset_tables(backend, _USER_POST_COMMENT_TABLES)
@@ -169,7 +169,7 @@ class RelationSyncProvider(RelationProviderBase, IRelationSyncProvider):
             backend = BoundaryOwner.backend()
             self._active_backends.append(backend)
             dataset = _dataset_of(config)
-            BoundaryOwner.__schema_name__ = dataset
+            BoundaryOwner.schema_name = classmethod(lambda cls: dataset)
             self._configure_with_shared_backend(BoundaryProfile, config, backend_class, backend, dataset)
             self._configure_with_shared_backend(BoundaryPost, config, backend_class, backend, dataset)
             self._reset_tables(backend, _RELATION_BOUNDARY_TABLES)
@@ -316,7 +316,7 @@ class RelationAsyncProvider(RelationProviderBase, IRelationAsyncProvider):
         model_class.__connection_config__ = config
         model_class.__backend_class__ = AsyncBigQueryBackend
         model_class.__backend__ = backend
-        model_class.__schema_name__ = _dataset_of(config)
+        model_class.schema_name = classmethod(lambda cls: _dataset_of(config))
         return backend
 
     async def _setup_employee_department_async(self, scenario_name):

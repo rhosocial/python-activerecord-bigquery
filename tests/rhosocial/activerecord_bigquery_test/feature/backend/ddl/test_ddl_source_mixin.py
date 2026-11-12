@@ -171,9 +171,17 @@ class TableDeclarationOverrides:
 
 
 class DeclarationModel(TableDeclarationOverrides, ActiveRecord):
-    __table_name__ = "ddl_source_declarations"
-    __schema_name__ = "analytics"
-    __primary_key__ = "record_id"
+    @classmethod
+    def table_name(cls):
+        return "ddl_source_declarations"
+
+    @classmethod
+    def schema_name(cls):
+        return "analytics"
+
+    @classmethod
+    def primary_key(cls):
+        return "record_id"
 
     id: Annotated[int, UseColumn("record_id")]
     value: Annotated[
@@ -196,9 +204,17 @@ class DeclarationModel(TableDeclarationOverrides, ActiveRecord):
 
 
 class AsyncDeclarationModel(TableDeclarationOverrides, AsyncActiveRecord):
-    __table_name__ = "ddl_source_declarations_async"
-    __schema_name__ = "analytics"
-    __primary_key__ = "record_id"
+    @classmethod
+    def table_name(cls):
+        return "ddl_source_declarations_async"
+
+    @classmethod
+    def schema_name(cls):
+        return "analytics"
+
+    @classmethod
+    def primary_key(cls):
+        return "record_id"
 
     id: Annotated[int, UseColumn("record_id")]
     value: Annotated[
@@ -221,22 +237,31 @@ class AsyncDeclarationModel(TableDeclarationOverrides, AsyncActiveRecord):
 
 
 class PlainModel(ActiveRecord):
-    __table_name__ = "ddl_source_plain"
+    @classmethod
+    def table_name(cls):
+        return "ddl_source_plain"
 
     id: int
     value: Optional[str] = None
 
 
 class AsyncPlainModel(AsyncActiveRecord):
-    __table_name__ = "ddl_source_plain_async"
+    @classmethod
+    def table_name(cls):
+        return "ddl_source_plain_async"
 
     id: int
     value: Optional[str] = None
 
 
 class CompositeModel(TableDeclarationOverrides, ActiveRecord):
-    __table_name__ = "ddl_source_composite"
-    __primary_key__ = ("tenant_id", "order_id")
+    @classmethod
+    def table_name(cls):
+        return "ddl_source_composite"
+
+    @classmethod
+    def primary_key(cls):
+        return ("tenant_id", "order_id")
 
     tenant_ref: Annotated[int, UseColumn("tenant_id")]
     order_ref: Annotated[int, UseColumn("order_id")]
@@ -246,8 +271,13 @@ class CompositeModel(TableDeclarationOverrides, ActiveRecord):
 
 
 class AsyncCompositeModel(TableDeclarationOverrides, AsyncActiveRecord):
-    __table_name__ = "ddl_source_composite_async"
-    __primary_key__ = ("tenant_id", "order_id")
+    @classmethod
+    def table_name(cls):
+        return "ddl_source_composite_async"
+
+    @classmethod
+    def primary_key(cls):
+        return ("tenant_id", "order_id")
 
     tenant_ref: Annotated[int, UseColumn("tenant_id")]
     order_ref: Annotated[int, UseColumn("order_id")]

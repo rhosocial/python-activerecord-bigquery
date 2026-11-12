@@ -1,0 +1,83 @@
+{
+  "entries": {
+    "0e54460ae5900183": 1,
+    "1aca83c370df2ada": 1,
+    "2b06a04b4145896b": 1,
+    "7cfb3ec7a6a501ee": 1,
+    "8e85b0f3244552f3": 1,
+    "993d08027423c8a1": 1,
+    "a806580bef004f80": 1,
+    "bbb862dfa6d96fe5": 1,
+    "bf4f8566a803c1c0": 2,
+    "e636ddd3fb33a58e": 1,
+    "fad78a2f8206e058": 2
+  },
+  "findings": [
+    {
+      "found": "getattr(expr, \"or_replace\", False)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/materialized_view.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(expr, \"if_not_exists\", False)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/materialized_view.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(expr, \"partition_by\", None)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/materialized_view.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(expr, \"cluster_by\", None)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/materialized_view.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(expr, \"options\", None)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/materialized_view.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(expr, \"cascade\", False)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/materialized_view.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(expr, \"restrict\", False)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/materialized_view.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(expr, \"if_exists\", False)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/materialized_view.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(expr, \"if_exists\", False)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/materialized_view.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(data_type, \"precision\", None)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/types.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(data_type, \"scale\", 0)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/types.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(data_type, \"length\", None)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/types.py",
+      "rule": "ED-11.2"
+    },
+    {
+      "found": "getattr(data_type, \"length\", None)",
+      "path": "src/rhosocial/activerecord/backend/impl/bigquery/mixins/types.py",
+      "rule": "ED-11.2"
+    }
+  ],
+  "format": 1
+}

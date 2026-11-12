@@ -85,8 +85,6 @@ del _name
 from rhosocial.activerecord.testsuite.feature.basic.fixtures.models import (  # noqa: E402
     OrderItem as CompositeOrderItem,
     AsyncOrderItem as AsyncCompositeOrderItem,
-    StoreInventory as StoreInventoryModel,
-    AsyncStoreInventory as AsyncStoreInventoryModel,
     Order as OrderModel,
     AsyncOrder as AsyncOrderModel,
     MappedOrderItem as MappedOrderItemModel,
@@ -143,7 +141,7 @@ class BasicProviderBase:
     def _set_schema(self, model_class: Type[ActiveRecord], dataset: Optional[str]) -> None:
         # Qualify all model SQL with the scenario dataset; without it the
         # emulator client would resolve bare table names against nothing.
-        model_class.__schema_name__ = dataset
+        model_class.schema_name = classmethod(lambda cls: dataset)
 
     def _table_ddl(self, dataset: Optional[str], table_name: str) -> str:
         if fn := TABLE_EXPRESSIONS.get(table_name):
@@ -209,7 +207,7 @@ class BasicSyncProvider(BasicProviderBase, IBasicSyncProvider):
             model_class.__connection_config__ = first_model.__connection_config__
             model_class.__backend_class__ = first_model.__backend_class__
             model_class.__backend__ = shared_backend
-            model_class.__schema_name__ = first_model.__schema_name__
+            model_class.schema_name = classmethod(lambda cls: first_model.schema_name())
             self._track_backend(shared_backend, self._active_backends)
             self._initialize_model_schema(model_class, table_name)
             self._created_tables.add(table_name)
@@ -364,7 +362,7 @@ class BasicAsyncProvider(BasicProviderBase, IBasicAsyncProvider):
             model_class.__connection_config__ = first_model.__connection_config__
             model_class.__backend_class__ = first_model.__backend_class__
             model_class.__backend__ = shared_backend
-            model_class.__schema_name__ = first_model.__schema_name__
+            model_class.schema_name = classmethod(lambda cls: first_model.schema_name())
             await self._initialize_async_model_schema(model_class, table_name)
             self._created_tables.add(table_name)
             result.append(model_class)
