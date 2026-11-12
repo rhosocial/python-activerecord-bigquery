@@ -24,7 +24,7 @@ env:
   # and execute-contract changes under review are installed together. Restore the
   # release-branch pins once those branches are merged.
   CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@release/v1.0.0.dev30"
-  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/declaration-surface"
+  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@release/v1.0.0.dev17"
 
 jobs:
   test:
