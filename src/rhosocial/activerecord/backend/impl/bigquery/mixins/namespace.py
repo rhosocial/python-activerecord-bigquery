@@ -84,7 +84,9 @@ class BigQueryNamespaceMixin:
 
         Only relations get the substitution: a ``Schema`` object names the
         dataset itself, and prefixing it with the same dataset would spell
-        ``dataset.dataset``.
+        ``dataset.dataset``. A name bound by an enclosing ``WITH`` is not a
+        relation either -- qualifying it makes BigQuery look for a table of
+        that name (see :meth:`format_with_statement`).
 
         Args:
             expr: The named object being rendered.
@@ -101,6 +103,7 @@ class BigQueryNamespaceMixin:
             and isinstance(expr, RelationObject)
             and not expr.catalog_name
             and not expr.schema_name
+            and not self._is_cte_name(expr.name)
         ):
             parts = [
                 self.format_identifier(self.default_dataset),
@@ -108,6 +111,43 @@ class BigQueryNamespaceMixin:
             ]
             return self.separator.join(parts), ()
         return super().format_qualified_name(expr)
+
+    def format_with_statement(self, stmt: Any) -> Tuple[str, tuple]:
+        """Render ``WITH`` and keep the names it binds unqualified.
+
+        A CTE name is not a dataset relation: qualifying it makes BigQuery look
+        for a table of that name.  Measured on the emulator: a query rendered
+        as ``FROM test_cli.cli_users`` answers "Table not found" even though
+        ``cli_users`` is defined two clauses earlier.  The bound names are
+        stacked for the duration of the render, so a nested ``WITH`` only
+        hides what it binds itself.
+
+        Args:
+            stmt: The ``WithStatement`` being rendered.
+
+        Returns:
+            A ``(sql, params)`` tuple for the full statement.
+        """
+        names = {cte.name for cte in getattr(stmt, "ctes", ())}
+        if not names:
+            return super().format_with_statement(stmt)
+        scopes = self._cte_scopes()
+        scopes.append(names)
+        try:
+            return super().format_with_statement(stmt)
+        finally:
+            scopes.pop()
+
+    def _cte_scopes(self) -> list:
+        """The CTE names visible at this point of the render."""
+        scopes = getattr(self, "_cte_name_scopes", None)
+        if scopes is None:
+            scopes = self._cte_name_scopes = []
+        return scopes
+
+    def _is_cte_name(self, name: str) -> bool:
+        """Whether ``name`` is bound by a ``WITH`` clause being rendered."""
+        return any(name in scope for scope in self._cte_scopes())
 
     def supports_catalog(self) -> bool:
         """BigQuery models a project above the dataset."""
