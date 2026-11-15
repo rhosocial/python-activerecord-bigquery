@@ -47,8 +47,11 @@ _EXPRESSION_AREAS = (
 
 #: Single files that are pure render too, and live above the two directories
 #: because they span both packages. The round-trip matrix walks core's package
-#: and this backend's, so no one subject directory could hold it.
-_EXPRESSION_FILES = (os.path.join(_BACKEND_TEST_ROOT, "test_expression_roundtrip_all.py"),)
+#: and this backend's, so it lives in the topic's ``core/`` directory rather
+#: than inside either subject tree.
+_EXPRESSION_FILES = (
+    os.path.join(_BACKEND_TEST_ROOT, "core", "test_expression_roundtrip_all.py"),
+)
 
 #: Options that take a separate value, so the value must not be mistaken for a
 #: path argument when scoping the invocation. ``-p`` matters most: this plugin is

@@ -1,8 +1,8 @@
 # tests/rhosocial/activerecord_bigquery_test/feature/basic/conftest.py
-"""
-Pytest configuration for basic feature tests.
+"""Fixtures shared by the basic topic.
 
-This file imports fixtures from the corresponding testsuite, making them
-available to the tests in this directory.
+``basic`` holds subdirectories, never test files, so this conftest re-exports
+the shared topic's fixture definitions and declares no directory contract; the
+minimal test sets live in ``nopk/`` and ``readonly/``.
 """
 from rhosocial.activerecord.testsuite.feature.basic.conftest import *  # noqa: F403

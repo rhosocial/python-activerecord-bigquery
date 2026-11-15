@@ -50,7 +50,7 @@ of the object protocols, which derive from ``NamespaceSupport`` and therefore
 require it first.
 """
 
-from typing import Any
+from typing import Any, Optional, Tuple
 
 
 class BigQueryNamespaceMixin:
@@ -60,6 +60,54 @@ class BigQueryNamespaceMixin:
     #: ``project.dataset.table``, so this states the fact rather than leaning on
     #: core's default, which is what made the two-level shape implicit.
     separator: str = "."
+
+    #: The dataset an unqualified relation name belongs to, when the connection
+    #: has one. ``BigQueryDialect`` sets this from the backend's configuration;
+    #: a dialect constructed on its own keeps ``None`` and renders as before.
+    #:
+    #: This exists because BigQuery does not resolve a bare ``users`` from a
+    #: connection-level default in every execution path -- the REST
+    #: ``jobs.query`` endpoint takes the dataset per request, the Python client
+    #: takes it per job configuration, and the goccy emulator additionally
+    #: mistakes concurrent jobs' datasets for one another. Qualifying the name
+    #: once, here, is the one spelling every path agrees on.
+    default_dataset: Optional[str] = None
+
+    def format_qualified_name(self, expr: Any) -> Tuple[str, tuple]:
+        """Render a relation's name, filling in the default dataset.
+
+        A relation with neither a catalog nor a schema is a bare name. When
+        this dialect carries a default dataset (the backend configured one),
+        the dataset becomes the name's inner namespace, so ``Table(dialect,
+        "users")`` renders ``test_query_basic`users``` rather than depending on
+        the connection's default.
+
+        Only relations get the substitution: a ``Schema`` object names the
+        dataset itself, and prefixing it with the same dataset would spell
+        ``dataset.dataset``.
+
+        Args:
+            expr: The named object being rendered.
+
+        Returns:
+            A ``(sql, params)`` tuple; params is empty.
+        """
+        from rhosocial.activerecord.backend.expression.objects import (
+            RelationObject,
+        )
+
+        if (
+            self.default_dataset
+            and isinstance(expr, RelationObject)
+            and not expr.catalog_name
+            and not expr.schema_name
+        ):
+            parts = [
+                self.format_identifier(self.default_dataset),
+                self.format_identifier(expr.name, expr.name_need_quote),
+            ]
+            return self.separator.join(parts), ()
+        return super().format_qualified_name(expr)
 
     def supports_catalog(self) -> bool:
         """BigQuery models a project above the dataset."""

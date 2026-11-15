@@ -1,6 +1,6 @@
 """BigQuery asynchronous backend implementation."""
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from rhosocial.activerecord.backend.base import AsyncStorageBackend
 from rhosocial.activerecord.backend.base.execution_logging import (
@@ -14,13 +14,15 @@ from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeature
 from rhosocial.activerecord.backend.introspection.backend_mixin import (
     IntrospectorBackendMixin,
 )
+from rhosocial.activerecord.backend.type_adapter import SQLTypeAdapter
 
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
 from ..async_transaction import AsyncBigQueryTransactionManager
 from .backend import (
-    _classify_bigquery_error, _translate_bigquery_error,
-    _translate_connect_error, _translate_job_errors, log_result_summary,
+    _classify_bigquery_error, _default_dataset_reference,
+    _translate_bigquery_error, _translate_connect_error,
+    _translate_job_errors, log_result_summary,
 )
 from .qualified_names import BigQueryQualifiedNameMixin
 
@@ -61,6 +63,16 @@ class AsyncBigQueryBackend(
         from .backend import BigQueryBackend
         return BigQueryBackend.get_default_adapter_suggestions(self)
 
+    def get_type_adapters(self) -> List["SQLTypeAdapter"]:
+        """Return the adapter instances this backend provides.
+
+        The async backend keeps its adapter registry in step with the sync one,
+        so the inventory is the same; see
+        :meth:`BigQueryBackend.get_type_adapters`.
+        """
+        from .backend import BigQueryBackend
+        return BigQueryBackend.get_type_adapters(self)
+
     async def connect(self) -> None:
         try:
             from google.cloud import bigquery
@@ -70,21 +82,40 @@ class AsyncBigQueryBackend(
             endpoint = getattr(config, 'api_endpoint', None) or None
             use_anonymous = getattr(config, 'use_anonymous_credentials', False)
             client_options = ClientOptions(api_endpoint=endpoint) if endpoint else None
+            default_dataset = _default_dataset_reference(config)
+            # See BigQueryBackend.connect: the dataset is bound through the
+            # default query job configuration, not a ``Client`` argument.
+            default_job_config = (
+                bigquery.QueryJobConfig(default_dataset=default_dataset)
+                if default_dataset
+                else None
+            )
             if use_anonymous:
                 self._client = bigquery.Client(
                     project=getattr(config, 'project', None) or 'test',
                     credentials=AnonymousCredentials(),
                     client_options=client_options,
+                    default_query_job_config=default_job_config,
                 )
             elif getattr(config, 'credentials_path', None):
                 self._client = bigquery.Client.from_service_account_json(
-                    config.credentials_path, client_options=client_options)
+                    config.credentials_path,
+                    client_options=client_options,
+                    default_query_job_config=default_job_config,
+                )
             elif getattr(config, 'credentials_json', None):
                 self._client = bigquery.Client.from_service_account_info(
-                    config.credentials_json, client_options=client_options)
+                    config.credentials_json,
+                    client_options=client_options,
+                    default_query_job_config=default_job_config,
+                )
             else:
                 project = getattr(config, 'project', None)
-                self._client = bigquery.Client(project=project, client_options=client_options)
+                self._client = bigquery.Client(
+                    project=project,
+                    client_options=client_options,
+                    default_query_job_config=default_job_config,
+                )
             self._connected = True
             self.log(logging.DEBUG, "Connected to BigQuery")
         except Exception as e:
@@ -120,7 +151,12 @@ class AsyncBigQueryBackend(
 
     @property
     def dialect(self) -> BigQueryDialect:
-        return BigQueryDialect(version=self._version)
+        # See BigQueryBackend.dialect: the configured dataset qualifies names
+        # a caller leaves unqualified.
+        return BigQueryDialect(
+            version=self._version,
+            default_dataset=getattr(self.config, "dataset", None),
+        )
 
     def _create_introspector(self) -> Any:
         """Return the BigQuery introspector with its own executor (async).

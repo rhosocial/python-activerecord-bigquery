@@ -1,6 +1,9 @@
 scenarios:
   bigquery_emulator:
     project: "test"
+    # The emulator's bootstrap dataset, used by the backend's local providers.
+    # The shared suite derives one logical dataset per test directory and
+    # ignores this key; ``support.bigquery`` drops it when loading scenarios.
     dataset: "test_dataset"
     location: "US"
     api_endpoint: "http://localhost:9050"

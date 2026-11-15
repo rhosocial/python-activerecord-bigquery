@@ -938,25 +938,37 @@ class TestNumericSignednessIsRefused:
 
 
 #: Every concept this dialect renders whose ``PARAMETERS`` carry a fractional
-#: digits or a scale field, with the BigQuery type each renders when the field
-#: is left alone.
+#: digits or a scale field and where the field is either honoured or refused,
+#: with the BigQuery type each renders when the field is left alone.
 #:
-#: The three reasons BigQuery refuses them are genuinely different and are
+#: ``TIMESTAMP``/``TIMESTAMP WITH TIME ZONE`` are deliberately absent: BigQuery's
+#: ``TIMESTAMP`` keeps microseconds as its own storage resolution, so a declared
+#: ``precision`` is *accepted and ignored* there rather than refused.  They have
+#: their own table below.
+#:
+#: The three reasons BigQuery refuses the rest are genuinely different and are
 #: argued separately in ``_refuse_float_precision``,
 #: ``_refuse_temporal_precision`` and ``format_data_type_decimal``; what they
 #: share is the shape of the fact, which is the parameterised-type list:
 #: BigQuery documents exactly four types that can carry a parameter —
 #: ``STRING``, ``BYTES``, ``NUMERIC``, ``BIGNUMERIC`` — and ``FLOAT64``,
-#: ``DATETIME``, ``TIME`` and ``TIMESTAMP`` are not among them.
+#: ``DATETIME`` and ``TIME`` are not among them.
 #: https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types
 FRACTIONAL_FIELDS = [
     (FloatType, ("precision",), "FLOAT64"),
     (DateTimeType, ("precision",), "DATETIME"),
     (TimeType, ("precision",), "TIME"),
     (TimeTzType, ("precision",), "TIME"),
+    (DecimalType, ("precision", "scale"), "NUMERIC"),
+]
+
+#: The temporal concepts whose declared ``precision`` is accepted and ignored.
+#: The field is real (it is in ``PARAMETERS`` and in ``identity()``), but the
+#: request it makes — microsecond resolution — is already what ``TIMESTAMP``
+#: stores, and the grammar has no ``TIMESTAMP(P)`` position to render it in.
+MICROSECOND_PRECISION_FIELDS = [
     (TimestampType, ("precision",), "TIMESTAMP"),
     (TimestampTzType, ("precision",), "TIMESTAMP"),
-    (DecimalType, ("precision", "scale"), "NUMERIC"),
 ]
 
 FRACTIONAL_FIELD_IDS = [
@@ -993,13 +1005,15 @@ class TestFractionalFieldsAreHonouredOrRefused:
     """``precision`` and ``scale`` are in ``PARAMETERS``, so they are part of
     these types' identity.
 
-    Each of the seven formatters below used to render the bare BigQuery type
+    Each of the formatters in this table used to render the bare BigQuery type
     whatever the field said, so ``FloatType(precision=24)`` was a *different
     column* to ``identity()`` and to the schema differ, yet rendered the same
     ``FLOAT64`` — a migration the differ reported and the DDL would not have
-    performed.  That is the paradigm violation; the two permitted answers are a
-    changed rendering or a raised error, and which one applies is decided per
-    field below.
+    performed.  That is the paradigm violation; the answers are a changed
+    rendering, a raised error, or — where the field names the storage the column
+    already has, as ``TIMESTAMP``'s microsecond precision does — accepting it
+    and rendering the unparameterised type (see the class below).  Which one
+    applies is decided per field.
     """
 
     @pytest.fixture
@@ -1008,12 +1022,13 @@ class TestFractionalFieldsAreHonouredOrRefused:
 
     def test_the_table_is_every_rendered_concept_with_a_fractional_field(self,
                                                                         dialect):
-        """The list above is the complete set, not a sample."""
+        """The lists above are the complete set, not a sample."""
         assert _rendered_concepts_with_a_fractional_field(dialect) == {
-            klass: fields for klass, fields, _sql in FRACTIONAL_FIELDS
+            klass: fields
+            for klass, fields, _sql in FRACTIONAL_FIELDS + MICROSECOND_PRECISION_FIELDS
         }, (
             "a concept this dialect renders has gained, lost or renamed a "
-            "precision/scale identity field; the table and its refusals must "
+            "precision/scale identity field; the tables and their answers must "
             "follow it"
         )
 
@@ -1035,12 +1050,14 @@ class TestFractionalFieldsAreHonouredOrRefused:
                              ids=FRACTIONAL_FIELD_IDS)
     def test_no_fractional_field_is_silently_dropped(self, dialect, klass, fields,
                                                     sql):
-        """The rule, in one assertion, over every fractional field this dialect
-        renders: flipping it either changes the SQL or raises.
+        """The rule, in one assertion, over every field in this table: flipping
+        it either changes the SQL or raises.
 
         Byte-identical SQL for both values is the violation, whatever the reason
         for it — which is why this asserts the *rule* rather than a list of the
-        particular fields that were fixed.
+        particular fields that were fixed.  (A field that names the storage the
+        column already has is not silently dropped but deliberately satisfied;
+        those two concepts are covered by the class below.)
         """
         for field in fields:
             value = FRACTIONAL_PROBE_VALUES[field]
@@ -1135,13 +1152,12 @@ class TestFloatPrecisionIsRefused:
 
 
 class TestTemporalPrecisionIsRefused:
-    """``precision`` on the five date/time concepts.
+    """``precision`` on ``DATETIME``, ``TIME`` and ``TIME WITH TIME ZONE``.
 
-    ``DATETIME``, ``TIME`` and ``TIMESTAMP`` all refuse it, and each was
-    established from the documentation rather than by analogy — which matters,
-    because ``TIMESTAMP`` *does* have microsecond precision while ``DATETIME``
-    and ``TIME`` do not, and the useful distinction turns out to be storage
-    resolution rather than parameterisation.
+    Each of the three refuses it, established from the documentation rather
+    than by analogy.  ``TIMESTAMP`` is deliberately outside this class: its
+    microsecond resolution *is* what the field asks for, so it accepts and
+    ignores it — see :class:`TestTimestampPrecisionIsAccepted`.
     https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types
     """
 
@@ -1154,8 +1170,6 @@ class TestTemporalPrecisionIsRefused:
         (DateTimeType, "DATETIME", "DATETIME"),
         (TimeType, "TIME", "TIME"),
         (TimeTzType, "TIME WITH TIME ZONE", "TIME"),
-        (TimestampType, "TIMESTAMP", "TIMESTAMP"),
-        (TimestampTzType, "TIMESTAMP WITH TIME ZONE", "TIMESTAMP"),
     ]
 
     CONCEPT_IDS = [f"{klass.name}.precision" for klass, _word, _sql in CONCEPTS]
@@ -1186,9 +1200,9 @@ class TestTemporalPrecisionIsRefused:
                                                            word, sql):
         """The suggestion must be something a caller can write.
 
-        For the two zoned concepts the standard word and the class name differ
-        (``TIME WITH TIME ZONE`` is ``TimeTzType``), and "declare TIME WITH TIME
-        ZONE with no precision" is not something anyone can type.
+        For the zoned time-of-day concept the standard word and the class name
+        differ (``TIME WITH TIME ZONE`` is ``TimeTzType``), and "declare TIME
+        WITH TIME ZONE with no precision" is not something anyone can type.
         """
         with pytest.raises(UnsupportedFeatureError) as excinfo:
             dialect.format_data_type(klass(dialect, precision=3))
@@ -1198,23 +1212,22 @@ class TestTemporalPrecisionIsRefused:
         assert dialect.format_data_type(klass(dialect)) == (sql, ())
 
     @pytest.mark.parametrize("klass,word,sql", CONCEPTS, ids=CONCEPT_IDS)
-    def test_microsecond_precision_is_not_a_parameter(self, dialect, klass, word,
-                                                      sql):
+    def test_a_declared_precision_stops_the_render(self, dialect, klass, word,
+                                                   sql):
         """The distinction that had to be checked, and its answer.
 
-        BigQuery documents ``TIMESTAMP`` as having microsecond precision and
-        ``DATETIME``/``TIME`` as accepting "Up to six fractional digits
-        (microsecond precision)" in their canonical formats.  That is the
-        resolution the *value* is kept at — the same page says a timestamp "is
-        typically represented internally as the number of elapsed microseconds
-        since a fixed initial point in time" — and it is not a column parameter.
-        If it were, ``TIMESTAMP(3)`` would be a declaration; it is not, and none
-        of the three types appears in the parameterised list.
+        BigQuery documents ``DATETIME``/``TIME`` as accepting "Up to six
+        fractional digits (microsecond precision)" in their canonical formats.
+        That is the resolution the *value* is kept at, and it is not a column
+        parameter: if it were, ``TIME(3)`` would be a declaration; it is not, and
+        neither type appears in the parameterised list.  (``TIMESTAMP`` is the
+        case that *does* satisfy the request, and it is handled by
+        :class:`TestTimestampPrecisionIsAccepted`.)
         https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types
         """
         assert sql in BigQueryDialect._BQ_TEMPORAL_TYPES
-        # Six fractional digits is what all three store; none takes fewer as a
-        # declared setting, so every precision request stops the render.
+        # None takes fewer fractional digits as a declared setting, so every
+        # precision request stops the render.
         with pytest.raises(UnsupportedFeatureError):
             dialect.format_data_type(klass(dialect, precision=0))
         with pytest.raises(UnsupportedFeatureError):
@@ -1234,6 +1247,68 @@ class TestTemporalPrecisionIsRefused:
             TimestampTzType(dialect)) == ("TIMESTAMP", ())
         assert dialect.supports_data_type_timetz()
         assert dialect.supports_data_type_timestamptz()
+
+
+class TestTimestampPrecisionIsAccepted:
+    """``precision`` on ``TIMESTAMP`` and ``TIMESTAMP WITH TIME ZONE``.
+
+    The other answer to the fractional-field rule.  ``TIMESTAMP`` keeps
+    microseconds as its own storage resolution — documented as
+    "9999-12-31 23:59:59.999999 UTC", and represented internally as elapsed
+    microseconds — so a request for that resolution names the column BigQuery
+    already has.  There is no ``TIMESTAMP(P)`` in the grammar, so the field is
+    honoured by the storage and never rendered; refusing it would refuse the
+    one type that satisfies the request exactly.
+    https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types
+    """
+
+    @pytest.fixture
+    def dialect(self):
+        return BigQueryDialect()
+
+    #: (concept, the SQL standard word the caller asked for, what it renders as)
+    CONCEPTS = [
+        (TimestampType, "TIMESTAMP", "TIMESTAMP"),
+        (TimestampTzType, "TIMESTAMP WITH TIME ZONE", "TIMESTAMP"),
+    ]
+
+    CONCEPT_IDS = [f"{klass.name}.precision" for klass, _word, _sql in CONCEPTS]
+
+    @pytest.mark.parametrize("klass,word,sql", CONCEPTS, ids=CONCEPT_IDS)
+    def test_the_bare_concept_still_renders(self, dialect, klass, word, sql):
+        assert dialect.format_data_type(klass(dialect)) == (sql, ())
+
+    @pytest.mark.parametrize("klass,word,sql", CONCEPTS, ids=CONCEPT_IDS)
+    def test_every_declared_precision_renders_the_unparameterised_type(
+        self, dialect, klass, word, sql
+    ):
+        """Accepted, never rendered: there is no ``TIMESTAMP(P)`` position."""
+        for precision in (0, 3, 6):
+            assert dialect.format_data_type(
+                klass(dialect, precision=precision)) == (sql, ())
+
+    @pytest.mark.parametrize("klass,word,sql", CONCEPTS, ids=CONCEPT_IDS)
+    def test_the_field_still_participates_in_identity(self, dialect, klass, word,
+                                                      sql):
+        """Accepting must not flatten the declaration.
+
+        ``precision`` is in ``PARAMETERS``, so the plain and declared concepts
+        are different columns to ``identity()`` and the differ.  They render the
+        same storage because the request is already satisfied by it — not because
+        the field was dropped from the model.
+        """
+        assert "precision" in klass.PARAMETERS
+        plain = klass(dialect)
+        for precision in (0, 3, 6):
+            declared = klass(dialect, precision=precision)
+            assert plain != declared
+            assert hash(plain) != hash(declared)
+        assert plain == klass(dialect)
+
+    @pytest.mark.parametrize("klass,word,sql", CONCEPTS, ids=CONCEPT_IDS)
+    def test_the_dialect_supports_microsecond_storage(self, dialect, klass, word, sql):
+        """The fact the acceptance rests on is a dialect answer, not a guess."""
+        assert dialect.supports_microsecond_timestamp()
 
 
 class TestDecimalScaleNeedsAPrecision:

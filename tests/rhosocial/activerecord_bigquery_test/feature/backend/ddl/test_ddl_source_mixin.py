@@ -165,10 +165,6 @@ class TableDeclarationOverrides:
     def table_tablespace(cls):
         return TABLE_TABLESPACE
 
-    @classmethod
-    def create_table_statement_classes(cls):
-        return CreateTableStatement
-
 
 class DeclarationModel(TableDeclarationOverrides, ActiveRecord):
     @classmethod
@@ -396,7 +392,9 @@ def _assert_declaration_model(model):
     assert model.table_partition().keys[0].name == "physical_value"
     assert model.table_inherits() is TABLE_INHERITS
     assert model.table_tablespace() == TABLE_TABLESPACE
-    assert model.create_table_statement_classes() is CreateTableStatement
+    # Statement-class selection is no longer part of the DDLSource contract:
+    # the rebuilt core derives the statement from the model's declarations
+    # (``DDLSource`` answers what is declared, never how it is rendered).
     assert model.table_constraints() == TABLE_CONSTRAINTS
     assert all(
         actual is expected
@@ -463,7 +461,6 @@ def _assert_plain_defaults(model):
     assert model.table_partition() is None
     assert model.table_inherits() is None
     assert model.table_tablespace() is None
-    assert model.create_table_statement_classes() is None
     assert model.table_indexes() == []
     assert model.table_constraints() == []
 
