@@ -2,18 +2,21 @@
 # Run the test tree in shards against the BigQuery emulator.
 #
 # Every test directory owns its own logical dataset (``tests/support/bigquery``
-# derives it from the path), so the directory is the unit of work.  Each shard
-# gets its own emulator container on its own port and gets a *fresh* emulator
-# before every directory: the goccy emulator degrades as jobs and tables
-# accumulate, and a stale instance is what makes a directory hang.
+# derives it from the path), so a whole directory is assigned to one shard and
+# no two shards ever reset the same dataset.  Inside a shard the emulator is
+# restarted for every test *file*: the goccy emulator degrades as jobs and
+# tables accumulate within one instance, and a stale instance is what turns a
+# long file into a timeout.
 #
-# ``COVERAGE=1`` runs each directory under ``coverage run --parallel-mode`` and
+# ``COVERAGE=1`` runs each file under ``coverage run --parallel-mode`` and
 # combines the shard data files at the end.
 set -euo pipefail
 
 SHARDS="${SHARDS:-4}"
 BASE_PORT="${BASE_PORT:-9050}"
 COVERAGE="${COVERAGE:-0}"
+FILE_TIMEOUT="${FILE_TIMEOUT:-480}"
+TEST_TIMEOUT="${TEST_TIMEOUT:-120}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -67,23 +70,28 @@ for i in $(seq 0 $((SHARDS - 1))); do
     }
 
     for unit in ${SHARD_UNITS[$i]}; do
-      echo "=== [shard $i] $unit (fresh emulator) ==="
-      start_emulator
-      set +e
-      if [ "$COVERAGE" = "1" ]; then
-        timeout 900 coverage run --parallel-mode --source=src -m pytest "$unit" \
-          --tb=short -q -o asyncio_mode=auto
-      else
-        timeout 900 pytest "$unit" --tb=short -q -o asyncio_mode=auto
-      fi
-      rc=$?
-      set -e
-      if [ "$rc" -eq 5 ]; then
-        echo "no tests collected in $unit"
-      elif [ "$rc" -ne 0 ]; then
-        echo "FAILED shard $i: $unit (rc=$rc)"
-        exit "$rc"
-      fi
+      for file in "$unit"/test_*.py; do
+        [ -e "$file" ] || continue
+        echo "=== [shard $i] $file (fresh emulator) ==="
+        start_emulator
+        set +e
+        if [ "$COVERAGE" = "1" ]; then
+          timeout "$FILE_TIMEOUT" coverage run --parallel-mode --source=src \
+            -m pytest "$file" --tb=short -q -o asyncio_mode=auto \
+            --timeout="$TEST_TIMEOUT"
+        else
+          timeout "$FILE_TIMEOUT" pytest "$file" --tb=short -q \
+            -o asyncio_mode=auto --timeout="$TEST_TIMEOUT"
+        fi
+        rc=$?
+        set -e
+        if [ "$rc" -eq 5 ]; then
+          echo "no tests collected in $file"
+        elif [ "$rc" -ne 0 ]; then
+          echo "FAILED shard $i: $file (rc=$rc)"
+          exit "$rc"
+        fi
+      done
     done
     echo "=== [shard $i] done ==="
   ) > "/tmp/shard_$i.log" 2>&1 &
