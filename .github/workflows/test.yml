@@ -54,16 +54,9 @@ jobs:
         run: |
           pip install -e . --no-deps
 
-      - name: Start BigQuery emulator
-        run: |
-          docker run -d --name bigquery-emulator -p 9050:9050 -p 9060:9060 \
-            ghcr.io/goccy/bigquery-emulator:latest --project=test --dataset=test_dataset
-          sleep 4
-          docker ps
-
       - name: Run backend tests
         run: |
-          pytest tests/ --tb=short -q -o asyncio_mode=auto
+          bash tests/run_sharded_tests.sh
         env:
           PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
@@ -94,18 +87,9 @@ jobs:
         run: |
           pip install -e . --no-deps
 
-      - name: Start BigQuery emulator
-        run: |
-          docker run -d --name bigquery-emulator -p 9050:9050 -p 9060:9060 \
-            ghcr.io/goccy/bigquery-emulator:latest --project=test --dataset=test_dataset
-          sleep 4
-          docker ps
-
       - name: Run backend tests with coverage
         run: |
-          coverage run --source=src -m pytest tests/ --tb=short -q -o asyncio_mode=auto
-          coverage xml
-          coverage report
+          COVERAGE=1 bash tests/run_sharded_tests.sh
         env:
           PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
