@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from rhosocial.activerecord.testsuite.core.declarations import database_name
+from rhosocial.activerecord.testsuite.pytest_plugin.declarations import database_name
 
 PREPARED_DATASETS = set()
 
