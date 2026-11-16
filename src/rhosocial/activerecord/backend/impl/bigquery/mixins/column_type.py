@@ -1,7 +1,7 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/column_type.py
 """Which column class BigQuery suggests for each common Python type.
 
-This is BigQuery's answer to the eighteen-entry closed list the
+This is BigQuery's answer to the twenty-four-entry closed list the
 :class:`~rhosocial.activerecord.backend.dialect.protocols.ColumnTypeSupport`
 protocol names: ``bool``, ``int``, ``float``, ``decimal.Decimal``, ``str``,
 ``bytes``, ``bytearray``, ``datetime.date``, ``datetime.time``,
@@ -93,18 +93,33 @@ import enum
 import uuid
 from typing import Any, Dict, Type
 
+from rhosocial.activerecord.backend.adapters import (
+    BitString,
+    Geometry,
+    MacAddress,
+    Multirange,
+    Range,
+    Vector,
+)
 from rhosocial.activerecord.backend.dialect.mixins import ColumnTypeMixin
 from rhosocial.activerecord.backend.expression.column_types import (
     ArrayColumn,
     BinaryColumn,
+    BitStringColumn,
     BooleanColumn,
     ColumnBase,
+    GeometryColumn,
     IntegerColumn,
+    IntervalColumn,
     JSONColumn,
+    MacAddressColumn,
+    MultirangeColumn,
     NumericColumn,
+    RangeColumn,
     StringColumn,
     TimestampColumn,
     UUIDColumn,
+    VectorColumn,
 )
 
 #: The full table: ``{common Python type: ColumnBase subclass}``.
@@ -170,17 +185,16 @@ BIGQUERY_COLUMN_TYPES: Dict[Any, Type[ColumnBase]] = {
     datetime.date: TimestampColumn,
     datetime.time: TimestampColumn,
     datetime.datetime: TimestampColumn,
-    # A timedelta is a number of seconds here, answered by the numeric
-    # surface, and the reason is documented rather than convenient: BigQuery
-    # expresses a duration as the *operand of a function*
-    # (`DATE_ADD(date, INTERVAL n DAY)`), where the unit belongs to the
-    # function and the value is an `INT64` count. The standalone `INTERVAL`
+    # A duration is a span, not a number, so it answers `IntervalColumn`,
+    # which promises no arithmetic. BigQuery also expresses a duration as
+    # the *operand of a function* (`DATE_ADD(date, INTERVAL n DAY)`), where
+    # the unit belongs to the function and the value is an `INT64` count --
+    # a storage convention, not the value's family. The standalone `INTERVAL`
     # type exists and is documented ("A duration of time, without referring
-    # to any specific point in time. SQL type name: INTERVAL"), but it is
-    # marked **Preview** on the same page, and core has no `IntervalColumn`
-    # to aim at either way -- so the numeric answer is what there is, and
-    # the `Interval*` question rides with core's missing class. 文档（待云验）.
-    datetime.timedelta: NumericColumn,
+    # to any specific point in time. SQL type name: INTERVAL"), though it is
+    # marked **Preview** on the same page, so its DDL spelling stays the
+    # DataType layer's decision. 文档（待云验）.
+    datetime.timedelta: IntervalColumn,
     # BigQuery has no UUID type: the documented type list (the `SQL type
     # name:` rows) has none, and `GENERATE_UUID()` produces a value in a
     # `STRING` column. The column class is still `UUIDColumn`, because that
@@ -268,6 +282,19 @@ BIGQUERY_COLUMN_TYPES: Dict[Any, Type[ColumnBase]] = {
     # in the protocol's `§7` list assumes a rejection mechanism this backend
     # does not have. 文档（待云验）.
     enum.Enum: StringColumn,
+    # -- Complex families ------------------------------------------------
+    # Their core classes promise only the surface every column has -- alias,
+    # null tests, casting and collation -- because no distance, containment,
+    # overlap, bitwise or similarity operation is spelled the same way on
+    # every backend. Richer family operations belong to a BigQuery-named
+    # subclass in this backend's extra table. Storage is answered in the
+    # data-type suggestion module.
+    Geometry: GeometryColumn,
+    Vector: VectorColumn,
+    BitString: BitStringColumn,
+    Range: RangeColumn,
+    Multirange: MultirangeColumn,
+    MacAddress: MacAddressColumn,
 }
 
 
@@ -277,7 +304,7 @@ class BigQueryColumnTypeMixin(ColumnTypeMixin):
     Composed into ``BigQueryDialect`` as the whole table: the rebuilt core
     declares no generic common-type table to sit behind it, so
     :meth:`suggested_column_types` here is the answer the model layer reads for
-    every one of the eighteen common types, and
+    every one of the twenty-four framework types, and
     :meth:`~rhosocial.activerecord.backend.dialect.mixins.column_type.ColumnTypeMixin.suggested_extra_column_types`
     stays empty because this backend models no Python type of its own.
 
@@ -288,7 +315,7 @@ class BigQueryColumnTypeMixin(ColumnTypeMixin):
     def suggested_column_types(self) -> Dict[Any, Type[ColumnBase]]:
         """A fresh copy of :data:`BIGQUERY_COLUMN_TYPES`, one class per entry.
 
-        All eighteen entries of the protocol's closed list are answered, and
+        All twenty-four entries of the protocol's closed list are answered, and
         none is ``None``: BigQuery has a documented type for every value
         family, so the protocol's last resort never applies here.
         """
