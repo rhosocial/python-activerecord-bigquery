@@ -250,7 +250,7 @@ BIGQUERY_COLUMN_TYPES: Dict[Any, Type[ColumnBase]] = {
     frozenset: ArrayColumn,
     # BigQuery has no `ENUM` type -- the documented `SQL type name:` rows do
     # not include one -- so the value is stored as `STRING` and constrained
-    # outside the type, which is what this backend's `suggested_data_types`
+    # outside the type, which is what this backend's `substitute_data_types`
     # already says for `enum`. The column class is unaffected: comparison,
     # `IN` and `ORDER BY` are the text surface, which is `StringColumn`'s.
     #

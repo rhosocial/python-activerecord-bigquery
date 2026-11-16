@@ -4,6 +4,7 @@
 from .capabilities import BigQueryCapabilityMixin
 from .column_type import BigQueryColumnTypeMixin
 from .constraint import BigQueryConstraintMixin
+from .data_type_suggestions import BigQueryDataTypeSuggestionsMixin
 from .ddl import BigQueryDDLColumnMixin
 from .dql import BigQueryDQLMixin
 from .identifier import BigQueryIdentifierMixin
@@ -47,6 +48,7 @@ __all__ = [
     "BigQueryConstraintMixin",
     "BigQueryCapabilityMixin",
     "BigQueryColumnTypeMixin",
+    "BigQueryDataTypeSuggestionsMixin",
     "BigQueryIdentityColumnMixin",
     "BigQueryIdentifierMixin",
     "BigQueryMaterializedViewMixin",

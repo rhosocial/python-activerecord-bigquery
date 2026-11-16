@@ -52,7 +52,7 @@ class BigQueryTypeSupportMixin:
     integer, ``STRING`` is character data, ``NUMERIC`` is exact fixed-point,
     ``BOOL`` is a boolean, ``BYTES`` is a byte string, ``JSON`` is JSON. So the
     backend declares formatters for the core concepts and substitutes the rest
-    (see :meth:`suggested_data_types`), and a subclass of ``DataType`` would
+    (see :meth:`substitute_data_types`), and a subclass of ``DataType`` would
     only add a second name for a type that already has one.
 
     The three BigQuery types with no core concept — ``GEOGRAPHY``,
@@ -63,7 +63,7 @@ class BigQueryTypeSupportMixin:
 
     Every concept is *declared* one way or the other: rendered (a
     ``format_data_type_<name>`` / ``supports_data_type_<name>`` pair) or
-    substituted (an entry in ``suggested_data_types()``). Silence is the one
+    substituted (an entry in ``substitute_data_types()``). Silence is the one
     answer that is not allowed — it leaves a caller who asked told only that
     the type is unsupported.
 
@@ -188,7 +188,7 @@ class BigQueryTypeSupportMixin:
           datetime_part`` is the *operand* of date arithmetic, an ``INT64``
           count of one unit, and ``INTERVAL`` is a duration type rather than a
           column type on this backend at all (see
-          :meth:`suggested_data_types`).
+          :meth:`substitute_data_types`).
 
         The signed range does cover every width's unsigned range, so nothing is
         lost by dropping the *concept* on this backend; what would be lost is
@@ -1163,7 +1163,7 @@ class BigQueryTypeSupportMixin:
         are accepted and normalised.
 
         The fixed- and variable-length byte-string concepts do **not** render
-        here at all — see :meth:`suggested_data_types` for why ``BYTES``'s
+        here at all — see :meth:`substitute_data_types` for why ``BYTES``'s
         declared length is a maximum rather than a width.
         """
         self.check_spelling(data_type, BlobType)
@@ -1278,7 +1278,7 @@ class BigQueryTypeSupportMixin:
     # Core types BigQuery stores some other way
     # ------------------------------------------------------------------
 
-    def suggested_data_types(self) -> Dict[str, type]:
+    def substitute_data_types(self) -> Dict[str, type]:
         """Core types BigQuery stores some other way.
 
         BigQuery's type list is closed, documented and short, so most core

@@ -278,7 +278,7 @@ class TestBaselineCells:
         layer's answer (this backend suggests ``uuid`` -> ``STRING`` there).
         """
         assert resolve(dialect, uuid.UUID) is UUIDColumn
-        assert dialect.suggested_data_types()["uuid"].__name__ == "VarCharType"
+        assert dialect.substitute_data_types()["uuid"].__name__ == "VarCharType"
 
     def test_date_and_time_are_provisional(self, dialect):
         """Core has no ``DateColumn`` / ``TimeColumn`` yet, so one class stands.
@@ -301,7 +301,7 @@ class TestBaselineCells:
         way -- the ``IntervalColumn`` question rides with core.
         """
         assert dialect.suggested_column_types()[datetime.timedelta] is NumericColumn
-        assert dialect.suggested_data_types()["interval"].__name__ == "IntegerType"
+        assert dialect.substitute_data_types()["interval"].__name__ == "IntegerType"
 
     def test_enum_is_a_string_because_bigquery_has_no_enum_type(self, dialect):
         """No ``ENUM`` in the documented type list; the value is stored as text.

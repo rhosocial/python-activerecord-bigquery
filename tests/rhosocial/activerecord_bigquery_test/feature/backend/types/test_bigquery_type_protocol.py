@@ -5,7 +5,7 @@ Covers the four things this backend has to get right about the data-type
 protocol:
 
 * **Completeness (D9)** — every core concept is either rendered by BigQuery or
-  named in ``suggested_data_types()``. Silence is the one answer that is not
+  named in ``substitute_data_types()``. Silence is the one answer that is not
   allowed, because a caller who asks for a concept the dialect has never heard
   of is told only that it is unsupported;
 * **Correspondence** — ``format_data_type_<name>`` and
@@ -169,10 +169,10 @@ def test_supports_data_types_maps_each_key_to_its_own_class(dialect):
 def test_every_core_concept_is_declared(dialect):
     """No core concept may go undeclared by this dialect (D9)."""
     supported = set(dialect.supports_data_types())
-    suggested = dialect.suggested_data_types()
+    substitutes = dialect.substitute_data_types()
     undeclared = [
         klass.name for klass in _core_type_classes()
-        if klass.name not in supported and klass.name not in suggested
+        if klass.name not in supported and klass.name not in substitutes
     ]
     assert not undeclared, (
         "these core concepts are neither rendered nor given a substitute; "
@@ -181,15 +181,15 @@ def test_every_core_concept_is_declared(dialect):
     )
 
 
-def test_suggested_keys_are_disjoint_from_rendered(dialect):
+def test_substitute_keys_are_disjoint_from_rendered(dialect):
     """A rendered type needs no substitute; listing both muddies the intent."""
     supported = set(dialect.supports_data_types())
-    suggested = set(dialect.suggested_data_types())
-    assert not supported & suggested
+    substitutes = set(dialect.substitute_data_types())
+    assert not supported & substitutes
 
 
-def test_every_suggested_substitute_is_a_type_bigquery_renders(dialect):
-    """A suggestion must work.
+def test_every_substitute_is_a_type_bigquery_renders(dialect):
+    """A substitute must work.
 
     Suggesting a class this dialect has no formatter for would trade a clear
     "not supported" for a less useful one — advice that does not run. Being
@@ -197,13 +197,13 @@ def test_every_suggested_substitute_is_a_type_bigquery_renders(dialect):
     named-enum case); being rendered is.
     """
     supported = dialect.supports_data_types()
-    for key, substitute in dialect.suggested_data_types().items():
+    for key, substitute in dialect.substitute_data_types().items():
         assert isinstance(substitute, type) and issubclass(substitute, DataType), (
-            f"suggested_data_types()[{key!r}] must be a DataType subclass, "
+            f"substitute_data_types()[{key!r}] must be a DataType subclass, "
             f"got {substitute!r}"
         )
         assert substitute.name in supported, (
-            f"suggested_data_types()[{key!r}] is {substitute.__name__}, whose "
+            f"substitute_data_types()[{key!r}] is {substitute.__name__}, whose "
             f"name {substitute.name!r} this dialect does not render"
         )
         # ...and the substitute really does render the way the concept is
@@ -211,7 +211,7 @@ def test_every_suggested_substitute_is_a_type_bigquery_renders(dialect):
         assert dialect.format_data_type(substitute(dialect))[0]
 
 
-def test_the_suggested_substitutes_are_the_ones_bigquery_stores(dialect):
+def test_the_substitutes_are_the_ones_bigquery_stores(dialect):
     """The exact substitution map, with the reasoning the docstring gives.
 
     ``binary``/``varbinary`` -> ``BYTES``: one unbounded byte-string type.
@@ -220,7 +220,7 @@ def test_the_suggested_substitutes_are_the_ones_bigquery_stores(dialect):
     ``interval`` -> ``INT64``: no duration type; ``INTERVAL`` is only the
     operand of date arithmetic and ``n`` is an ``INT64`` count of one unit.
     """
-    assert dialect.suggested_data_types() == {
+    assert dialect.substitute_data_types() == {
         "binary": BlobType,
         "varbinary": BlobType,
         "enum": VarCharType,
@@ -231,9 +231,9 @@ def test_the_suggested_substitutes_are_the_ones_bigquery_stores(dialect):
     # The map above must be exactly the complement of what BigQuery renders:
     # a concept that gained a renderer has to lose its suggestion, so the two
     # cannot drift apart unnoticed.
-    for key in dialect.suggested_data_types():
+    for key in dialect.substitute_data_types():
         assert _render(dialect, key) is None, (
-            f"{key!r} is suggested, so it must not also be rendered"
+            f"{key!r} is substituted, so it must not also be rendered"
         )
     assert EnumType.name == "enum"
     assert dialect.supports_data_types().get("enum") is None, (
@@ -255,7 +255,7 @@ def test_an_undeclared_concept_is_refused_with_the_substitute_named(dialect):
 
     ``format_data_type`` raises ``TypeError`` for a concept this dialect does
     not render, and the advice text in that error is the substitute from
-    ``suggested_data_types``. Without it the caller would be left with no route
+    ``substitute_data_types``. Without it the caller would be left with no route
     forward at all.
     """
     for concept, substitute in (
@@ -282,7 +282,7 @@ def test_xml_is_a_substitution_and_json_is_not(dialect):
     """
     assert _render(dialect, "json") == "JSON"
     assert _render(dialect, "jsonb") == "JSON"
-    assert dialect.suggested_data_types()["xml"] is TextType
+    assert dialect.substitute_data_types()["xml"] is TextType
     assert not issubclass(XmlType, (TextType, JsonType)), (
         "XmlType is a distinct semantic type; it is not text and not JSON"
     )

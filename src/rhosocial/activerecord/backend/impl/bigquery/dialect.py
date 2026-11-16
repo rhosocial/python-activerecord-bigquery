@@ -67,6 +67,10 @@ from .mixins import (
     BigQueryJSONMixin, BigQueryGeographyMixin,
     # New mixins from dialect.py split
     BigQueryTypeSupportMixin,
+    # Suggested data types: the DDL half of the same answer, ahead of
+    # BigQueryTypeSupportMixin and the core DataTypeMixin it composes --
+    # a table placed after the class that withholds it never wins.
+    BigQueryDataTypeSuggestionsMixin,
     BigQueryDQLMixin,
     BigQuerySchemaMixin,
     BigQueryNamespaceMixin,
@@ -114,6 +118,10 @@ class BigQueryDialect(
     # mixin has to precede it too (C3: a subclass precedes its base).
     # New BigQuery-specific mixins (BEFORE SQLDialectBase and generic mixins they override)
     BigQueryCapabilityMixin,
+    # Suggested data types: the DDL half of the type answer, ahead of
+    # BigQueryTypeSupportMixin (whose core DataTypeMixin otherwise withholds
+    # the table) so BigQuery's answers win the lookup.
+    BigQueryDataTypeSuggestionsMixin,
     BigQueryTypeSupportMixin,
     UserDefinedTypeMixin,
     DomainMixin,
