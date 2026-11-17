@@ -81,6 +81,19 @@ class BigQueryDDLColumnMixin:
         """
         return True
 
+    def format_column_nullable_constraint(self, constraint: Any) -> Tuple[str, tuple]:
+        """Render an explicitly nullable column as empty text.
+
+        BigQuery's ``column_schema`` production admits only ``[NOT NULL]``;
+        the *absence* of that marker already means NULLABLE, so there is no
+        explicit ``NULL`` token in the grammar.  Core renders ``" NULL"`` for
+        an explicitly nullable column unconditionally (it treats that column as
+        belonging to every grammar), which the emulator and the service both
+        reject.  Suppressing the token here keeps the DDL portable without a
+        core change.
+        """
+        return "", ()
+
     def format_column_comment_clause(self, clause: Any) -> Tuple[str, tuple]:
         """Render a column comment as ``OPTIONS(description='...')``.
 

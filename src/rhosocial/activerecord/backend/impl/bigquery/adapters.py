@@ -102,7 +102,20 @@ class BigQueryJSONAdapter(SQLTypeAdapter):
         if value is None:
             return None
         if isinstance(value, str):
-            return json.loads(value, object_hook=self._json_object_hook)
+            decoded = json.loads(value, object_hook=self._json_object_hook)
+            # The goccy emulator stores a JSON string bound to a native ``JSON``
+            # column as a JSON *string value* (it adds an extra layer of
+            # quoting).  For a dict/list field a single ``json.loads`` then
+            # still yields a string, so decode once more.  A correctly encoded
+            # object decodes to a dict/list on the first pass and is returned
+            # unchanged; the guard keeps scalar JSON strings from being
+            # decoded a second time.
+            if isinstance(decoded, str) and target_type in (dict, list):
+                try:
+                    decoded = json.loads(decoded, object_hook=self._json_object_hook)
+                except (ValueError, TypeError):
+                    pass
+            return decoded
         return value
 
 

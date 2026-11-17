@@ -161,13 +161,28 @@ class BigQueryScenario:
         return backend._client
 
     def reset_database(self, database: str) -> None:
-        """Drop and recreate ``database`` (a dataset) in this scenario's project."""
+        """Drop and recreate ``database`` (a dataset) in this scenario's project.
+
+        The goccy emulator's ``delete_contents=True`` hangs when the dataset
+        already holds tables (and its ``DROP SCHEMA`` / ``DROP TABLE IF EXISTS``
+        statements are unsupported or fault), so tables are removed explicitly
+        through the driver's table API before the dataset is dropped without
+        that flag.  The real service honours the same calls, so the sequence is
+        portable rather than emulator-specific.
+        """
         # Imported here so collecting tests never requires the driver.
         from google.cloud.bigquery import Dataset, DatasetReference
 
         client = self._client()
         reference = DatasetReference(self.project, database)
-        client.delete_dataset(reference, delete_contents=True, not_found_ok=True)
+        # Remove tables one by one; ``delete_contents=True`` deadlocks on the
+        # emulator whenever the dataset is non-empty.
+        try:
+            for table in list(client.list_tables(reference)):
+                client.delete_table(table.table_reference, not_found_ok=True)
+        except Exception:  # dataset may not exist yet
+            pass
+        client.delete_dataset(reference, not_found_ok=True)
         dataset = Dataset(reference)
         location = self.server.get("location")
         if location:
