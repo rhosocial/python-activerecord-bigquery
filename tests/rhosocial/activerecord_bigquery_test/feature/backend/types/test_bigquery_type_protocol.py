@@ -1701,16 +1701,18 @@ class TestStringLengthIsRangeChecked:
         assert BigQueryDialect._BQ_STRING_MINIMUM_LENGTH == 1
 
     def test_bytes_has_no_parameter_to_check(self, dialect):
-        """``BYTES(L)`` carries the same wording and there is nothing to check.
+        """No formatter on this backend emits ``BYTES(n)``.
 
-        No formatter on this backend emits ``BYTES(n)``: ``BlobType`` — the
-        concept ``BYTES`` is stored in — takes no length, and the two
-        byte-string concepts that do (``BinaryType`` / ``VarBinaryType``) are
-        *suggested* rather than rendered, so ``format_data_type`` refuses them
-        before any length is read.  Pinned so the absence of a check here reads
-        as a fact about this backend rather than as an oversight.
+        ``BlobType`` — the concept ``BYTES`` is stored in — declares a length
+        (a minimum in bytes) on the framework side, but this backend's
+        ``format_data_type`` never reads it: it renders ``BYTES`` through the
+        raw spelling, and the two byte-string concepts that also carry a length
+        (``BinaryType`` / ``VarBinaryType``) are *suggested* rather than
+        rendered, so ``format_data_type`` refuses them before any length is
+        read.  Pinned so the absence of a check here reads as a fact about this
+        backend rather than as an oversight.
         """
-        assert BlobType.PARAMETERS == ()
+        assert BlobType.PARAMETERS == ("length",)
         for raw in ("BYTES", "BIGNUMERIC"):
             assert dialect.format_data_type(
                 CustomType(dialect, raw=raw)) == (raw, ())
