@@ -13,6 +13,7 @@ serialised per scenario while rendering-only work is not held back.
 from rhosocial.activerecord.testsuite.pytest_plugin import Declaration
 
 DECLARATION = Declaration(
+    uses_database=True,
     parallel=False,
     purpose="BigQuery backend's own feature tests: dialect specials and scenario wiring.",
     passes_means="a backend-specific contract renders or dispatches as documented",

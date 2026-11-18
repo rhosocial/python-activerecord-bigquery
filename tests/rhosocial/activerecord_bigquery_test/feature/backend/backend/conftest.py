@@ -8,6 +8,7 @@ one parallel subset: serial per scenario, isolated from other scenarios.
 from rhosocial.activerecord.testsuite.pytest_plugin import Declaration
 
 DECLARATION = Declaration(
+    uses_database=True,
     parallel=True,
     purpose="BigQuery backend lifecycle, configuration and emulator scenario wiring.",
     passes_means="the backend builds, configures and dispatches as documented",

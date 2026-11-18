@@ -14,6 +14,7 @@ import pytest
 from rhosocial.activerecord.testsuite.pytest_plugin.declarations import database_name
 
 DECLARATION = Declaration(
+    uses_database=True,
     parallel=True,
     purpose="Live-endpoint probes against the emulator on this directory's dataset.",
     passes_means="the emulator answers the probe against a clean directory-owned dataset",

@@ -8,6 +8,7 @@ serially per scenario and are grouped as one parallel subset.
 from rhosocial.activerecord.testsuite.pytest_plugin import Declaration
 
 DECLARATION = Declaration(
+    uses_database=True,
     parallel=True,
     purpose="BigQuery introspection SQL, answer parsing and the CLI report surface.",
     passes_means="introspection answers are parsed and reported as documented",
