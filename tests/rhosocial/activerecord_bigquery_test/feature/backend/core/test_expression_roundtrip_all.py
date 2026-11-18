@@ -103,7 +103,7 @@ import inspect
 
 import pytest
 
-from rhosocial.activerecord.backend.dialect.exceptions import (
+from rhosocial.activerecord.backend.dialect.exceptions import (UnsupportedDataTypeError, 
     ProtocolNotImplementedError,
     UnsupportedFeatureError,
 )
@@ -1178,7 +1178,7 @@ LEGITIMATE_NON_RENDERS = {
     # UnsupportedFeatureError, because the class is incomplete rather than the
     # dialect being unable.
     "rhosocial.activerecord.backend.expression.types._base.DataType": (
-        TypeError, "does not support the generic type None",
+        UnsupportedDataTypeError, "does not support the generic type None",
     ),
     # ---- generic types this dialect has no formatter for -------------------
     # Each is a type name the dialect declines. BigQuery spells VARBINARY
@@ -1189,22 +1189,22 @@ LEGITIMATE_NON_RENDERS = {
     # ArrayType used to sit here and no longer does: this dialect does render
     # it, as ARRAY<STRING(10)>, so the entry described a gap that had closed.
     "rhosocial.activerecord.backend.expression.types.binary.BinaryType": (
-        TypeError, "does not support the generic type 'binary'",
+        UnsupportedDataTypeError, "does not support the generic type 'binary'",
     ),
     "rhosocial.activerecord.backend.expression.types.binary.VarBinaryType": (
-        TypeError, "does not support the generic type 'varbinary'",
+        UnsupportedDataTypeError, "does not support the generic type 'varbinary'",
     ),
     "rhosocial.activerecord.backend.expression.types.datetime_.IntervalType": (
-        TypeError, "does not support the generic type 'interval'",
+        UnsupportedDataTypeError, "does not support the generic type 'interval'",
     ),
     "rhosocial.activerecord.backend.expression.types.enum_.EnumType": (
-        TypeError, "does not support the generic type 'enum'",
+        UnsupportedDataTypeError, "does not support the generic type 'enum'",
     ),
     "rhosocial.activerecord.backend.expression.types.uuid_.UUIDType": (
-        TypeError, "does not support the generic type 'uuid'",
+        UnsupportedDataTypeError, "does not support the generic type 'uuid'",
     ),
     "rhosocial.activerecord.backend.expression.types.xml_.XmlType": (
-        TypeError, "does not support the generic type 'xml'",
+        UnsupportedDataTypeError, "does not support the generic type 'xml'",
     ),
 }
 
