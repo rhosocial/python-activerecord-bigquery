@@ -6,11 +6,11 @@ testsuite environment, so they own their own connections.  The dataset is still
 the directory's: derived from the path and reset once per (scenario, dataset),
 so a probe never reads tables another directory owns.
 """
+from rhosocial.activerecord.testsuite.pytest_plugin import Declaration
 import os
 
 import pytest
 
-from rhosocial.activerecord.testsuite.pytest_plugin import Declaration
 from rhosocial.activerecord.testsuite.pytest_plugin.declarations import database_name
 
 DECLARATION = Declaration(
