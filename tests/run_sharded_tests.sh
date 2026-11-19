@@ -30,6 +30,10 @@ import pathlib
 scoped_roots = [
     pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/backend"),
     pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/basic"),
+    pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/query"),
+    pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/cte"),
+    pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/setop"),
+    pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/query_integration"),
 ]
 units = []
 for _root in scoped_roots:
