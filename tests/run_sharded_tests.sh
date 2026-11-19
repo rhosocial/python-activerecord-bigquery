@@ -76,7 +76,7 @@ for i in $(seq 0 $((SHARDS - 1))); do
         start_emulator
         set +e
         if [ "$COVERAGE" = "1" ]; then
-          timeout "$FILE_TIMEOUT" coverage run --parallel-mode --source=src \
+          timeout "$FILE_TIMEOUT" coverage run --parallel-mode --source=rhosocial.activerecord.backend.impl.bigquery \
             -m pytest "$file" --tb=short -q -o asyncio_mode=auto \
             --timeout="$TEST_TIMEOUT"
         else
