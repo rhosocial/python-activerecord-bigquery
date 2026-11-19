@@ -56,6 +56,12 @@ _UNENFORCEABLE_SUITE_CONTRACTS = {
     "test_concurrent_transactions_isolation": (
         "BigQueryTransactionManager has no begin(), so concurrent worker transactions cannot run"
     ),
+    "test_query_from_model_backend_in_transaction_context": (
+        "BigQueryTransactionManager has no begin(), so transaction contexts cannot run"
+    ),
+    "test_nested_transaction_contexts_reuse": (
+        "BigQueryTransactionManager has no begin(), so nested transaction contexts cannot run"
+    ),
     # The emulator returns a JSON column as a JSON string, not a decoded dict.
     "test_json_payload_roundtrip": (
         "the BigQuery emulator returns JSON columns as strings, not decoded objects"
