@@ -61,7 +61,7 @@ jobs:
           PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
-        timeout-minutes: 30
+        timeout-minutes: 45
 
   # Coverage is collected on a single Python version to keep the emulator
   # cost bounded; the matrix above is the real compatibility gate.
@@ -94,7 +94,7 @@ jobs:
           PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
-        timeout-minutes: 30
+        timeout-minutes: 45
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

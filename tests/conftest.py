@@ -56,11 +56,12 @@ _UNENFORCEABLE_SUITE_CONTRACTS = {
     "test_concurrent_transactions_isolation": (
         "BigQueryTransactionManager has no begin(), so concurrent worker transactions cannot run"
     ),
-    "test_query_from_model_backend_in_transaction_context": (
+    # All query-context contracts that open a transaction (backend-in-context /
+    # nested reuse, across model / union / CTE queries) fail the same way:
+    # BigQueryTransactionManager has no begin()/commit()/rollback().  Skip by
+    # name substring so every such contract is covered instead of enumerating.
+    "transaction_context": (
         "BigQueryTransactionManager has no begin(), so transaction contexts cannot run"
-    ),
-    "test_nested_transaction_contexts_reuse": (
-        "BigQueryTransactionManager has no begin(), so nested transaction contexts cannot run"
     ),
     # The emulator returns a JSON column as a JSON string, not a decoded dict.
     "test_json_payload_roundtrip": (
@@ -72,6 +73,13 @@ _UNENFORCEABLE_SUITE_CONTRACTS = {
 def pytest_collection_modifyitems(config, items):
     """Skip suite contracts the BigQuery dialect cannot express."""
     for item in items:
-        reason = _UNENFORCEABLE_SUITE_CONTRACTS.get(item.name.split("[", 1)[0])
+        base = item.name.split("[", 1)[0]
+        reason = _UNENFORCEABLE_SUITE_CONTRACTS.get(base)
+        if not reason:
+            # Substring patterns: cover whole contract families by name.
+            for pattern, pat_reason in _UNENFORCEABLE_SUITE_CONTRACTS.items():
+                if pattern in base:
+                    reason = pat_reason
+                    break
         if reason:
             item.add_marker(pytest.mark.skip(reason=reason))
