@@ -45,6 +45,21 @@ _UNENFORCEABLE_SUITE_CONTRACTS = {
         "the emulator does not implement ROLLBACK TRANSACTION, so a failed "
         "transaction cannot be undone (real BigQuery supports it)"
     ),
+    # Worker transaction contracts drive backend.begin_transaction() inside a
+    # child process; BigQueryTransactionManager has no begin()/commit()/rollback().
+    "test_transaction_in_worker": (
+        "BigQueryTransactionManager has no begin(), so worker transactions cannot run"
+    ),
+    "test_transaction_rollback_on_error": (
+        "BigQueryTransactionManager has no begin(), so worker transaction rollback cannot run"
+    ),
+    "test_concurrent_transactions_isolation": (
+        "BigQueryTransactionManager has no begin(), so concurrent worker transactions cannot run"
+    ),
+    # The emulator returns a JSON column as a JSON string, not a decoded dict.
+    "test_json_payload_roundtrip": (
+        "the BigQuery emulator returns JSON columns as strings, not decoded objects"
+    ),
 }
 
 
