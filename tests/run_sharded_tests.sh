@@ -26,26 +26,18 @@ cd "$ROOT_DIR"
 UNIT_LIST="$(python - <<'PY'
 import pathlib
 
-# CI scope: only these roots run; other feature trees are deferred.
-scoped_roots = [
-    pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/backend"),
-    pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/basic"),
-    pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/query"),
-    pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/cte"),
-    pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/setop"),
-    pathlib.Path("tests/rhosocial/activerecord_bigquery_test/feature/query_integration"),
-]
+root = pathlib.Path("tests")
 units = []
-for _root in scoped_roots:
-  if not _root.is_dir():
-    continue
-  for path in sorted(_root.rglob("*")):
-    if not any(part.startswith((".", "_")) or part == "__pycache__" for part in path.parts):
-      if not any(path.glob("test_*.py")):
+for path in sorted(root.rglob("*")):
+    if not path.is_dir():
         continue
-      if not any(child.parent != path for child in path.rglob("test_*.py")):
-        units.append(str(path))
-
+    if any(part.startswith((".", "_")) or part == "__pycache__" for part in path.parts):
+        continue
+    if not any(path.glob("test_*.py")):
+        continue
+    if any(child.parent != path for child in path.rglob("test_*.py")):
+        continue
+    units.append(str(path))
 print("\n".join(units))
 PY
 )"
