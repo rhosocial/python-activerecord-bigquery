@@ -69,6 +69,15 @@ _UNENFORCEABLE_SUITE_CONTRACTS = {
     ),
 }
 
+# Whole modules whose contract assumes the standard TransactionManager
+# internals (transaction_level / is_active / _owner_task) that
+# AsyncBigQueryTransactionManager does not expose. Skip by nodeid filename.
+_UNENFORCEABLE_MODULES = {
+    "basic/transaction/test_async_owner_task.py": (
+        "AsyncBigQueryTransactionManager has no transaction_level/is_active/_owner_task"
+    ),
+}
+
 
 def pytest_collection_modifyitems(config, items):
     """Skip suite contracts the BigQuery dialect cannot express."""
@@ -80,6 +89,11 @@ def pytest_collection_modifyitems(config, items):
             for pattern, pat_reason in _UNENFORCEABLE_SUITE_CONTRACTS.items():
                 if pattern in base:
                     reason = pat_reason
+                    break
+        if not reason:
+            for module, mod_reason in _UNENFORCEABLE_MODULES.items():
+                if module in item.nodeid.replace("\\", "/"):
+                    reason = mod_reason
                     break
         if reason:
             item.add_marker(pytest.mark.skip(reason=reason))
