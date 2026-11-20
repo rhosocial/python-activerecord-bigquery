@@ -67,6 +67,14 @@ _UNENFORCEABLE_SUITE_CONTRACTS = {
     "test_json_payload_roundtrip": (
         "the BigQuery emulator returns JSON columns as strings, not decoded objects"
     ),
+    # BigQuery LIKE treats ``_`` differently from SQLite's wildcard semantics
+    # that these error-handling contracts assert against.
+    "test_like_wildcard_underscore": (
+        "BigQuery LIKE does not treat '_' as the single-character wildcard these contracts assume"
+    ),
+    "test_like_no_auto_escape": (
+        "BigQuery LIKE wildcard escaping differs from the SQLite semantics this contract assumes"
+    ),
 }
 
 # Whole modules whose contract assumes the standard TransactionManager
