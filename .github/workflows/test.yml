@@ -34,7 +34,7 @@ jobs:
       fail-fast: false
       # The emulator is CPU/disk heavy; too many concurrent matrix jobs make
       # per-file shard tests trip their timeouts on shared runner resources.
-      max-parallel: 3
+      max-parallel: 2
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13', '3.14', '3.15']
 
@@ -64,9 +64,10 @@ jobs:
           PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
-          # Matrix jobs share runner resources; give each test/shard headroom so
-          # contention does not trip the per-file watchdogs.
-          FILE_TIMEOUT: 900
+          # Fewer shards + fewer concurrent jobs keep emulator DDL fast: the
+          # error_handling schema fixture rebuilds tables for every test.
+          SHARDS: 2
+          FILE_TIMEOUT: 1200
           TEST_TIMEOUT: 300
         timeout-minutes: 45
 
@@ -101,9 +102,10 @@ jobs:
           PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
-          # Matrix jobs share runner resources; give each test/shard headroom so
-          # contention does not trip the per-file watchdogs.
-          FILE_TIMEOUT: 900
+          # Fewer shards + fewer concurrent jobs keep emulator DDL fast: the
+          # error_handling schema fixture rebuilds tables for every test.
+          SHARDS: 2
+          FILE_TIMEOUT: 1200
           TEST_TIMEOUT: 300
         timeout-minutes: 45
 
