@@ -142,7 +142,7 @@ package** installed alongside the core `rhosocial-activerecord` library.
 > `RETURNING`, no backend-level connection pooling, and a few DDL limits; see the
 > documentation for the current contract.
 
-## Contributing, License, Links
+## Documentation
 
 ### Contributing
 
