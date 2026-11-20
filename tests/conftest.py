@@ -76,6 +76,12 @@ _UNENFORCEABLE_MODULES = {
     "basic/transaction/test_async_owner_task.py": (
         "AsyncBigQueryTransactionManager has no transaction_level/is_active/_owner_task"
     ),
+    "basic/transaction/test_savepoint_api.py": (
+        "BigQueryTransactionManager has no begin()/is_active(), so savepoints cannot run"
+    ),
+    "basic/transaction/test_savepoint_api_async.py": (
+        "AsyncBigQueryTransactionManager has no begin()/is_active(), so savepoints cannot run"
+    ),
 }
 
 
