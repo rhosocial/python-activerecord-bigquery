@@ -103,7 +103,14 @@ def _install_fake_google(monkeypatch):
         def __init__(self, *args, **kwargs):
             self.init_kwargs = kwargs
 
+    class _FakeQueryJobConfig:
+        def __init__(self, **kwargs):
+            self.init_kwargs = kwargs
+
     bigquery.Client = _FakeBigQueryClient
+    # ``connect()`` binds the configured dataset through the default query
+    # job configuration, because ``Client`` no longer takes ``default_dataset``.
+    bigquery.QueryJobConfig = _FakeQueryJobConfig
     cloud.bigquery = bigquery
     google.cloud = cloud
     credentials.AnonymousCredentials = object

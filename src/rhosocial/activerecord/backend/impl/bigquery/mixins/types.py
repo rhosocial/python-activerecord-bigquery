@@ -52,7 +52,7 @@ class BigQueryTypeSupportMixin:
     integer, ``STRING`` is character data, ``NUMERIC`` is exact fixed-point,
     ``BOOL`` is a boolean, ``BYTES`` is a byte string, ``JSON`` is JSON. So the
     backend declares formatters for the core concepts and substitutes the rest
-    (see :meth:`suggested_data_types`), and a subclass of ``DataType`` would
+    (see :meth:`substitute_data_types`), and a subclass of ``DataType`` would
     only add a second name for a type that already has one.
 
     The three BigQuery types with no core concept — ``GEOGRAPHY``,
@@ -63,7 +63,7 @@ class BigQueryTypeSupportMixin:
 
     Every concept is *declared* one way or the other: rendered (a
     ``format_data_type_<name>`` / ``supports_data_type_<name>`` pair) or
-    substituted (an entry in ``suggested_data_types()``). Silence is the one
+    substituted (an entry in ``substitute_data_types()``). Silence is the one
     answer that is not allowed — it leaves a caller who asked told only that
     the type is unsupported.
 
@@ -101,10 +101,11 @@ class BigQueryTypeSupportMixin:
     * ``unsigned`` on the four integer concepts — see
       :meth:`_refuse_unsigned_integer`;
     * ``precision`` on ``FloatType`` — see :meth:`_refuse_float_precision`;
-    * ``precision`` on the five date/time concepts — see
-      :meth:`_refuse_temporal_precision`, whose docstring says why ``DATETIME``,
-      ``TIME`` and ``TIMESTAMP`` reach the same answer by three different
-      documented routes;
+    * ``precision`` on ``DateTimeType``, ``TimeType`` and ``TimeTzType`` — see
+      :meth:`_refuse_temporal_precision`.  ``TimestampType`` and
+      ``TimestampTzType`` are not in this group: BigQuery's ``TIMESTAMP`` keeps
+      microseconds as its own storage resolution, so a declared precision is
+      accepted and ignored there rather than refused;
     * ``scale`` on ``DecimalType`` when no ``precision`` accompanies it — see
       :meth:`format_data_type_decimal`.
 
@@ -187,7 +188,7 @@ class BigQueryTypeSupportMixin:
           datetime_part`` is the *operand* of date arithmetic, an ``INT64``
           count of one unit, and ``INTERVAL`` is a duration type rather than a
           column type on this backend at all (see
-          :meth:`suggested_data_types`).
+          :meth:`substitute_data_types`).
 
         The signed range does cover every width's unsigned range, so nothing is
         lost by dropping the *concept* on this backend; what would be lost is
@@ -946,24 +947,25 @@ class BigQueryTypeSupportMixin:
 
     def _refuse_temporal_precision(
         self,
-        data_type: "DateTimeType | TimeType | TimeTzType | TimestampType | TimestampTzType",
+        data_type: "DateTimeType | TimeType | TimeTzType",
         concept_word: str,
         bq_word: str,
     ) -> None:
-        """Refuse a fractional-seconds ``precision`` on any of the five temporal
-        concepts, because none of BigQuery's three temporal types is
+        """Refuse a fractional-seconds ``precision`` on the zone-less date/time
+        concepts, because none of the BigQuery types they render is
         parameterised.
 
-        All five carry ``precision`` in ``PARAMETERS``, so two declarations
-        differing only in it are different columns and the differ reports them
-        as such.  The formatters used to render the bare word in every case, so
-        the differ reported a change that produced byte-identical DDL — and, worse,
-        the caller had asked for a column that rounds to a different number of
-        fractional digits and had been handed one that does not.
+        All temporal concepts carry ``precision`` in ``PARAMETERS``, so two
+        declarations differing only in it are different columns and the differ
+        reports them as such.  The formatters used to render the bare word in
+        every case, so the differ reported a change that produced byte-identical
+        DDL — and, worse, the caller had asked for a column that rounds to a
+        different number of fractional digits and had been handed one that does
+        not.
 
-        The five were established separately rather than by analogy, because they
-        are not the same case — and the first two must not be assumed uniform
-        either, which is what the third one is here to show:
+        The concepts are established separately rather than by analogy, because
+        they are not the same case — and the first two must not be assumed
+        uniform either, which is what the third one here shows:
 
         * ``DATETIME`` — documented "0001-01-01 00:00:00 to 9999-12-31
           23:59:59.999999", "It includes the year, month, day, hour, minute,
@@ -975,19 +977,20 @@ class BigQueryTypeSupportMixin:
           bound is what the *value* may carry; a ``TIME(3)`` column that rounds
           every reading to milliseconds is a different type, and BigQuery does not
           have one.
-        * ``TIMESTAMP`` — this is the one that *looks* different, and it is worth
-          spelling out, because it is the reason the other two must not be
+        * ``TIMESTAMP`` — deliberately *not* refused here, and it is worth
+          spelling out why, because it is the reason the other two must not be
           assumed uniform either.  ``TIMESTAMP`` is documented "with microsecond
-          precision", and it *has* an internal microsecond resolution.  But that
-          is the resolution of the stored value, not a parameter of the type: the
-          same page says a timestamp "is typically represented internally as the
-          number of elapsed microseconds since a fixed initial point in time",
-          which is a statement about how the instant is *kept*, and it is exactly
-          why ``TIMESTAMP`` is absent from the parameterised list rather than
-          present in it.  Where the reference does accept a microsecond count it
-          is as a *date-arithmetic operand* — ``TIMESTAMP_ADD(ts, INTERVAL n
-          MICROSECOND)``, ``TIMESTAMP_MICROS(ts)`` — never as a column
-          declaration.
+          precision", and it *has* an internal microsecond resolution: the same
+          page says a timestamp "is typically represented internally as the
+          number of elapsed microseconds since a fixed initial point in time".
+          So a request for microsecond resolution (``precision=6``) is satisfiable
+          by the storage as it stands, and refusing it would refuse the one type
+          on this backend that already answers the request.  There is still no
+          ``TIMESTAMP(P)`` in the grammar, so :meth:`format_data_type_timestamp`
+          accepts the field and does not render it.  Where the reference does
+          accept a microsecond count it is as a *date-arithmetic operand* —
+          ``TIMESTAMP_ADD(ts, INTERVAL n MICROSECOND)``, ``TIMESTAMP_MICROS(ts)``
+          — never as a column declaration.
 
         The common evidence is the parameterised list itself, and it is a closed
         one: "You can use parameters to specify constraints for the following data
@@ -1013,13 +1016,13 @@ class BigQueryTypeSupportMixin:
         https://cloud.google.com/bigquery/docs/release-notes
 
         ``concept_word`` is the concept the caller asked for and ``bq_word`` the
-        BigQuery type it renders as; they differ for the two zoned concepts
-        (``TIME WITH TIME ZONE`` and ``TIMESTAMP WITH TIME ZONE`` both render as
-        the unzoned BigQuery type), and naming both is what lets the message say
-        which declaration was refused rather than only which one would have been
-        written.  The suggestion names the *class* instead, read off the instance,
-        because "declare TimeTzType with no precision" is something a caller can
-        act on and "declare TIME WITH TIME ZONE with no precision" is not.
+        BigQuery type it renders as; they differ for the zoned time-of-day
+        concept (``TIME WITH TIME ZONE`` renders as the unzoned BigQuery type),
+        and naming both is what lets the message say which declaration was
+        refused rather than only which one would have been written.  The
+        suggestion names the *class* instead, read off the instance, because
+        "declare TimeTzType with no precision" is something a caller can act on
+        and "declare TIME WITH TIME ZONE with no precision" is not.
         """
         if data_type.precision is None:
             return
@@ -1103,19 +1106,26 @@ class BigQueryTypeSupportMixin:
         return True
 
     def format_data_type_timestamp(self, data_type: TimestampType) -> Tuple[str, tuple]:
-        """``TIMESTAMP`` — rendered ``TIMESTAMP``.
+        """``TIMESTAMP`` — rendered ``TIMESTAMP``; a declared precision is ignored.
 
         BigQuery has no zone-less timestamp type to distinguish it from: its
         ``TIMESTAMP`` is an absolute instant normalised to UTC, so the concept
         renders as written.
 
-        ``TIMESTAMP`` does have microsecond precision, which is why it is worth
-        saying explicitly that having a precision is not the same as having a
-        *parameter*: the microsecond is the resolution the value is stored at, so
-        a declared ``precision`` still stops the render.  See
+        A declared fractional-seconds ``precision`` is accepted here rather than
+        refused.  ``TIMESTAMP`` keeps microseconds as its own storage resolution
+        — BigQuery documents the range as "0001-01-01 00:00:00 to 9999-12-31
+        23:59:59.999999 UTC" and says a timestamp "is typically represented
+        internally as the number of elapsed microseconds since a fixed initial
+        point in time" — so a request for microsecond resolution (the
+        ``precision=6`` the shared fixture asks for when the dialect reports
+        ``supports_microsecond_timestamp()``) names the storage this column
+        already has.  There is still no ``TIMESTAMP(P)`` in the grammar, so the
+        parameter is never rendered; the point is that the field is satisfiable
+        rather than refused.  The refusal stays on ``DATETIME``/``TIME`` — see
         :meth:`_refuse_temporal_precision`.
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types
         """
-        self._refuse_temporal_precision(data_type, "TIMESTAMP", "TIMESTAMP")
         return "TIMESTAMP", ()
 
     def supports_data_type_timestamptz(self) -> bool:
@@ -1130,12 +1140,11 @@ class BigQueryTypeSupportMixin:
         round trip; the original offset does not, because BigQuery does not
         record one.
 
-        A declared ``precision`` is refused on the same grounds as
-        :meth:`format_data_type_timestamp` — one BigQuery type, one storage
-        resolution, no parameter; see :meth:`_refuse_temporal_precision`.
+        A declared ``precision`` is accepted and ignored on the same grounds as
+        :meth:`format_data_type_timestamp`: this concept renders as the same
+        microsecond-resolution ``TIMESTAMP``, whose storage already is the
+        requested resolution.  No ``TIMESTAMP(P)`` is emitted.
         """
-        self._refuse_temporal_precision(
-            data_type, "TIMESTAMP WITH TIME ZONE", "TIMESTAMP")
         return "TIMESTAMP", ()
 
     # ------------------------------------------------------------------
@@ -1154,7 +1163,7 @@ class BigQueryTypeSupportMixin:
         are accepted and normalised.
 
         The fixed- and variable-length byte-string concepts do **not** render
-        here at all — see :meth:`suggested_data_types` for why ``BYTES``'s
+        here at all — see :meth:`substitute_data_types` for why ``BYTES``'s
         declared length is a maximum rather than a width.
         """
         self.check_spelling(data_type, BlobType)
@@ -1269,7 +1278,7 @@ class BigQueryTypeSupportMixin:
     # Core types BigQuery stores some other way
     # ------------------------------------------------------------------
 
-    def suggested_data_types(self) -> Dict[str, type]:
+    def substitute_data_types(self) -> Dict[str, type]:
         """Core types BigQuery stores some other way.
 
         BigQuery's type list is closed, documented and short, so most core

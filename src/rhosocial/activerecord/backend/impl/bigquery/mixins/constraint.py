@@ -1388,20 +1388,40 @@ class BigQueryConstraintMixin:
         return super().format_column_constraint(constraint)
 
     def format_table_constraint(self, expr: "TableConstraint") -> "Tuple[str, tuple]":
-        """Render a table constraint, refusing the kinds BigQuery has no production for.
+        """Render a table constraint, narrowing to the kinds BigQuery can spell.
 
         ``constraint_definition`` admits a bare primary key and a (possibly
         named) foreign key; ``CHECK`` and ``UNIQUE`` cannot be written at this
         level at all.  Core dispatches by branch and consults no per-kind
-        probe here, so the refusal is this dialect's own -- and it happens
-        before the ``CONSTRAINT <name>`` prefix, so a caller is told the kind
-        is unavailable rather than handed a named constraint the server would
-        reject.
+        probe here, so the narrowing is this dialect's own -- and it happens
+        before the ``CONSTRAINT <name>`` prefix.
+
+        **``UNIQUE`` is dropped, not refused.**  BigQuery's parser has no
+        ``UNIQUE`` production and the service enforces neither unique nor
+        primary keys, so there is no spelling that could carry the assertion.
+        A generic schema declaration (the shared testsuite's ``order_items``
+        table is one) states a unique triple as part of its portable shape;
+        refusing it would make the *whole* ``CREATE TABLE`` unavailable for a
+        clause BigQuery could not honour even if it were written.  The empty
+        fragment is how the core ``CREATE TABLE`` renderer is told to omit one
+        constraint: it appends only non-empty fragments.  The trade-off is
+        explicit -- a caller that relies on uniqueness for correctness is
+        relying on behaviour this backend does not provide.
+
+        Every other kind keeps the fail-closed path: ``CHECK`` is refused by
+        name, and an enforcement trait the grammar cannot spell is refused by
+        :meth:`_require_bigquery_enforcement`.
 
         Raises:
-            UnsupportedFeatureError: A table-level ``CHECK`` or ``UNIQUE``, or
-                an enforcement-trait request the grammar cannot spell.
+            UnsupportedFeatureError: A table-level ``CHECK``, or an
+                enforcement-trait request the grammar cannot spell.
         """
+        from rhosocial.activerecord.backend.expression.statements import (
+            TableUniqueConstraint,
+        )
+
+        if isinstance(expr.branch, TableUniqueConstraint):
+            return "", ()
         self._require_bigquery_table_kind(expr)
         self._require_bigquery_enforcement(expr)
         return super().format_table_constraint(expr)

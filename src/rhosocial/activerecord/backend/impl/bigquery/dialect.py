@@ -1,5 +1,5 @@
 """BigQuery SQL dialect implementation."""
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from rhosocial.activerecord.backend.dialect.base import SQLDialectBase
 from rhosocial.activerecord.backend.dialect.protocols import (
@@ -67,6 +67,10 @@ from .mixins import (
     BigQueryJSONMixin, BigQueryGeographyMixin,
     # New mixins from dialect.py split
     BigQueryTypeSupportMixin,
+    # Suggested data types: the DDL half of the same answer, ahead of
+    # BigQueryTypeSupportMixin and the core DataTypeMixin it composes --
+    # a table placed after the class that withholds it never wins.
+    BigQueryDataTypeSuggestionsMixin,
     BigQueryDQLMixin,
     BigQuerySchemaMixin,
     BigQueryNamespaceMixin,
@@ -114,6 +118,10 @@ class BigQueryDialect(
     # mixin has to precede it too (C3: a subclass precedes its base).
     # New BigQuery-specific mixins (BEFORE SQLDialectBase and generic mixins they override)
     BigQueryCapabilityMixin,
+    # Suggested data types: the DDL half of the type answer, ahead of
+    # BigQueryTypeSupportMixin (whose core DataTypeMixin otherwise withholds
+    # the table) so BigQuery's answers win the lookup.
+    BigQueryDataTypeSuggestionsMixin,
     BigQueryTypeSupportMixin,
     UserDefinedTypeMixin,
     DomainMixin,
@@ -216,9 +224,18 @@ class BigQueryDialect(
     CreateDomainSupport, AlterDomainSupport, DropDomainSupport,
     NamespaceSupport,
 ):
-    def __init__(self, version: Tuple[int, ...] = (3, 0, 0), **kwargs):
+    def __init__(
+        self,
+        version: Tuple[int, ...] = (3, 0, 0),
+        default_dataset: Optional[str] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.version = version
+        # A backend built for one dataset hands that dataset here so relations
+        # named without a schema render qualified; see
+        # ``BigQueryNamespaceMixin.format_qualified_name``.
+        self.default_dataset = default_dataset
 
     def get_parameter_placeholder(self, position: int = 0) -> str:
         """BigQuery Standard SQL uses ``?`` positional bind markers."""

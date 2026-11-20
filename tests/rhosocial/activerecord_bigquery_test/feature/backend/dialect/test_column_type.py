@@ -1,5 +1,5 @@
 # tests/rhosocial/activerecord_bigquery_test/feature/backend/dialect/test_column_type.py
-"""BigQuery's eighteen-entry column-type table.
+"""BigQuery's twenty-four-entry column-type table.
 
 Pure dialect tests -- no server, no emulator. What is asserted here is the
 **declaration**: that the table answers every entry of the protocol's closed
@@ -26,19 +26,34 @@ import inspect
 import uuid
 
 import pytest
+from rhosocial.activerecord.backend.adapters import (
+    BitString,
+    Geometry,
+    MacAddress,
+    Multirange,
+    Range,
+    Vector,
+)
 from rhosocial.activerecord.backend.dialect.mixins import ColumnTypeMixin
 from rhosocial.activerecord.backend.expression import column_types as core_column_types
 from rhosocial.activerecord.backend.expression.column_types import (
     ArrayColumn,
     BinaryColumn,
+    BitStringColumn,
     BooleanColumn,
     ColumnBase,
+    GeometryColumn,
     IntegerColumn,
+    IntervalColumn,
     JSONColumn,
+    MacAddressColumn,
+    MultirangeColumn,
     NumericColumn,
+    RangeColumn,
     StringColumn,
     TimestampColumn,
     UUIDColumn,
+    VectorColumn,
 )
 
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
@@ -75,6 +90,12 @@ COMMON_TYPES = (
     set,
     frozenset,
     enum.Enum,
+    Geometry,
+    Vector,
+    BitString,
+    Range,
+    Multirange,
+    MacAddress,
 )
 
 #: ``{entry: column class}`` as BigQuery states it. Written out in full rather
@@ -91,7 +112,7 @@ BIGQUERY_ANSWERS = [
     (datetime.date, TimestampColumn),
     (datetime.time, TimestampColumn),
     (datetime.datetime, TimestampColumn),
-    (datetime.timedelta, NumericColumn),
+    (datetime.timedelta, IntervalColumn),
     (uuid.UUID, UUIDColumn),
     (dict, JSONColumn),
     (list, ArrayColumn),
@@ -99,6 +120,12 @@ BIGQUERY_ANSWERS = [
     (set, ArrayColumn),
     (frozenset, ArrayColumn),
     (enum.Enum, StringColumn),
+    (Geometry, GeometryColumn),
+    (Vector, VectorColumn),
+    (BitString, BitStringColumn),
+    (Range, RangeColumn),
+    (Multirange, MultirangeColumn),
+    (MacAddress, MacAddressColumn),
 ]
 
 _ENTRY_IDS = [getattr(entry, "__name__", str(entry)) for entry in COMMON_TYPES]
@@ -144,13 +171,13 @@ class TestTableCompleteness:
         """The base class is what supplies ``suggested_extra_column_types``.
 
         ``ColumnTypeMixin`` deliberately declares no common-type table, so the
-        eighteen answers can only come from this backend's own override --
+        twenty-four answers can only come from this backend's own override --
         which the next test then holds to.
         """
         assert issubclass(BigQueryColumnTypeMixin, ColumnTypeMixin)
 
     def test_every_entry_is_answered(self, dialect):
-        """All eighteen, by name -- an omission fails here rather than at lookup."""
+        """All twenty-four, by name -- an omission fails here rather than at lookup."""
         missing = [e for e in COMMON_TYPES if e not in dialect.suggested_column_types()]
         assert missing == []
 
@@ -278,7 +305,7 @@ class TestBaselineCells:
         layer's answer (this backend suggests ``uuid`` -> ``STRING`` there).
         """
         assert resolve(dialect, uuid.UUID) is UUIDColumn
-        assert dialect.suggested_data_types()["uuid"].__name__ == "VarCharType"
+        assert dialect.substitute_data_types()["uuid"].__name__ == "VarCharType"
 
     def test_date_and_time_are_provisional(self, dialect):
         """Core has no ``DateColumn`` / ``TimeColumn`` yet, so one class stands.
@@ -291,17 +318,18 @@ class TestBaselineCells:
         assert table[datetime.date] is TimestampColumn
         assert table[datetime.time] is TimestampColumn
 
-    def test_timedelta_is_numeric_because_intervals_are_function_shaped(self, dialect):
-        """BigQuery expresses a duration as a function operand, not a column.
+    def test_timedelta_names_the_value_not_the_function_shape(self, dialect):
+        """BigQuery expresses a duration as a function operand, but it is still a span.
 
         ``DATE_ADD(date, INTERVAL n DAY)`` puts the unit in the function and
-        the value in an ``INT64`` count, so no column type holds "a span". The
-        standalone ``INTERVAL`` type does exist and is documented, but it is
-        marked **Preview** and core has no ``IntervalColumn`` to aim at either
-        way -- the ``IntervalColumn`` question rides with core.
+        the value in an ``INT64`` count, so no native column type holds "a
+        span" -- but that is storage, not the value's family. The standalone
+        ``INTERVAL`` type also exists and is documented, though marked
+        **Preview**. ``IntervalColumn`` names the value and promises no
+        arithmetic, which is honest under either spelling.
         """
-        assert dialect.suggested_column_types()[datetime.timedelta] is NumericColumn
-        assert dialect.suggested_data_types()["interval"].__name__ == "IntegerType"
+        assert dialect.suggested_column_types()[datetime.timedelta] is IntervalColumn
+        assert dialect.substitute_data_types()["interval"].__name__ == "IntegerType"
 
     def test_enum_is_a_string_because_bigquery_has_no_enum_type(self, dialect):
         """No ``ENUM`` in the documented type list; the value is stored as text.

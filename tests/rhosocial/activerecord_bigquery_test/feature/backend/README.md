@@ -2,13 +2,17 @@
 
 Directory layout follows the cross-backend test taxonomy
 (`.claude/plan/2026-09-03/cross-backend-test-taxonomy.md` §5.9):
-common subjects at the top level, vendor specifics under the subject tree.
+common subjects in `core/`, vendor specifics under the subject tree. A topic
+directory holds test files or subject subdirectories, never both.
 
-## Top level
+## Core
 
 | File | Description |
 |------|-------------|
-| `test_expression_roundtrip_all.py` | Every expression class in core's package and in this backend's, round-tripped through dict/JSON/XML and classified by render outcome. Core's classes are in scope because BigQuery's SQL surface is the narrowest in the family, so which of them it refuses is worth pinning. |
+| `core/test_expression_roundtrip_all.py` | Every expression class in core's package and in this backend's, round-tripped through dict/JSON/XML and classified by render outcome. Core's classes are in scope because BigQuery's SQL surface is the narrowest in the family, so which of them it refuses is worth pinning. |
+
+`expression_roundtrip_harness.py` stays at the topic root: it is shared support
+code, not a test file, and both `core/` and the other subjects may import it.
 
 ## Subject matrix
 

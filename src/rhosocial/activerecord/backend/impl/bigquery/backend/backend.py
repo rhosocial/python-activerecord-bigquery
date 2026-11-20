@@ -18,6 +18,7 @@ from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeature
 from rhosocial.activerecord.backend.introspection.backend_mixin import (
     IntrospectorBackendMixin,
 )
+from rhosocial.activerecord.backend.type_adapter import SQLTypeAdapter
 
 from ..config import BigQueryConnectionConfig
 from ..dialect import BigQueryDialect
@@ -62,6 +63,29 @@ def log_result_summary(
         result.duration or 0.0,
         options,
     )
+
+
+def _default_dataset_reference(config: Any) -> Optional[str]:
+    """Return the client's default dataset as ``project.dataset``, if configured.
+
+    A BigQuery client resolves an unqualified table name only when a default
+    dataset is bound to it.  The shared testsuite (and any caller that names a
+    relation without a dataset) writes ``CREATE TABLE `users` ...``, so the
+    configured ``dataset`` has to become the connection's default rather than
+    being remembered only for introspection.
+
+    ``project`` is included when the configured dataset is a bare name:
+    ``bigquery.Client`` accepts either spelling, while the REST
+    ``jobs.query`` endpoint's ``defaultDataset`` takes a reference object, and
+    both paths should agree on which namespace is meant.
+    """
+    dataset = getattr(config, "dataset", None)
+    if not dataset:
+        return None
+    if "." in dataset:
+        return dataset
+    project = getattr(config, "project", None)
+    return f"{project}.{dataset}" if project else dataset
 
 
 # -- Driver error taxonomy ----------------------------------------------------
@@ -339,27 +363,40 @@ class BigQueryBackend(
             endpoint = getattr(config, 'api_endpoint', None) or None
             use_anonymous = getattr(config, 'use_anonymous_credentials', False)
             client_options = ClientOptions(api_endpoint=endpoint) if endpoint else None
+            default_dataset = _default_dataset_reference(config)
+            # ``Client`` no longer takes a ``default_dataset`` argument; the
+            # dataset rides in the default query job configuration, which the
+            # client merges into every query that does not set one itself.
+            default_job_config = (
+                bigquery.QueryJobConfig(default_dataset=default_dataset)
+                if default_dataset
+                else None
+            )
             if use_anonymous:
                 self._client = bigquery.Client(
                     project=getattr(config, 'project', None) or 'test',
                     credentials=AnonymousCredentials(),
                     client_options=client_options,
+                    default_query_job_config=default_job_config,
                 )
             elif getattr(config, 'credentials_path', None):
                 self._client = bigquery.Client.from_service_account_json(
                     config.credentials_path,
                     client_options=client_options,
+                    default_query_job_config=default_job_config,
                 )
             elif getattr(config, 'credentials_json', None):
                 self._client = bigquery.Client.from_service_account_info(
                     config.credentials_json,
                     client_options=client_options,
+                    default_query_job_config=default_job_config,
                 )
             else:
                 project = getattr(config, 'project', None)
                 self._client = bigquery.Client(
                     project=project,
                     client_options=client_options,
+                    default_query_job_config=default_job_config,
                 )
             self._connected = True
             self.log(logging.DEBUG, "Connected to BigQuery")
@@ -667,7 +704,12 @@ class BigQueryBackend(
 
     @property
     def dialect(self) -> BigQueryDialect:
-        return BigQueryDialect(version=self._version)
+        # Carry the configured dataset so a relation named without a schema is
+        # rendered dataset-qualified (see BigQueryNamespaceMixin).
+        return BigQueryDialect(
+            version=self._version,
+            default_dataset=getattr(self.config, "dataset", None),
+        )
 
     def _create_introspector(self) -> Any:
         """Return the BigQuery introspector with its own executor.
@@ -715,11 +757,22 @@ class BigQueryBackend(
         return serialized
 
     @staticmethod
-    def _rest_cell_to_python(cell: Dict, field_type: str) -> Any:
+    def _rest_cell_to_python(cell: Dict, field_type: str, mode: Optional[str] = None) -> Any:
         value = cell.get("v")
         if value is None:
             return None
         ftype = (field_type or "").upper()
+        if (mode or "").upper() == "REPEATED":
+            # goccy's REST response encodes a repeated field as a list of
+            # ``{"v": element}`` cells; unwrap each element through the same
+            # scalar conversion.  (The client library's own row parser does
+            # this; the raw-REST fast path must do it too, or an ARRAY column
+            # arrives as a list of structs.)
+            return [
+                BigQueryBackend._rest_cell_to_python(item, field_type)
+                if isinstance(item, dict) else item
+                for item in value
+            ]
         if ftype in ("INTEGER", "INT64"):
             return int(value)
         if ftype in ("FLOAT", "FLOAT64"):
@@ -742,7 +795,9 @@ class BigQueryBackend(
             row = {}
             for i, field in enumerate(fields):
                 cell = cells[i] if i < len(cells) else {}
-                row[field.get("name")] = BigQueryBackend._rest_cell_to_python(cell, (field or {}).get("type"))
+                row[field.get("name")] = BigQueryBackend._rest_cell_to_python(
+                    cell, (field or {}).get("type"), (field or {}).get("mode")
+                )
             rows.append(row)
         return rows
 
@@ -767,6 +822,16 @@ class BigQueryBackend(
         project = getattr(self.config, "project", None) or "test"
         url = f"{endpoint}/bigquery/v2/projects/{project}/queries"
         request = {"query": sql, "useLegacySql": False, "timeoutMs": 30000, "maxResults": 10000}
+        # Unqualified relation names (``users``, not ``test_query_basic.users``)
+        # resolve through the request's default dataset, matching what the
+        # client-side default job configuration does on the real endpoint.
+        dataset_name = getattr(self.config, "dataset", None)
+        if dataset_name:
+            project_id = getattr(self.config, "project", None) or project
+            request["defaultDataset"] = {
+                "projectId": project_id,
+                "datasetId": dataset_name,
+            }
         if params:
             # Apply the backend's default type adapters to parameters (the
             # same role ``prepare_parameters`` plays in the DB-API pipeline):
@@ -1049,38 +1114,92 @@ class BigQueryBackend(
         return result
 
     def get_default_adapter_suggestions(self) -> Dict:
-        from decimal import Decimal
+        """Core defaults, completed by the pairs this backend's driver accepts.
+
+        The core table is the base (``super().get_default_adapter_suggestions``);
+        the pairs below are this backend's own answers and replace the core
+        entry for the same Python type.  The neutral families are carried as
+        text here (``STRING``), because the BigQuery client binds a ``str``
+        scalar natively and the emulator's column set has no array/dict
+        transport for them beyond the explicit adapters.
+        """
         from datetime import datetime
-        suggestions = {}
-        # (python type, preferred driver-side types in priority order)
-        # list/dict prefer the JSON string transport: the vast majority of
-        # ActiveRecord models store JSON in plain string/JSON columns, and the
-        # emulator-backed testbed does not exercise native ARRAY<STRUCT>
-        # bindings. Native transports remain available via explicit adapters.
+        from decimal import Decimal
+
+        from rhosocial.activerecord.backend.adapters.bitstring import BitString
+        from rhosocial.activerecord.backend.adapters.geometry import Geometry
+        from rhosocial.activerecord.backend.adapters.network import MacAddress
+        from rhosocial.activerecord.backend.adapters.range import Multirange, Range
+        from rhosocial.activerecord.backend.adapters.vector import Vector
+        from rhosocial.activerecord.backend.base.type_adaption import (
+            TypeAdaptionMixin,
+            merge_adapter_suggestions,
+        )
+
+        # ``AsyncBigQueryBackend`` is a separate hierarchy that reuses this
+        # method unbound, so a zero-argument ``super()`` cannot resolve there;
+        # naming the mixin that defines the core table works for both classes.
+        base = TypeAdaptionMixin.get_default_adapter_suggestions(self)
+
+        # (python type, preferred driver-side type)
+        # list prefers the native ARRAY transport: the client binds a Python list
+        # for ``ARRAY<T>`` columns and returns one, which is the carrier the
+        # shared suite declares where the dialect renders ARRAY.  dict prefers
+        # the JSON string transport, because JSON columns are STRING/JSON and
+        # the emulator-backed testbed does not exercise native STRUCT bindings.
         type_mappings = [
-            (list, [str, list]),   # JSON strings, then ARRAY parameters
-            (dict, [str, dict]),   # JSON strings, then STRUCT parameters
-            (Decimal, [Decimal, str, float, int]),  # BIGNUMERIC
-            (datetime, [str]),     # TIMESTAMP
+            (list, list),
+            (dict, str),
+            (Decimal, Decimal),  # BIGNUMERIC
+            (datetime, str),     # TIMESTAMP
+            # Neutral families: carried as canonical text in STRING columns.
+            (Geometry, str),
+            (Vector, str),
+            (BitString, str),
+            (Range, str),
+            (Multirange, str),
+            (MacAddress, str),
         ]
-        for py_type, db_types in type_mappings:
-            for db_type in db_types:
-                adapter = self.adapter_registry.get_adapter(py_type, db_type)
-                if adapter is not None:
-                    suggestions[py_type] = (adapter, db_type)
-                    break
-        return suggestions
+
+        return merge_adapter_suggestions(base, type_mappings, self.adapter_registry)
+
+    def get_type_adapters(self) -> List["SQLTypeAdapter"]:
+        """Return the adapter instances this backend provides.
+
+        This is a plain inventory: it says which adapters exist for this backend.
+        It carries no suggestion/default/priority semantics; the caller decides.
+
+        Two sources the backend already owns are combined: the adapter registry
+        (every adapter registered for this backend, including ones that carry
+        no default suggestion) and the adapters named by
+        :meth:`get_default_adapter_suggestions`. Instances are deduplicated by
+        class -- ``(module, qualname)`` -- and sorted by that pair, so the order
+        is deterministic and a new list is returned on every call.
+        """
+        adapters = list(self.adapter_registry.get_all_adapters().values())
+        adapters.extend(
+            suggestion[0] for suggestion in self.get_default_adapter_suggestions().values()
+        )
+        unique: Dict[Tuple[str, str], SQLTypeAdapter] = {}
+        for adapter in adapters:
+            adapter_cls = type(adapter)
+            unique.setdefault((adapter_cls.__module__, adapter_cls.__qualname__), adapter)
+        return [unique[key] for key in sorted(unique)]
 
     def _register_bigquery_adapters(self):
         from ..adapters import (
+            BigQueryBitStringAdapter, BigQueryGeometryAdapter,
+            BigQueryMacAddressAdapter, BigQueryRangeAdapter,
             BigQueryStructAdapter, BigQueryArrayAdapter,
             BigQueryJSONAdapter, BigQueryDecimalAdapter,
-            BigQueryTimestampAdapter,
+            BigQueryTimestampAdapter, BigQueryVectorAdapter,
         )
         for adapter in [
+            BigQueryBitStringAdapter(), BigQueryGeometryAdapter(),
+            BigQueryMacAddressAdapter(), BigQueryRangeAdapter(),
             BigQueryStructAdapter(), BigQueryArrayAdapter(),
             BigQueryJSONAdapter(), BigQueryDecimalAdapter(),
-            BigQueryTimestampAdapter(),
+            BigQueryTimestampAdapter(), BigQueryVectorAdapter(),
         ]:
             for py_type, driver_types in adapter.supported_types.items():
                 for driver_type in driver_types:
