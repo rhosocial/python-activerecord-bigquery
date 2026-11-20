@@ -173,6 +173,10 @@ class BigQueryScenario:
         # Imported here so collecting tests never requires the driver.
         from google.cloud.bigquery import Dataset, DatasetReference
 
+        import time
+
+        from google.api_core.exceptions import BadRequest
+
         client = self._client()
         reference = DatasetReference(self.project, database)
         # Remove tables one by one; ``delete_contents=True`` deadlocks on the
@@ -182,7 +186,17 @@ class BigQueryScenario:
                 client.delete_table(table.table_reference, not_found_ok=True)
         except Exception:  # dataset may not exist yet
             pass
-        client.delete_dataset(reference, not_found_ok=True)
+        # The emulator can briefly report "still in use" after a previous
+        # connection closes (it releases dataset handles asynchronously). Retry
+        # a few times with backoff rather than failing the whole shard setup.
+        for attempt in range(20):
+            try:
+                client.delete_dataset(reference, not_found_ok=True)
+                break
+            except BadRequest as exc:
+                if "still in use" not in str(exc) or attempt == 19:
+                    raise
+                time.sleep(1.0)
         dataset = Dataset(reference)
         location = self.server.get("location")
         if location:
