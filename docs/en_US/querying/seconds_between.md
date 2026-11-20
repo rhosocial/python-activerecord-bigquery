@@ -1,4 +1,4 @@
-# docs/en_US/bigquery_specific_features/datetime_expressions.md
+# docs/en_US/querying/seconds_between.md
 
 # BigQuery Temporal Expressions: `seconds_between`
 

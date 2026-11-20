@@ -1,4 +1,4 @@
-# docs/zh_CN/bigquery_specific_features/datetime_expressions.md
+# docs/zh_CN/querying/seconds_between.md
 
 # BigQuery 时间表达式：`seconds_between`
 

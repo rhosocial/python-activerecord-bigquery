@@ -1,4 +1,4 @@
-# docs/en_US/bigquery_specific_features/schema_namespace.md
+# docs/en_US/modeling/schema_namespace.md
 
 # BigQuery Schema Namespaces
 

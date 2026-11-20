@@ -1,4 +1,4 @@
-# docs/zh_CN/bigquery_specific_features/schema_namespace.md
+# docs/zh_CN/modeling/schema_namespace.md
 
 # BigQuery Schema 命名空间
 
