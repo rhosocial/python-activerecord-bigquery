@@ -61,6 +61,10 @@ jobs:
           PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
+          # Matrix jobs share runner resources; give each test/shard headroom so
+          # contention does not trip the per-file watchdogs.
+          FILE_TIMEOUT: 900
+          TEST_TIMEOUT: 300
         timeout-minutes: 45
 
   # Coverage is collected on a single Python version to keep the emulator
@@ -94,6 +98,10 @@ jobs:
           PYTHONPATH: tests
           BIGQUERY_SCENARIOS_CONFIG_PATH: tests/config/bigquery_scenarios.yaml
           BIGQUERY_ACTIVE_SCENARIOS: bigquery_emulator
+          # Matrix jobs share runner resources; give each test/shard headroom so
+          # contention does not trip the per-file watchdogs.
+          FILE_TIMEOUT: 900
+          TEST_TIMEOUT: 300
         timeout-minutes: 45
 
       - name: Upload coverage to Codecov
