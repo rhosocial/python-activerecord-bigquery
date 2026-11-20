@@ -75,6 +75,15 @@ _UNENFORCEABLE_SUITE_CONTRACTS = {
     "test_like_no_auto_escape": (
         "BigQuery LIKE wildcard escaping differs from the SQLite semantics this contract assumes"
     ),
+    # The goccy emulator mis-evaluates aggregate window functions (returns 0
+    # instead of the aggregate); real BigQuery supports them. Skip the two
+    # affected contracts until the emulator implements them correctly.
+    "test_aggregate_window_functions": (
+        "the BigQuery emulator returns 0 for aggregate window functions instead of the aggregate"
+    ),
+    "test_unbounded_window_frames": (
+        "the BigQuery emulator mis-evaluates unbounded aggregate window frames"
+    ),
 }
 
 # Whole modules whose contract assumes the standard TransactionManager
