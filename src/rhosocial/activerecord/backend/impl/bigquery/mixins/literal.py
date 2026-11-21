@@ -89,7 +89,7 @@ class BigQueryLiteralValueMixin:
     literal-construction protocol live.
     """
 
-    def format_literal(self, value: Any) -> str:
+    def format_literal(self, expr: Any) -> str:
         """Render *value* as inline SQL text, BigQuery's spelling where it has one.
 
         Args:
@@ -109,21 +109,21 @@ class BigQueryLiteralValueMixin:
         # ``datetime`` is a ``date`` subclass, so the narrower type has to be
         # tested first: the order of these branches is host-type order, the way
         # ``LiteralKind``'s member order is.
-        if isinstance(value, (bytes, bytearray)):
-            return "b'" + "".join(f"\\x{b:02x}" for b in bytes(value)) + "'"
-        if isinstance(value, uuid.UUID):
-            return super().format_literal(str(value))
-        if isinstance(value, datetime.datetime):
-            return self._datetime_literal(value)
-        if isinstance(value, datetime.date):
-            return f"DATE {super().format_literal(value)}"
-        if isinstance(value, datetime.time):
-            return self._time_literal(value)
-        if isinstance(value, datetime.timedelta):
-            return self._interval_literal(value)
-        if isinstance(value, decimal.Decimal):
-            return self._decimal_literal(value)
-        return super().format_literal(value)
+        if isinstance(expr, (bytes, bytearray)):
+            return "b'" + "".join(f"\\x{b:02x}" for b in bytes(expr)) + "'"
+        if isinstance(expr, uuid.UUID):
+            return super().format_literal(str(expr))
+        if isinstance(expr, datetime.datetime):
+            return self._datetime_literal(expr)
+        if isinstance(expr, datetime.date):
+            return f"DATE {super().format_literal(expr)}"
+        if isinstance(expr, datetime.time):
+            return self._time_literal(expr)
+        if isinstance(expr, datetime.timedelta):
+            return self._interval_literal(expr)
+        if isinstance(expr, decimal.Decimal):
+            return self._decimal_literal(expr)
+        return super().format_literal(expr)
 
     # -- the typed literals ---------------------------------------------------
 

@@ -1366,7 +1366,7 @@ class BigQueryConstraintMixin:
     # helpers are called from these), which is the seam the guide asks for.
     # ------------------------------------------------------------------
 
-    def format_column_constraint(self, constraint: "ColumnConstraint") -> "Tuple[str, tuple]":
+    def format_column_constraint(self, expr: "ColumnConstraint") -> "Tuple[str, tuple]":
         """Render a column constraint, enforcing BigQuery's narrow marker rule.
 
         ``column_schema`` writes ``NOT ENFORCED`` into the two branches it
@@ -1384,8 +1384,8 @@ class BigQueryConstraintMixin:
             UnsupportedFeatureError: ``enforced=True`` (no such token), or the
                 marker on a branch that cannot carry it.
         """
-        self._require_bigquery_enforcement(constraint)
-        return super().format_column_constraint(constraint)
+        self._require_bigquery_enforcement(expr)
+        return super().format_column_constraint(expr)
 
     def format_table_constraint(self, expr: "TableConstraint") -> "Tuple[str, tuple]":
         """Render a table constraint, narrowing to the kinds BigQuery can spell.

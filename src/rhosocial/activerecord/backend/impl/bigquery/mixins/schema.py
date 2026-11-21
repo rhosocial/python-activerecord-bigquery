@@ -61,6 +61,10 @@ class BigQuerySchemaMixin:
         """
         return True
 
+    def supports_schema_authorization(self) -> bool:
+        """BigQuery has no ``CREATE SCHEMA AUTHORIZATION`` clause."""
+        return False
+
     def supports_schema_restrict(self) -> bool:
         """BigQuery supports ``DROP SCHEMA ... RESTRICT``.
 
@@ -92,7 +96,7 @@ class BigQuerySchemaMixin:
                 self.name, "CREATE SCHEMA IF NOT EXISTS",
                 f"{self.name} does not support CREATE SCHEMA IF NOT EXISTS."
             )
-        if expr.authorization:
+        if expr.authorization and not self.supports_schema_authorization():
             raise UnsupportedFeatureError(
                 self.name, "CREATE SCHEMA AUTHORIZATION",
                 f"{self.name} does not support CREATE SCHEMA AUTHORIZATION."

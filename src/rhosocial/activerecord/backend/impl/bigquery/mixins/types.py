@@ -235,7 +235,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_tinyint(self) -> bool:
         return True
 
-    def format_data_type_tinyint(self, data_type: TinyIntType) -> Tuple[str, tuple]:
+    def format_data_type_tinyint(self, expr: TinyIntType) -> Tuple[str, tuple]:
         """``TINYINT`` / ``INT1`` — the 1-byte integer concept, rendered ``INT64``.
 
         BigQuery has exactly one integer type: ``INT64``, a signed 64-bit value
@@ -256,14 +256,14 @@ class BigQueryTypeSupportMixin:
         :meth:`_refuse_unsigned_integer`, which is also where the reason for
         the refusal is written down.
         """
-        self.check_spelling(data_type, TinyIntType)
-        self._refuse_unsigned_integer(data_type, "TINYINT")
+        self.check_spelling(expr, TinyIntType)
+        self._refuse_unsigned_integer(expr, "TINYINT")
         return "INT64", ()
 
     def supports_data_type_smallint(self) -> bool:
         return True
 
-    def format_data_type_smallint(self, data_type: SmallIntType) -> Tuple[str, tuple]:
+    def format_data_type_smallint(self, expr: SmallIntType) -> Tuple[str, tuple]:
         """``SMALLINT`` / ``INT2`` — the 2-byte integer concept, rendered ``INT64``.
 
         Widened for the reason given in :meth:`format_data_type_tinyint`: one
@@ -273,14 +273,14 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self.check_spelling(data_type, SmallIntType)
-        self._refuse_unsigned_integer(data_type, "SMALLINT")
+        self.check_spelling(expr, SmallIntType)
+        self._refuse_unsigned_integer(expr, "SMALLINT")
         return "INT64", ()
 
     def supports_data_type_integer(self) -> bool:
         return True
 
-    def format_data_type_integer(self, data_type: IntegerType) -> Tuple[str, tuple]:
+    def format_data_type_integer(self, expr: IntegerType) -> Tuple[str, tuple]:
         """``INTEGER`` / ``INT`` — rendered ``INT64``.
 
         ``INT`` is SQL's own shorthand for ``INTEGER``, so both spellings are
@@ -290,14 +290,14 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self.check_spelling(data_type, IntegerType)
-        self._refuse_unsigned_integer(data_type, "INT")
+        self.check_spelling(expr, IntegerType)
+        self._refuse_unsigned_integer(expr, "INT")
         return "INT64", ()
 
     def supports_data_type_bigint(self) -> bool:
         return True
 
-    def format_data_type_bigint(self, data_type: BigIntType) -> Tuple[str, tuple]:
+    def format_data_type_bigint(self, expr: BigIntType) -> Tuple[str, tuple]:
         """``BIGINT`` / ``INT8`` — rendered ``INT64``.
 
         The only integer width BigQuery names, so this one is a rename rather
@@ -308,8 +308,8 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self.check_spelling(data_type, BigIntType)
-        self._refuse_unsigned_integer(data_type, "BIGINT")
+        self.check_spelling(expr, BigIntType)
+        self._refuse_unsigned_integer(expr, "BIGINT")
         return "INT64", ()
 
     # ------------------------------------------------------------------
@@ -319,7 +319,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_real(self) -> bool:
         return True
 
-    def format_data_type_real(self, data_type: RealType) -> Tuple[str, tuple]:
+    def format_data_type_real(self, expr: RealType) -> Tuple[str, tuple]:
         """``REAL`` — the 4-byte IEEE 754 binary32 concept, rendered ``FLOAT64``.
 
         BigQuery has one floating-point type, ``FLOAT64``, which is 8-byte
@@ -356,7 +356,7 @@ class BigQueryTypeSupportMixin:
         on, so the citations here are BigQuery's documentation and not a
         measurement.
         """
-        self._refuse_unsigned_numeric(data_type, "REAL")
+        self._refuse_unsigned_numeric(expr, "REAL")
         return "FLOAT64", ()
 
     def _refuse_unsigned_numeric(self, data_type, concept_word: str) -> None:
@@ -537,7 +537,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_float(self) -> bool:
         return True
 
-    def format_data_type_float(self, data_type: FloatType) -> Tuple[str, tuple]:
+    def format_data_type_float(self, expr: FloatType) -> Tuple[str, tuple]:
         """``FLOAT(p)`` — a binary precision — rendered ``FLOAT64``.
 
         SQL's ``FLOAT(p)`` names a *precision*, and BigQuery has no
@@ -560,14 +560,14 @@ class BigQueryTypeSupportMixin:
         the order the fields are declared in ``PARAMETERS``, so the precision one
         fires first for a request that set both.
         """
-        self._refuse_float_precision(data_type)
-        self._refuse_unsigned_numeric(data_type, "FLOAT")
+        self._refuse_float_precision(expr)
+        self._refuse_unsigned_numeric(expr, "FLOAT")
         return "FLOAT64", ()
 
     def supports_data_type_double(self) -> bool:
         return True
 
-    def format_data_type_double(self, data_type: DoubleType) -> Tuple[str, tuple]:
+    def format_data_type_double(self, expr: DoubleType) -> Tuple[str, tuple]:
         """``DOUBLE`` / ``DOUBLE PRECISION`` — rendered ``FLOAT64``.
 
         ``FLOAT64`` *is* this concept: 8-byte IEEE 754 binary64, under
@@ -580,8 +580,8 @@ class BigQueryTypeSupportMixin:
         about zero and whose field layout has a signed exponent, so there is no
         unsigned double-precision column for the request to have become.
         """
-        self.check_spelling(data_type, DoubleType)
-        self._refuse_unsigned_numeric(data_type, "DOUBLE PRECISION")
+        self.check_spelling(expr, DoubleType)
+        self._refuse_unsigned_numeric(expr, "DOUBLE PRECISION")
         return "FLOAT64", ()
 
     # ------------------------------------------------------------------
@@ -689,7 +689,7 @@ class BigQueryTypeSupportMixin:
             f"scale {highest_scale})"
         )
 
-    def format_data_type_decimal(self, data_type: DecimalType) -> Tuple[str, tuple]:
+    def format_data_type_decimal(self, expr: DecimalType) -> Tuple[str, tuple]:
         """``DECIMAL`` / ``NUMERIC`` / ``DEC`` — rendered ``NUMERIC``.
 
         BigQuery's exact fixed-point type, and it takes the same
@@ -745,15 +745,15 @@ class BigQueryTypeSupportMixin:
         a symmetric signed value range, and ``column_schema`` has no
         type-modifier position, so there is no ``NUMERIC UNSIGNED`` to write.
         """
-        self._refuse_unsigned_numeric(data_type, "DECIMAL")
-        self.check_spelling(data_type, DecimalType)
-        self._check_numeric_parameters(data_type)
-        if data_type.scale is not None and data_type.precision is None:
+        self._refuse_unsigned_numeric(expr, "DECIMAL")
+        self.check_spelling(expr, DecimalType)
+        self._check_numeric_parameters(expr)
+        if expr.scale is not None and expr.precision is None:
             ranges = (
                 "BigQuery requires 0 <= S <= 9 and max(1, S) <= P <= S + 29, so "
                 "a bare scale has to be attached to a precision"
             )
-            if data_type.scale == 9:
+            if expr.scale == 9:
                 # Bare NUMERIC *is* precision 38 with scale 9, so this one bare
                 # scale has an exact answer and it is the bare declaration.
                 opening = (
@@ -764,7 +764,7 @@ class BigQueryTypeSupportMixin:
                 opening = f"Name the precision too: {ranges}"
             raise UnsupportedFeatureError(
                 self.name,
-                f"a NUMERIC(P,S) column declared with scale={data_type.scale} "
+                f"a NUMERIC(P,S) column declared with scale={expr.scale} "
                 f"and no precision (BigQuery's parameter list puts the scale "
                 f"second: NUMERIC(P[,S]), documented as a maximum precision of "
                 f"P and a maximum scale of S where 'S is interpreted to be 0 if "
@@ -778,9 +778,9 @@ class BigQueryTypeSupportMixin:
                     f"to go"
                 ),
             )
-        if data_type.precision is not None:
-            scale = data_type.scale or 0
-            return f"NUMERIC({data_type.precision}, {scale})", ()
+        if expr.precision is not None:
+            scale = expr.scale or 0
+            return f"NUMERIC({expr.precision}, {scale})", ()
         return "NUMERIC", ()
 
     # ------------------------------------------------------------------
@@ -790,7 +790,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_boolean(self) -> bool:
         return True
 
-    def format_data_type_boolean(self, data_type: BooleanType) -> Tuple[str, tuple]:
+    def format_data_type_boolean(self, expr: BooleanType) -> Tuple[str, tuple]:
         """``BOOLEAN`` / ``BOOL`` — rendered ``BOOL``.
 
         ``BOOL`` is BigQuery's own (and SQLite's) spelling of the SQL standard's
@@ -798,7 +798,7 @@ class BigQueryTypeSupportMixin:
         spellings are accepted and normalised, since the concept is the same
         two-valued column either way.
         """
-        self.check_spelling(data_type, BooleanType)
+        self.check_spelling(expr, BooleanType)
         return "BOOL", ()
 
     # ------------------------------------------------------------------
@@ -872,7 +872,7 @@ class BigQueryTypeSupportMixin:
                 f"hand back a column other than the one declared)"
             )
 
-    def format_data_type_char(self, data_type: CharType) -> Tuple[str, tuple]:
+    def format_data_type_char(self, expr: CharType) -> Tuple[str, tuple]:
         """``CHAR`` / ``CHARACTER`` — rendered ``STRING``.
 
         BigQuery has one character type, ``STRING``: variable-length UTF-8 up
@@ -888,8 +888,8 @@ class BigQueryTypeSupportMixin:
         A declared length is range-checked against the one bound the reference
         states; see :meth:`_check_string_length`.
         """
-        self.check_spelling(data_type, CharType)
-        length = data_type.length
+        self.check_spelling(expr, CharType)
+        length = expr.length
         self._check_string_length(length)
         # ``is not None`` rather than a truthiness test: a length of 0 is an
         # out-of-range value, not an absent one, and it is refused above instead
@@ -899,7 +899,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_varchar(self) -> bool:
         return True
 
-    def format_data_type_varchar(self, data_type: VarCharType) -> Tuple[str, tuple]:
+    def format_data_type_varchar(self, expr: VarCharType) -> Tuple[str, tuple]:
         """``VARCHAR`` / ``CHARACTER VARYING`` — rendered ``STRING``.
 
         Same substitution as :meth:`format_data_type_char`, and here it is not
@@ -907,15 +907,15 @@ class BigQueryTypeSupportMixin:
         ``STRING(length)`` is. Both spellings render identically, and a declared
         length is range-checked the same way; see :meth:`_check_string_length`.
         """
-        self.check_spelling(data_type, VarCharType)
-        length = data_type.length
+        self.check_spelling(expr, VarCharType)
+        length = expr.length
         self._check_string_length(length)
         return (f"STRING({length})", ()) if length is not None else ("STRING", ())
 
     def supports_data_type_text(self) -> bool:
         return True
 
-    def format_data_type_text(self, data_type: TextType) -> Tuple[str, tuple]:
+    def format_data_type_text(self, expr: TextType) -> Tuple[str, tuple]:
         """``TEXT`` / ``CLOB`` — rendered ``STRING``.
 
         Unbounded character data, which is what ``STRING`` is. BigQuery has no
@@ -924,7 +924,7 @@ class BigQueryTypeSupportMixin:
         would refuse a spelling of a type BigQuery does have, which tells the
         caller less than the widened column does.
         """
-        self.check_spelling(data_type, TextType)
+        self.check_spelling(expr, TextType)
         return "STRING", ()
 
     # ------------------------------------------------------------------
@@ -1048,26 +1048,26 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_date(self) -> bool:
         return True
 
-    def format_data_type_date(self, data_type: DateType) -> Tuple[str, tuple]:
+    def format_data_type_date(self, expr: DateType) -> Tuple[str, tuple]:
         """``DATE`` — a calendar date with no time and no zone."""
         return "DATE", ()
 
     def supports_data_type_time(self) -> bool:
         return True
 
-    def format_data_type_time(self, data_type: TimeType) -> Tuple[str, tuple]:
+    def format_data_type_time(self, expr: TimeType) -> Tuple[str, tuple]:
         """``TIME`` — a time of day with no date and no zone.
 
         A declared fractional-seconds ``precision`` is refused rather than
         ignored; see :meth:`_refuse_temporal_precision`.
         """
-        self._refuse_temporal_precision(data_type, "TIME", "TIME")
+        self._refuse_temporal_precision(expr, "TIME", "TIME")
         return "TIME", ()
 
     def supports_data_type_timetz(self) -> bool:
         return True
 
-    def format_data_type_timetz(self, data_type: TimeTzType) -> Tuple[str, tuple]:
+    def format_data_type_timetz(self, expr: TimeTzType) -> Tuple[str, tuple]:
         """``TIME WITH TIME ZONE`` — rendered ``TIME``.
 
         BigQuery has one time-of-day type and it carries no zone: ``TIME`` is
@@ -1084,13 +1084,13 @@ class BigQueryTypeSupportMixin:
         the render, because ``TIME`` is the very type with no parameter to put it
         in.  See :meth:`_refuse_temporal_precision`.
         """
-        self._refuse_temporal_precision(data_type, "TIME WITH TIME ZONE", "TIME")
+        self._refuse_temporal_precision(expr, "TIME WITH TIME ZONE", "TIME")
         return "TIME", ()
 
     def supports_data_type_datetime(self) -> bool:
         return True
 
-    def format_data_type_datetime(self, data_type: DateTimeType) -> Tuple[str, tuple]:
+    def format_data_type_datetime(self, expr: DateTimeType) -> Tuple[str, tuple]:
         """``DATETIME`` — a date and time with no zone and no offset.
 
         BigQuery has a ``DATETIME`` type with exactly these semantics, so this
@@ -1099,13 +1099,13 @@ class BigQueryTypeSupportMixin:
         storing up to six fractional digits and takes no parameter, so that field
         is refused rather than ignored; see :meth:`_refuse_temporal_precision`.
         """
-        self._refuse_temporal_precision(data_type, "DATETIME", "DATETIME")
+        self._refuse_temporal_precision(expr, "DATETIME", "DATETIME")
         return "DATETIME", ()
 
     def supports_data_type_timestamp(self) -> bool:
         return True
 
-    def format_data_type_timestamp(self, data_type: TimestampType) -> Tuple[str, tuple]:
+    def format_data_type_timestamp(self, expr: TimestampType) -> Tuple[str, tuple]:
         """``TIMESTAMP`` — rendered ``TIMESTAMP``; a declared precision is ignored.
 
         BigQuery has no zone-less timestamp type to distinguish it from: its
@@ -1131,7 +1131,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_timestamptz(self) -> bool:
         return True
 
-    def format_data_type_timestamptz(self, data_type: TimestampTzType) -> Tuple[str, tuple]:
+    def format_data_type_timestamptz(self, expr: TimestampTzType) -> Tuple[str, tuple]:
         """``TIMESTAMP WITH TIME ZONE`` — rendered ``TIMESTAMP``.
 
         Exactly this concept, under BigQuery's name: its ``TIMESTAMP`` is an
@@ -1154,7 +1154,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_blob(self) -> bool:
         return True
 
-    def format_data_type_blob(self, data_type: BlobType) -> Tuple[str, tuple]:
+    def format_data_type_blob(self, expr: BlobType) -> Tuple[str, tuple]:
         """``BLOB`` / ``BYTEA`` — rendered ``BYTES``.
 
         ``BYTES`` is BigQuery's byte-string type and has the same storage shape
@@ -1166,7 +1166,7 @@ class BigQueryTypeSupportMixin:
         here at all — see :meth:`substitute_data_types` for why ``BYTES``'s
         declared length is a maximum rather than a width.
         """
-        self.check_spelling(data_type, BlobType)
+        self.check_spelling(expr, BlobType)
         return "BYTES", ()
 
     # ------------------------------------------------------------------
@@ -1176,7 +1176,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_json(self) -> bool:
         return True
 
-    def format_data_type_json(self, data_type: JsonType) -> Tuple[str, tuple]:
+    def format_data_type_json(self, expr: JsonType) -> Tuple[str, tuple]:
         """``JSON`` — BigQuery's own JSON type.
 
         A real column type here rather than text holding JSON: BigQuery's
@@ -1188,7 +1188,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_jsonb(self) -> bool:
         return True
 
-    def format_data_type_jsonb(self, data_type: JsonBType) -> Tuple[str, tuple]:
+    def format_data_type_jsonb(self, expr: JsonBType) -> Tuple[str, tuple]:
         """``JSONB`` — rendered ``JSON``.
 
         The binary JSON representation PostgreSQL calls ``JSONB`` is not a
@@ -1208,7 +1208,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_array(self) -> bool:
         return True
 
-    def format_data_type_array(self, data_type: ArrayType) -> Tuple[str, tuple]:
+    def format_data_type_array(self, expr: ArrayType) -> Tuple[str, tuple]:
         """``ARRAY<T>`` — BigQuery's own spelling for the array container.
 
         BigQuery's array is not a second type bolted onto the element type: an
@@ -1229,7 +1229,7 @@ class BigQueryTypeSupportMixin:
           reason. PostgreSQL's ``int[][]`` is a real two-dimensional type; there
           is no such thing here.
         """
-        if isinstance(data_type.element_type, ArrayType):
+        if isinstance(expr.element_type, ArrayType):
             raise UnsupportedFeatureError(
                 self.name,
                 "ARRAY<ARRAY<T>>",
@@ -1238,13 +1238,13 @@ class BigQueryTypeSupportMixin:
                     "single ARRAY and nest the data in a STRUCT instead."
                 ),
             )
-        if data_type.dimensions != 1:
+        if expr.dimensions != 1:
             raise UnsupportedFeatureError(
                 self.name,
-                f"an array with {data_type.dimensions} dimensions",
+                f"an array with {expr.dimensions} dimensions",
                 suggestion="A BigQuery ARRAY is always one-dimensional.",
             )
-        element_sql, element_params = self.format_data_type(data_type.element_type)
+        element_sql, element_params = self.format_data_type(expr.element_type)
         return f"ARRAY<{element_sql}>", element_params
 
     # ------------------------------------------------------------------
@@ -1254,7 +1254,7 @@ class BigQueryTypeSupportMixin:
     def supports_data_type_custom(self) -> bool:
         return True
 
-    def format_data_type_custom(self, data_type: CustomType) -> Tuple[str, tuple]:
+    def format_data_type_custom(self, expr: CustomType) -> Tuple[str, tuple]:
         """The raw name, verbatim.
 
         This is what makes a BigQuery type the framework does not model
@@ -1272,7 +1272,7 @@ class BigQueryTypeSupportMixin:
         way — ``ARRAY<INT64>`` is not a type name in that grammar, and
         :class:`~...expression.types.array.ArrayType` is the route for it.
         """
-        return data_type.raw, ()
+        return expr.raw, ()
 
     # ------------------------------------------------------------------
     # Core types BigQuery stores some other way
