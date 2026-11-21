@@ -8,7 +8,6 @@ from typing import Any, Tuple, TYPE_CHECKING
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
 if TYPE_CHECKING:
-    from rhosocial.activerecord.backend.expression.objects import Index
     from rhosocial.activerecord.backend.expression.statements.ddl_alter import (
         AddIndex,
         DropIndex,
@@ -81,7 +80,7 @@ class BigQueryDDLColumnMixin:
         """
         return True
 
-    def format_column_nullable_constraint(self, constraint: Any) -> Tuple[str, tuple]:
+    def format_column_nullable_constraint(self, expr: Any) -> Tuple[str, tuple]:
         """Render an explicitly nullable column as empty text.
 
         BigQuery's ``column_schema`` production admits only ``[NOT NULL]``;
@@ -94,7 +93,7 @@ class BigQueryDDLColumnMixin:
         """
         return "", ()
 
-    def format_column_comment_clause(self, clause: Any) -> Tuple[str, tuple]:
+    def format_column_comment_clause(self, expr: Any) -> Tuple[str, tuple]:
         """Render a column comment as ``OPTIONS(description='...')``.
 
         Returns the fragment with a leading space so it composes directly
@@ -102,10 +101,10 @@ class BigQueryDDLColumnMixin:
         reached from ``CREATE TABLE``'s column loop, where the value is whatever
         clause class the dialect dispatches on.
         """
-        escaped = self.escape_sql_string(clause.comment)
+        escaped = self.escape_sql_string(expr.comment)
         return f" OPTIONS(description='{escaped}')", ()
 
-    def format_column_attribute(self, attr: Any) -> Tuple[str, tuple]:
+    def format_column_attribute(self, expr: Any) -> Tuple[str, tuple]:
         """Render a column attribute with BigQuery syntax.
 
         BigQuery requires the collation specification to be a quoted STRING
@@ -113,12 +112,12 @@ class BigQueryDDLColumnMixin:
         """
         from rhosocial.activerecord.base import CollationAttribute
 
-        if isinstance(attr, CollationAttribute):
-            escaped = attr.name.replace("'", "''")
+        if isinstance(expr, CollationAttribute):
+            escaped = expr.name.replace("'", "''")
             return f" COLLATE '{escaped}'", ()
-        return super().format_column_attribute(attr)
+        return super().format_column_attribute(expr)
 
-    def format_add_index_action(self, action: AddIndex) -> Tuple[str, tuple]:
+    def format_add_index_action(self, expr: AddIndex) -> Tuple[str, tuple]:
         """BigQuery has no ALTER TABLE ADD INDEX."""
         raise UnsupportedFeatureError(
             self.name,
@@ -126,7 +125,7 @@ class BigQueryDDLColumnMixin:
             suggestion="Use CREATE SEARCH INDEX to create a search index on the table.",
         )
 
-    def format_drop_index_action(self, action: DropIndex) -> Tuple[str, tuple]:
+    def format_drop_index_action(self, expr: DropIndex) -> Tuple[str, tuple]:
         """BigQuery has no ALTER TABLE DROP INDEX.
 
         Raises:
@@ -138,10 +137,10 @@ class BigQueryDDLColumnMixin:
         """
         from rhosocial.activerecord.backend.expression.objects import Index
 
-        if not isinstance(action.index, Index):
+        if not isinstance(expr.index, Index):
             raise TypeError(
                 f"DropIndex.index must be an Index, "
-                f"got {type(action.index).__name__}"
+                f"got {type(expr.index).__name__}"
             )
         raise UnsupportedFeatureError(
             self.name,

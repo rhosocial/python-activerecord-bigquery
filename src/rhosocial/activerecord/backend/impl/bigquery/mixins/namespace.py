@@ -112,7 +112,7 @@ class BigQueryNamespaceMixin:
             return self.separator.join(parts), ()
         return super().format_qualified_name(expr)
 
-    def format_with_statement(self, stmt: Any) -> Tuple[str, tuple]:
+    def format_with_statement(self, expr: Any) -> Tuple[str, tuple]:
         """Render ``WITH`` and keep the names it binds unqualified.
 
         A CTE name is not a dataset relation: qualifying it makes BigQuery look
@@ -128,13 +128,13 @@ class BigQueryNamespaceMixin:
         Returns:
             A ``(sql, params)`` tuple for the full statement.
         """
-        names = {cte.name for cte in getattr(stmt, "ctes", ())}
+        names = {cte.name for cte in getattr(expr, "ctes", ())}
         if not names:
-            return super().format_with_statement(stmt)
+            return super().format_with_statement(expr)
         scopes = self._cte_scopes()
         scopes.append(names)
         try:
-            return super().format_with_statement(stmt)
+            return super().format_with_statement(expr)
         finally:
             scopes.pop()
 

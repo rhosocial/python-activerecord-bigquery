@@ -23,13 +23,13 @@ class BigQueryCapabilityMixin:
         """
         return True
 
-    def format_table_comment(self, comment: str) -> Tuple[str, tuple]:
+    def format_table_comment(self, expr: str) -> Tuple[str, tuple]:
         """Render a table comment as ``OPTIONS(description='...')``.
 
         The generic ``TableMixin.format_table_comment_clause`` adds the leading
         space and appends the fragment after the column list.
         """
-        escaped = self.escape_sql_string(comment)
+        escaped = self.escape_sql_string(expr)
         return f"OPTIONS(description='{escaped}')", ()
 
     def supports_cte(self) -> bool:
