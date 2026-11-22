@@ -28,8 +28,8 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     # Core generic mixins (backend-agnostic implementations)
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
     SetOperationMixin, DateTimeMixin,
-    DDLColumnMixin, DataTypeMixin, UserDefinedTypeMixin, DomainMixin,
-    TransactionControlMixin, CollationMixin,
+    DDLColumnMixin, ColumnAttributeMixin, DataTypeMixin, UserDefinedTypeMixin,
+    DomainMixin, TransactionControlMixin, CollationMixin,
     # The two auto-increment mechanisms: BigQuery declares the parameterised
     # identity clause through BigQueryIdentityColumnMixin, and inherits
     # AutoIncrementColumnMixin so the parameterless AUTO_INCREMENT marker refuses
@@ -178,8 +178,13 @@ class BigQueryDialect(
     IntrospectionMixin, TruncateMixin,
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
     SetOperationMixin, DateTimeMixin,
-    DDLColumnMixin, DataTypeMixin, TransactionControlMixin,
-    CollationMixin,
+    # ColumnAttributeMixin owns core's singular format_column_attribute (and
+    # translate_ar_attribute) after the DDL-column refactor. BigQuery's
+    # BigQueryDDLColumnMixin overrides it and calls super() for the non-collation
+    # case, so the base implementation must sit after it in the MRO -- without
+    # it an IdentityAttribute reaches the super() call and raises AttributeError.
+    DDLColumnMixin, ColumnAttributeMixin, DataTypeMixin,
+    TransactionControlMixin, CollationMixin,
     # LPAD/RPAD/REPEAT are the three of the four string nodes BigQuery spells
     # natively, so the shared defaults are the answer for them unchanged;
     # TRIM is the one with a local override above.

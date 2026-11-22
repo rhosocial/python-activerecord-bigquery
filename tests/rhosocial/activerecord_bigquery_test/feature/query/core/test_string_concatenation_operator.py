@@ -90,7 +90,7 @@ def test_the_operator_is_not_a_parameter(dialect, operands):
 def test_default_dialect_uses_the_standard_operator(dialect, operands):
     """SQLite and PostgreSQL both read ``||`` as concatenation."""
     left, right = operands
-    assert dialect.string_concatenation_function() is None
+    assert dialect.suggest_concatenation_function().function is None
     assert string_functions.concat_op(dialect, left, right).to_sql()[
         0
     ] == '"t"."a" || "t"."b"'
@@ -100,7 +100,7 @@ def test_a_declared_function_replaces_the_operator(dialect, operands):
     """The declaration is consulted, so the same node renders differently."""
     left, right = operands
     dialect.STRING_CONCATENATION = "CONCAT"
-    assert dialect.string_concatenation_function() == "CONCAT"
+    assert dialect.suggest_concatenation_function().function == "CONCAT"
     assert string_functions.concat_op(dialect, left, right).to_sql()[0] == (
         'CONCAT("t"."a", "t"."b")'
     )
@@ -109,9 +109,9 @@ def test_a_declared_function_replaces_the_operator(dialect, operands):
 def test_declaration_must_be_a_string(dialect):
     """A non-string declaration is ignored rather than interpolated."""
     dialect.STRING_CONCATENATION = None
-    assert dialect.string_concatenation_function() is None
+    assert dialect.suggest_concatenation_function().function is None
     dialect.STRING_CONCATENATION = 42
-    assert dialect.string_concatenation_function() is None
+    assert dialect.suggest_concatenation_function().function is None
 
 
 # ---------------------------------------------------------------------------
