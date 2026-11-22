@@ -28,20 +28,20 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     # Core generic mixins (backend-agnostic implementations)
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
     SetOperationMixin, DateTimeMixin,
-    DDLColumnMixin, DDLTypeMixin, UserDefinedTypeMixin, DomainMixin,
+    DDLColumnMixin, DataTypeMixin, UserDefinedTypeMixin, DomainMixin,
     TransactionControlMixin, CollationMixin,
     # The two auto-increment mechanisms: BigQuery declares the parameterised
     # identity clause through BigQueryIdentityColumnMixin, and inherits
-    # AutoIncrementMixin so the parameterless AUTO_INCREMENT marker refuses
+    # AutoIncrementColumnMixin so the parameterless AUTO_INCREMENT marker refuses
     # through its probe (False) rather than through a missing formatter.
-    IdentityColumnMixin, AutoIncrementMixin,
+    IdentityColumnMixin, AutoIncrementColumnMixin,
     RelationSourceMixin,
     # One format_<kind>_object per catalogue kind, all of them core's spelling,
     # and NamespaceMixin for the levels behind them. BigQuery overrides none.
-    TableNameMixin, ViewNameMixin, MaterializedViewNameMixin,
-    ForeignTableNameMixin, IndexNameMixin, SequenceNameMixin,
-    TriggerNameMixin, FunctionNameMixin, ProcedureNameMixin,
-    TypeNameMixin, DomainNameMixin, SynonymNameMixin,
+    TableObjectMixin, ViewObjectMixin, MaterializedViewObjectMixin,
+    ForeignTableObjectMixin, IndexObjectMixin, SequenceObjectMixin,
+    TriggerObjectMixin, RoutineObjectMixin, RoutineObjectMixin,
+    TypeObjectMixin, TypeObjectMixin, SynonymObjectMixin,
     SchemaNameMixin, DatabaseNameMixin, PropertyGraphNameMixin,
     NamespaceMixin,
     # ``LPAD``/``RPAD``/``REPEAT`` are nodes with default formatters, and
@@ -178,7 +178,7 @@ class BigQueryDialect(
     IntrospectionMixin, TruncateMixin,
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
     SetOperationMixin, DateTimeMixin,
-    DDLColumnMixin, DDLTypeMixin, TransactionControlMixin,
+    DDLColumnMixin, DataTypeMixin, TransactionControlMixin,
     CollationMixin,
     # LPAD/RPAD/REPEAT are the three of the four string nodes BigQuery spells
     # natively, so the shared defaults are the answer for them unchanged;
@@ -186,9 +186,9 @@ class BigQueryDialect(
     LpadMixin, RepeatMixin, RpadMixin,
     # The two auto-increment mechanisms. BigQueryIdentityColumnMixin (above)
     # owns the identity spelling and its probes; core's IdentityColumnMixin
-    # keeps the protocol in the MRO, and AutoIncrementMixin supplies the
+    # keeps the protocol in the MRO, and AutoIncrementColumnMixin supplies the
     # parameterless AUTO_INCREMENT formatter, whose probe answers False here.
-    IdentityColumnMixin, AutoIncrementMixin,
+    IdentityColumnMixin, AutoIncrementColumnMixin,
     # The FROM side of a named object. BigQuery has no time-travel clause, so
     # the branch of format_named_relation that would need a temporal formatter
     # is never taken and TemporalTableMixin stays off the dialect.
@@ -201,10 +201,10 @@ class BigQueryDialect(
     BigQueryColumnTypeMixin,
     # One format_<kind>_object per catalogue kind, all of them core's spelling,
     # and NamespaceMixin for the levels behind them. BigQuery overrides none.
-    TableNameMixin, ViewNameMixin, MaterializedViewNameMixin,
-    ForeignTableNameMixin, IndexNameMixin, SequenceNameMixin,
-    TriggerNameMixin, FunctionNameMixin, ProcedureNameMixin,
-    TypeNameMixin, DomainNameMixin, SynonymNameMixin,
+    TableObjectMixin, ViewObjectMixin, MaterializedViewObjectMixin,
+    ForeignTableObjectMixin, IndexObjectMixin, SequenceObjectMixin,
+    TriggerObjectMixin, RoutineObjectMixin, RoutineObjectMixin,
+    TypeObjectMixin, TypeObjectMixin, SynonymObjectMixin,
     SchemaNameMixin, DatabaseNameMixin, PropertyGraphNameMixin,
     NamespaceMixin,
     BigQueryStructMixin, BigQueryArrayMixin,
