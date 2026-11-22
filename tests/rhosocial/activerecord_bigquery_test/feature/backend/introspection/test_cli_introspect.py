@@ -237,6 +237,7 @@ def test_every_subcommand_is_registered():
     from rhosocial.activerecord.backend.impl.bigquery.cli import COMMAND_NAMES
 
     assert set(COMMAND_NAMES) == {
+        "info",
         "tables",
         "views",
         "routines",
@@ -256,8 +257,14 @@ def test_every_subcommand_is_registered():
 
 
 def test_get_handler_routes_each_introspection_command():
-    for name in cli_package.COMMAND_NAMES:
+    for name in cli_introspect.INTROSPECT_TYPES:
         assert cli_package.get_handler(name) is cli_introspect.handle
+
+
+def test_get_handler_routes_info_command():
+    from rhosocial.activerecord.backend.impl.bigquery.cli import info as cli_info
+
+    assert cli_package.get_handler("info") is cli_info.handle
 
 
 def test_get_handler_refuses_an_unknown_command():

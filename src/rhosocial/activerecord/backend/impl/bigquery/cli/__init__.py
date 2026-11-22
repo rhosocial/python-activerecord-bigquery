@@ -17,9 +17,12 @@ this module routes their names there directly.
 #: happen -- an unlisted subcommand still parses but exits with "unknown
 #: command" in ``get_handler``, which is the wrong error for a registered
 #: one.
-from .introspect import INTROSPECT_TYPES as COMMAND_NAMES  # noqa: E402
+from .introspect import INTROSPECT_TYPES as _INTROSPECT_COMMAND_NAMES  # noqa: E402
 
-COMMAND_NAMES = list(COMMAND_NAMES)
+#: All subcommands this package defines. The introspection names are derived
+#: from the introspect module so they cannot drift; ``info`` is the one
+#: connection-free command and is added explicitly.
+COMMAND_NAMES = ["info"] + list(_INTROSPECT_COMMAND_NAMES)
 
 
 def register_commands(subparsers):
@@ -28,8 +31,10 @@ def register_commands(subparsers):
     Args:
         subparsers: The parser's subcommand group.
     """
+    from .info import create_parser as info_parser
     from .introspect import create_parser as introspect_parser
 
+    info_parser(subparsers)
     introspect_parser(subparsers)
 
 
@@ -48,6 +53,11 @@ def get_handler(command_name: str):
     import sys
 
     from .introspect import get_handler as introspect_handler
+
+    if command_name == "info":
+        from .info import handle as info_handle
+
+        return info_handle
 
     if command_name not in COMMAND_NAMES:
         print(

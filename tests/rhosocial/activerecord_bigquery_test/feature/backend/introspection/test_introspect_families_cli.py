@@ -965,9 +965,10 @@ class TestTheTypeSurfaceExtension:
     def test_every_type_is_registered_as_a_command(self):
         from rhosocial.activerecord.backend.impl.bigquery.cli import COMMAND_NAMES
 
-        assert list(COMMAND_NAMES) == list(introspect_cli.INTROSPECT_TYPES)
+        assert set(introspect_cli.INTROSPECT_TYPES) <= set(COMMAND_NAMES)
         for name in introspect_cli.INTROSPECT_TYPES:
             assert introspect_cli.get_handler(name) is introspect_cli.handle
+        assert "info" in COMMAND_NAMES
 
     def test_help_lists_every_type(self, capsys):
         root = argparse.ArgumentParser()
