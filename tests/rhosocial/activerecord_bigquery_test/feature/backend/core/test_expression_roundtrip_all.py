@@ -103,8 +103,8 @@ import inspect
 
 import pytest
 
-from rhosocial.activerecord.backend.dialect.exceptions import (UnsupportedDataTypeError, 
-    ProtocolNotImplementedError,
+from rhosocial.activerecord.backend.dialect.exceptions import (
+    UnsupportedDataTypeError,
     UnsupportedFeatureError,
 )
 from rhosocial.activerecord.backend.expression import declared
@@ -947,6 +947,16 @@ UNCONSTRUCTIBLE = (
     "rhosocial.activerecord.backend.expression.uuid.UUIDConstantExpression",
     "rhosocial.activerecord.backend.expression.uuid.UUIDGenerationExpression",
     "rhosocial.activerecord.backend.expression.uuid.UUIDCastFunction",
+    # Core replaced the old partition-strategy enum with dedicated PartitionBy*
+    # expression nodes. Their required arguments (a strategy expression plus a
+    # column list) are not ones the generic constructor filler can guess, so
+    # these four classes cannot be built by make_instance. BigQuery renders
+    # partitions through its own PARTITION BY option clause instead, so giving
+    # them a meaningful construction here would be inventing a dialect feature.
+    "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionClause",
+    "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionByHashClause",
+    "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionByListClause",
+    "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionByRangeClause",
     # CustomType sat here while its ``raw`` parameter was defaulted to the
     # empty string -- a defaulted parameter the filler skips, and a name the
     # class refuses as empty. The parameter is required now, so the filler
@@ -998,23 +1008,26 @@ LEGITIMATE_NON_RENDERS = {
     # how they are used. Not unanswered so much as meaningless -- an
     # unused-index listing for an engine without indexes would be a zero-row
     # answer that reads like a finding.
+    # Core now reports a missing introspection formatter as
+    # ``UnsupportedFeatureError`` naming the method, not as
+    # ``ProtocolNotImplementedError``. The method name is still the pin.
     "rhosocial.activerecord.backend.expression.introspection.UnusedIndexesQueryStatement": (
-        ProtocolNotImplementedError, 'does not implement ',
+        UnsupportedFeatureError, "does not support format_unused_indexes_query_statement",
     ),
     "rhosocial.activerecord.backend.expression.introspection.TableUsageStatsQueryStatement": (
-        ProtocolNotImplementedError, 'does not implement ',
+        UnsupportedFeatureError, "does not support format_table_usage_stats_query_statement",
     ),
     "rhosocial.activerecord.backend.expression.introspection.RuntimeMetricsQueryStatement": (
-        ProtocolNotImplementedError, 'does not implement ',
+        UnsupportedFeatureError, "does not support format_runtime_metrics_query_statement",
     ),
     "rhosocial.activerecord.backend.expression.introspection.IndexUsageStatsQueryStatement": (
-        ProtocolNotImplementedError, 'does not implement ',
+        UnsupportedFeatureError, "does not support format_index_usage_stats_query_statement",
     ),
     "rhosocial.activerecord.backend.expression.introspection.ObjectDependencyQueryStatement": (
-        ProtocolNotImplementedError, 'does not implement ',
+        UnsupportedFeatureError, "does not support format_object_dependency_query_statement",
     ),
     "rhosocial.activerecord.backend.expression.introspection.DDLStatementQueryStatement": (
-        ProtocolNotImplementedError, 'does not implement ',
+        UnsupportedFeatureError, "does not support format_ddl_statement_query_statement",
     ),
     # ---- SQL/XML: BigQuery has no SQL/XML functions at all -----------------
     "rhosocial.activerecord.backend.expression.xml.XMLAggExpression": (
@@ -1135,12 +1148,12 @@ LEGITIMATE_NON_RENDERS = {
     "rhosocial.activerecord.backend.expression.statements.ddl_database.DropDatabaseStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_drop_database_statement'",
     ),
-    # ---- COMMENT ON, PARTITION clause, PIVOT, ILIKE -------------------------
+    # ---- COMMENT ON, PIVOT, ILIKE -------------------------------------------
+    # ``PartitionClause`` used to sit here; core replaced it with the
+    # PartitionBy* nodes, which this dialect's filler cannot construct, so it
+    # now belongs in UNCONSTRUCTIBLE rather than in this render-failure table.
     "rhosocial.activerecord.backend.expression.statements.ddl_comment.CommentOnStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_comment_on_statement'",
-    ),
-    "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionClause": (
-        UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_partition_clause'",
     ),
     "rhosocial.activerecord.backend.expression.pivot.Pivot": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_pivot'",
@@ -1494,8 +1507,12 @@ UNMODELLED_FORMATTERS = {
         "format_drop_database_statement",
     ),
     "COMMENT ON (BigQuery has no standalone COMMENT ON statement)": ("format_comment_on_statement",),
-    "the generic DDL PARTITION clause (BigQuery partitions tables through its "
-    "own partition options, not this clause)": ("format_partition_clause",),
+    "the core PartitionBy* node family (BigQuery partitions tables through its "
+    "own PARTITION BY option clause, not these expression nodes)": (
+        "format_partition_options_expression",
+        "format_partition_definition_expression",
+        "format_subpartition_definition_expression",
+    ),
     "the core PIVOT / UNPIVOT expressions (this backend composes no formatter "
     "for either; aggregation over rotated rows is spelled by conditional "
     "aggregation)": (

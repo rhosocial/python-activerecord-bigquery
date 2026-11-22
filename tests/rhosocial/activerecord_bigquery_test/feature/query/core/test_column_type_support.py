@@ -39,8 +39,11 @@ from rhosocial.activerecord.backend.adapters import (
     Range,
     Vector,
 )
-from rhosocial.activerecord.backend.dialect.mixins import ColumnTypeMixin
-from rhosocial.activerecord.backend.dialect.protocols import ColumnTypeSupport
+from rhosocial.activerecord.backend.suggestion.definitions import (
+    ColumnTypeSuggestion,
+    ExtraColumnTypeSuggestion,
+)
+from rhosocial.activerecord.backend.suggestion.protocols import ColumnTypeSuggestionSupport
 from rhosocial.activerecord.backend.expression.column_types import (
     ArrayColumn,
     ColumnBase,
@@ -146,9 +149,9 @@ def test_entry_list_has_no_duplicates():
 def test_the_protocol_is_structural():
     """A dialect satisfies it by answering the two tables, nothing else."""
     dialect = sqlite_dialect()
-    assert isinstance(dialect, ColumnTypeSupport)
-    assert callable(dialect.suggested_column_types)
-    assert callable(dialect.suggested_extra_column_types)
+    assert isinstance(dialect, ColumnTypeSuggestionSupport)
+    assert isinstance(dialect.suggest_column_types(), ColumnTypeSuggestion)
+    assert isinstance(dialect.suggest_extra_column_types(), ExtraColumnTypeSuggestion)
 
 
 def _assert_answered_or_refused(dialect, entry):
@@ -158,7 +161,7 @@ def _assert_answered_or_refused(dialect, entry):
     family", so the resolution must fail with that message rather than fall
     through to another table or pick a class anyway.
     """
-    if dialect.suggested_column_types()[entry] is None:
+    if dialect.suggest_column_types().table[entry] is None:
         with pytest.raises(ColumnTypeResolutionError, match="has no column class"):
             resolve(dialect, entry)
     else:
@@ -213,10 +216,10 @@ class OverridingDialect(SQLiteDialect):
     ignore this.
     """
 
-    def suggested_column_types(self):
-        table = super().suggested_column_types()
+    def suggest_column_types(self) -> ColumnTypeSuggestion:
+        table = super().suggest_column_types().table
         table[str] = NumericColumn
-        return table
+        return ColumnTypeSuggestion(table=table)
 
 
 class RefusingDialect(SQLiteDialect):
@@ -227,10 +230,10 @@ class RefusingDialect(SQLiteDialect):
     caller as a failure rather than as a fallback to another table.
     """
 
-    def suggested_column_types(self):
-        table = super().suggested_column_types()
+    def suggest_column_types(self) -> ColumnTypeSuggestion:
+        table = super().suggest_column_types().table
         table[dict] = None
-        return table
+        return ColumnTypeSuggestion(table=table)
 
 
 class Complex:
@@ -240,8 +243,8 @@ class Complex:
 class ExtendingDialect(SQLiteDialect):
     """A backend with a Python type of its own, in its own table."""
 
-    def suggested_extra_column_types(self):
-        return {Complex: JSONColumn}
+    def suggest_extra_column_types(self) -> ExtraColumnTypeSuggestion:
+        return ExtraColumnTypeSuggestion(table={Complex: JSONColumn})
 
 
 def test_backend_override_changes_only_its_own_entry():
@@ -271,20 +274,28 @@ def test_a_backend_may_extend_with_an_entry_of_its_own():
 def test_the_returned_tables_are_copies():
     """A caller walking a table must not mutate what the next field reads."""
     dialect = sqlite_dialect()
-    table = dialect.suggested_column_types()
+    table = dialect.suggest_column_types().table
     table.clear()
-    assert set(dialect.suggested_column_types()) == set(COMMON_TYPES)
+    assert set(dialect.suggest_column_types().table) == set(COMMON_TYPES)
 
 
-def test_the_mixin_withholds_the_common_table():
-    """There is no inherited table: a dialect that does not answer is told so."""
+def test_there_is_no_inherited_common_table():
+    """Core deleted its inherited table mixin: nothing supplies a table by inheritance."""
 
-    class Bare(ColumnTypeMixin):
+    class Bare:
         pass
 
-    with pytest.raises(NotImplementedError):
-        Bare().suggested_column_types()
-    assert Bare().suggested_extra_column_types() == {}
+    assert not hasattr(Bare(), "suggest_column_types")
+
+    class Empty(Bare):
+        def suggest_column_types(self) -> ColumnTypeSuggestion:
+            return ColumnTypeSuggestion(table={})
+
+        def suggest_extra_column_types(self) -> ExtraColumnTypeSuggestion:
+            return ExtraColumnTypeSuggestion(table={})
+
+    assert Empty().suggest_column_types().table == {}
+    assert Empty().suggest_extra_column_types().table == {}
 
 
 def test_sqlite_answers_exactly_the_framework_types():
@@ -325,7 +336,7 @@ def test_the_dummy_dialect_states_its_own_baseline():
     into it would make "what does the portable baseline say" unanswerable.
     """
     dummy = dummy_dialect()
-    assert set(dummy.suggested_column_types()) == set(COMMON_TYPES)
+    assert set(dummy.suggest_column_types().table) == set(COMMON_TYPES)
     assert resolve(dummy, list) is ArrayColumn
     assert resolve(sqlite_dialect(), list) is JSONColumn
     # ``Decimal`` was merged into NumericColumn on both sides; asserting the
@@ -545,8 +556,8 @@ def test_the_accessor_path_end_to_end():
 
 def test_a_missing_entry_is_reported_against_the_backends_table():
     class PartialDialect(SQLiteDialect):
-        def suggested_column_types(self):
-            return {str: StringColumn}
+        def suggest_column_types(self) -> ColumnTypeSuggestion:
+            return ColumnTypeSuggestion(table={str: StringColumn})
 
     with pytest.raises(ColumnTypeResolutionError, match="Cannot choose a column class"):
         resolve(PartialDialect(version=(3, 46, 1)), int)
@@ -571,10 +582,10 @@ def test_a_table_entry_that_is_not_a_column_class_raises():
     """A malformed table is a backend bug, caught where it is written down."""
 
     class WrongDialect(SQLiteDialect):
-        def suggested_column_types(self):
-            table = super().suggested_column_types()
+        def suggest_column_types(self) -> ColumnTypeSuggestion:
+            table = super().suggest_column_types().table
             table[str] = "StringColumn"
-            return table
+            return ColumnTypeSuggestion(table=table)
 
     with pytest.raises(ColumnTypeResolutionError, match="not a ColumnBase subclass"):
         resolve(WrongDialect(version=(3, 46, 1)), str)
@@ -745,8 +756,8 @@ def test_two_dialects_differ_only_where_stated():
     for entry in COMMON_TYPES:
         if entry in deviated:
             continue
-        if sqlite.suggested_column_types()[entry] is None:
-            assert dummy.suggested_column_types()[entry] is None
+        if sqlite.suggest_column_types().table[entry] is None:
+            assert dummy.suggest_column_types().table[entry] is None
             continue
         assert resolve(dummy, entry) is resolve(sqlite, entry)
     assert resolve(sqlite, list) is JSONColumn

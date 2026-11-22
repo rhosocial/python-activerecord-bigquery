@@ -34,7 +34,12 @@ from rhosocial.activerecord.backend.adapters import (
     Range,
     Vector,
 )
-from rhosocial.activerecord.backend.dialect.mixins import ColumnTypeMixin
+from rhosocial.activerecord.backend.suggestion.definitions import (
+    ColumnTypeSuggestion,
+    ExtraColumnTypeSuggestion,
+    SubstituteTypeSuggestion,
+)
+from rhosocial.activerecord.backend.suggestion.protocols import ColumnTypeSuggestionSupport
 from rhosocial.activerecord.backend.expression import column_types as core_column_types
 from rhosocial.activerecord.backend.expression.column_types import (
     ArrayColumn,
@@ -57,9 +62,6 @@ from rhosocial.activerecord.backend.expression.column_types import (
 )
 
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
-from rhosocial.activerecord.backend.impl.bigquery.mixins import (
-    BigQueryColumnTypeMixin,
-)
 
 #: The version the dialect is asked about. BigQuery's is a rolling service with
 #: no per-release version string in the way PostgreSQL has one, so this is the
@@ -139,9 +141,17 @@ _CORE_COLUMN_CLASSES = frozenset(
     if isinstance(value, type) and issubclass(value, ColumnBase)
 )
 
+def _column_type_mixin(dialect):
+    """The dialect base that supplies the two suggestion tables."""
+    return next(
+        base for base in type(dialect).__mro__
+        if "suggest_column_types" in vars(base)
+    )
+
+
 #: This backend's column-type mixin, as a module rather than as a class, so the
 #: docstrings and table comments can be read as the evidence they are.
-_MIXIN_MODULE = __import__(BigQueryColumnTypeMixin.__module__, fromlist=["BigQueryColumnTypeMixin"])
+_MIXIN_MODULE = inspect.getmodule(_column_type_mixin(BigQueryDialect()))
 
 #: The model layer's own selection step, invoked without a model -- the same
 #: call ``Model.c.<field>`` makes, so the table is checked where it is consumed
@@ -164,21 +174,25 @@ class TestTableCompleteness:
     """A hole in the table is a silent gap, and the protocol forbids one."""
 
     def test_the_dialect_carries_the_mixin(self, dialect):
-        assert isinstance(dialect, BigQueryColumnTypeMixin)
-        assert isinstance(dialect, ColumnTypeMixin)
+        assert isinstance(dialect, ColumnTypeSuggestionSupport)
+        assert callable(dialect.suggest_column_types)
+        assert callable(dialect.suggest_extra_column_types)
 
-    def test_the_bigquery_mixin_extends_the_core_mixin(self):
-        """The base class is what supplies ``suggested_extra_column_types``.
+    def test_the_bigquery_mixin_is_a_standalone_protocol_answer(self, dialect):
+        """Core deleted its inherited table mixin; the backend answers the protocol itself.
 
-        ``ColumnTypeMixin`` deliberately declares no common-type table, so the
-        twenty-four answers can only come from this backend's own override --
-        which the next test then holds to.
+        Both tables are now supplied by this backend's own mixin, and the
+        twenty-four answers can only come from its own table -- which the next
+        test then holds to.
         """
-        assert issubclass(BigQueryColumnTypeMixin, ColumnTypeMixin)
+        mixin = _column_type_mixin(dialect)()
+        assert isinstance(mixin, ColumnTypeSuggestionSupport)
+        assert isinstance(mixin.suggest_column_types(), ColumnTypeSuggestion)
+        assert isinstance(mixin.suggest_extra_column_types(), ExtraColumnTypeSuggestion)
 
     def test_every_entry_is_answered(self, dialect):
         """All twenty-four, by name -- an omission fails here rather than at lookup."""
-        missing = [e for e in COMMON_TYPES if e not in dialect.suggested_column_types()]
+        missing = [e for e in COMMON_TYPES if e not in dialect.suggest_column_types().table]
         assert missing == []
 
     def test_the_table_has_no_entry_beyond_the_contract(self, dialect):
@@ -188,7 +202,7 @@ class TestTableCompleteness:
         own entry in this file, rather than a key that appears in the table and
         is never checked by anything.
         """
-        assert set(dialect.suggested_column_types()) == set(COMMON_TYPES)
+        assert set(dialect.suggest_column_types().table) == set(COMMON_TYPES)
 
     def test_no_entry_is_answered_none(self, dialect):
         """``None`` is the last resort, and this backend never needs it.
@@ -199,19 +213,19 @@ class TestTableCompleteness:
         type, so answering ``None`` would state a limit this backend does not
         have -- as wrong as a hole.
         """
-        table = dialect.suggested_column_types()
+        table = dialect.suggest_column_types().table
         assert [e for e in COMMON_TYPES if table[e] is None] == []
 
     @pytest.mark.parametrize("entry", COMMON_TYPES, ids=_ENTRY_IDS)
     def test_every_answer_is_a_column_class(self, dialect, entry):
-        answer = dialect.suggested_column_types()[entry]
+        answer = dialect.suggest_column_types().table[entry]
         assert isinstance(answer, type)
         assert issubclass(answer, ColumnBase)
 
     @pytest.mark.parametrize("entry", COMMON_TYPES, ids=_ENTRY_IDS)
     def test_every_entry_resolves_to_its_own_answer(self, dialect, entry):
         """Through the selection, not by reading the dict."""
-        assert resolve(dialect, entry) is dialect.suggested_column_types()[entry]
+        assert resolve(dialect, entry) is dialect.suggest_column_types().table[entry]
 
     @pytest.mark.parametrize("entry", COMMON_TYPES, ids=_ENTRY_IDS)
     def test_every_answer_builds_a_column_that_renders(self, dialect, entry):
@@ -222,9 +236,9 @@ class TestTableCompleteness:
 
     def test_the_table_is_a_copy(self, dialect):
         """Mutating the answer must not corrupt the module-level constant."""
-        first = dialect.suggested_column_types()
+        first = dialect.suggest_column_types().table
         first[str] = JSONColumn
-        assert dialect.suggested_column_types()[str] is StringColumn
+        assert dialect.suggest_column_types().table[str] is StringColumn
 
     def test_the_extra_table_is_empty(self, dialect):
         """This backend models no Python type of its own.
@@ -233,7 +247,7 @@ class TestTableCompleteness:
         simply absent, and inventing a vocabulary here would be the extension
         path nobody asked for.
         """
-        assert dialect.suggested_extra_column_types() == {}
+        assert dialect.suggest_extra_column_types().table == {}
 
     @pytest.mark.parametrize("entry", COMMON_TYPES, ids=_ENTRY_IDS)
     def test_no_entry_answers_a_class_this_backend_defines(self, dialect, entry):
@@ -246,7 +260,7 @@ class TestTableCompleteness:
         ``dict`` cell honest: inventing a ``StructColumn`` here would be 议题 A's
         core-level decision made by accident, in a backend.
         """
-        answer = dialect.suggested_column_types()[entry]
+        answer = dialect.suggest_column_types().table[entry]
         assert answer in _CORE_COLUMN_CLASSES
 
     def test_the_capability_mechanism_is_gone(self, dialect):
@@ -259,7 +273,7 @@ class TestTableCompleteness:
         re-invention, not a restoration.
         """
         assert not hasattr(dialect, "supports_column_operation")
-        assert not hasattr(BigQueryColumnTypeMixin, "supports_column_operation")
+        assert not hasattr(_column_type_mixin(dialect), "supports_column_operation")
 
 
 class TestBaselineCells:
@@ -267,7 +281,7 @@ class TestBaselineCells:
 
     @pytest.mark.parametrize("entry, expected", BIGQUERY_ANSWERS, ids=_ENTRY_IDS)
     def test_baseline_entry(self, dialect, entry, expected):
-        assert dialect.suggested_column_types()[entry] is expected
+        assert dialect.suggest_column_types().table[entry] is expected
 
     def test_the_two_numeric_entries_share_the_one_numeric_class(self, dialect):
         """``float`` and ``Decimal`` both answer ``NumericColumn``.
@@ -282,7 +296,7 @@ class TestBaselineCells:
         is documented, not measured). That is a rendering obligation on the
         numeric formatters, not a different column surface.
         """
-        table = dialect.suggested_column_types()
+        table = dialect.suggest_column_types().table
         assert table[float] is NumericColumn
         assert table[decimal.Decimal] is NumericColumn
 
@@ -293,7 +307,7 @@ class TestBaselineCells:
         column class); BigQuery's documented type list has no unsigned integer
         at all, so ``int`` is ``IntegerColumn`` with nothing open behind it.
         """
-        assert dialect.suggested_column_types()[int] is IntegerColumn
+        assert dialect.suggest_column_types().table[int] is IntegerColumn
 
     def test_uuid_stays_uuid_column_though_bigquery_has_no_uuid_type(self, dialect):
         """The column class is not the storage type, and the two are separate.
@@ -305,7 +319,7 @@ class TestBaselineCells:
         layer's answer (this backend suggests ``uuid`` -> ``STRING`` there).
         """
         assert resolve(dialect, uuid.UUID) is UUIDColumn
-        assert dialect.substitute_data_types()["uuid"].__name__ == "VarCharType"
+        assert dialect.suggest_substitute_types().mapping["uuid"].__name__ == "VarCharType"
 
     def test_date_and_time_are_provisional(self, dialect):
         """Core has no ``DateColumn`` / ``TimeColumn`` yet, so one class stands.
@@ -314,7 +328,7 @@ class TestBaselineCells:
         years (this repository's investigation appendix D-①) -- the shared
         answer is a core gap, not a statement about this backend.
         """
-        table = dialect.suggested_column_types()
+        table = dialect.suggest_column_types().table
         assert table[datetime.date] is TimestampColumn
         assert table[datetime.time] is TimestampColumn
 
@@ -328,8 +342,8 @@ class TestBaselineCells:
         **Preview**. ``IntervalColumn`` names the value and promises no
         arithmetic, which is honest under either spelling.
         """
-        assert dialect.suggested_column_types()[datetime.timedelta] is IntervalColumn
-        assert dialect.substitute_data_types()["interval"].__name__ == "IntegerType"
+        assert dialect.suggest_column_types().table[datetime.timedelta] is IntervalColumn
+        assert dialect.suggest_substitute_types().mapping["interval"].__name__ == "IntegerType"
 
     def test_enum_is_a_string_because_bigquery_has_no_enum_type(self, dialect):
         """No ``ENUM`` in the documented type list; the value is stored as text.
@@ -339,12 +353,17 @@ class TestBaselineCells:
         illegal member -- there is no CHECK constraint -- which
         :class:`TestEnumRejectionIsRecorded` pins.
         """
-        assert dialect.suggested_column_types()[enum.Enum] is StringColumn
+        assert dialect.suggest_column_types().table[enum.Enum] is StringColumn
 
     def test_bytearray_shares_the_bytes_answer(self, dialect):
         """``BYTES`` is the one byte-string type; there is no second one."""
-        table = dialect.suggested_column_types()
+        table = dialect.suggest_column_types().table
         assert table[bytearray] is table[bytes] is BinaryColumn
+
+    def test_substitute_types_returns_the_definition_dataclass(self, dialect):
+        suggestion = dialect.suggest_substitute_types()
+        assert isinstance(suggestion, SubstituteTypeSuggestion)
+        assert isinstance(suggestion.mapping, dict)
 
 
 class TestArrayCells:
@@ -352,7 +371,7 @@ class TestArrayCells:
 
     @pytest.mark.parametrize("entry", [list, tuple, set, frozenset], ids=_ENTRY_IDS[13:17])
     def test_container_entry_is_an_array(self, dialect, entry):
-        assert dialect.suggested_column_types()[entry] is ArrayColumn
+        assert dialect.suggest_column_types().table[entry] is ArrayColumn
 
     def test_tuple_carries_no_answer_for_a_heterogeneous_value(self, dialect):
         """议题 A is open and this cell is its subject, not its answer.
@@ -376,7 +395,7 @@ class TestArrayCells:
         capability mechanism that used to state this is gone; the class the
         cell answers carries the two methods, which is the same statement.
         """
-        column_class = dialect.suggested_column_types()[list]
+        column_class = dialect.suggest_column_types().table[list]
         assert hasattr(column_class, "array_length")
         assert hasattr(column_class, "unnest")
 
@@ -386,7 +405,7 @@ class TestArrayCells:
         Nothing to refuse -- it is not an operation -- but it is the reason
         ``set`` and ``frozenset`` answer the array cell at all.
         """
-        table = dialect.suggested_column_types()
+        table = dialect.suggest_column_types().table
         assert table[set] is table[frozenset] is ArrayColumn
 
 
@@ -394,7 +413,7 @@ class TestDictCell:
     """``dict`` answers JSONColumn, provisionally, and says so in the docstring."""
 
     def test_dict_is_json_column(self, dialect):
-        assert dialect.suggested_column_types()[dict] is JSONColumn
+        assert dialect.suggest_column_types().table[dict] is JSONColumn
 
     def test_dict_is_never_refused_on_any_version(self, dialect):
         """The refusal exists for MySQL < 5.7 and MariaDB < 10.2.
@@ -406,7 +425,7 @@ class TestDictCell:
         server.
         """
         for version in ((3, 0, 0), (3, 11, 0), (3, 30, 0)):
-            table = BigQueryDialect(version=version).suggested_column_types()
+            table = BigQueryDialect(version=version).suggest_column_types().table
             assert table[dict] is JSONColumn, version
 
     def test_the_provisional_status_is_written_down(self, dialect):
@@ -442,7 +461,7 @@ class TestDictCell:
             if isinstance(value, type)
             and getattr(value, "__module__", None) == _MIXIN_MODULE.__name__
         ]
-        assert defined_here == ["BigQueryColumnTypeMixin"]
+        assert defined_here == [_column_type_mixin(dialect).__name__]
 
 
 class TestEnumRejectionIsRecorded:
@@ -472,36 +491,40 @@ class TestDocsOnlyMarkers:
         assert "No BigQuery instance was reachable" in source
         assert "localhost:9050" in source
 
-    def test_the_mixin_docstring_states_the_evidence_level(self):
-        assert "文档（待云验）" in BigQueryColumnTypeMixin.__doc__
+    def test_the_mixin_docstring_states_the_evidence_level(self, dialect):
+        assert "文档（待云验）" in inspect.getdoc(_column_type_mixin(dialect))
 
     def test_the_open_range_gap_is_named_and_not_fixed_here(self):
         """Fix item #8 stays open, and the table does not pretend otherwise.
 
         ``RANGE<DATE|DATETIME|TIMESTAMP>`` is documented as the declared form,
-        but this backend's ``parse_type`` cannot carry the angle brackets and
-        raises ``InvalidTypeNameError`` (bare ``RANGE`` survives as a
-        word-carrying ``CustomType``). That is a DataType-layer gap; no entry in
-        this table is a range, so no column answer is affected.
+        but the backend's introspection type parser cannot carry the angle
+        brackets and raises ``InvalidTypeNameError`` (bare ``RANGE`` survives as
+        a word-carrying ``CustomType``). That is a DataType-layer gap; no entry
+        in this table is a range, so no column answer is affected.
         """
         source = inspect.getsource(_MIXIN_MODULE)
         assert "RANGE" in source
         assert "#8" in source
 
-    def test_the_range_gap_still_raises_in_parse_type(self):
+    def test_the_range_gap_still_raises_in_the_introspection_parser(self):
         """The pending fix is *pending*: the gap is real today, not documented away.
 
-        Asserting the current raise is what keeps this table from being read as
-        covering the range family. When fix item #8 lands, this test is what
-        should fail and be revisited -- not silently left passing.
+        Parsing a catalog spelling is the introspection parser's job, not the
+        dialect's. Asserting the current raise is what keeps this table from
+        being read as covering the range family. When fix item #8 lands, this
+        test is what should fail and be revisited -- not silently left passing.
         """
         from rhosocial.activerecord.backend.expression.type_name import (
             InvalidTypeNameError,
         )
+        from rhosocial.activerecord.backend.impl.bigquery.introspection.type_parser import (
+            BigQueryTypeParser,
+        )
 
+        dialect = BigQueryDialect(version=DIALECT_VERSION)
         with pytest.raises(InvalidTypeNameError):
-            dialect = BigQueryDialect(version=DIALECT_VERSION)
-            dialect.parse_type("RANGE<DATE>")
+            BigQueryTypeParser(dialect).parse("RANGE<DATE>")
 
     def test_every_cited_page_is_an_official_bigquery_url(self):
         """A citation is only worth carrying if it points at the documentation."""

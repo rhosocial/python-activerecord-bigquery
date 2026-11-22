@@ -40,8 +40,8 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     # and NamespaceMixin for the levels behind them. BigQuery overrides none.
     TableObjectMixin, ViewObjectMixin, MaterializedViewObjectMixin,
     ForeignTableObjectMixin, IndexObjectMixin, SequenceObjectMixin,
-    TriggerObjectMixin, RoutineObjectMixin, RoutineObjectMixin,
-    TypeObjectMixin, TypeObjectMixin, SynonymObjectMixin,
+    TriggerObjectMixin, RoutineObjectMixin,
+    TypeObjectMixin, SynonymObjectMixin,
     SchemaNameMixin, DatabaseNameMixin, PropertyGraphNameMixin,
     NamespaceMixin,
     # ``LPAD``/``RPAD``/``REPEAT`` are nodes with default formatters, and
@@ -203,8 +203,8 @@ class BigQueryDialect(
     # and NamespaceMixin for the levels behind them. BigQuery overrides none.
     TableObjectMixin, ViewObjectMixin, MaterializedViewObjectMixin,
     ForeignTableObjectMixin, IndexObjectMixin, SequenceObjectMixin,
-    TriggerObjectMixin, RoutineObjectMixin, RoutineObjectMixin,
-    TypeObjectMixin, TypeObjectMixin, SynonymObjectMixin,
+    TriggerObjectMixin, RoutineObjectMixin,
+    TypeObjectMixin, SynonymObjectMixin,
     SchemaNameMixin, DatabaseNameMixin, PropertyGraphNameMixin,
     NamespaceMixin,
     BigQueryStructMixin, BigQueryArrayMixin,

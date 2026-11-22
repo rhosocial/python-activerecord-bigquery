@@ -653,14 +653,14 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         its ``data_type`` string and the schema differ falls back to
         comparing strings; the rest of the table is unaffected.
         """
-        from rhosocial.activerecord.backend.expression.types._base import DataType
+        from .type_parser import BigQueryTypeParser
 
         try:
-            return DataType.parse_data_type_str(self.dialect, raw)
+            return BigQueryTypeParser(self.dialect).parse(raw)
         except Exception as exc:  # noqa: BLE001 -- see the docstring
             warnings.warn(
                 f"BigQuery reported column {column_name!r} as {raw!r}, which "
-                f"this backend's parse_type could not read "
+                f"this backend's introspection type parser could not read "
                 f"({type(exc).__name__}: {exc}). That column's "
                 f"parsed_data_type is left unset; the rest of the table is "
                 f"unaffected.",

@@ -18,6 +18,10 @@ from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeature
 from rhosocial.activerecord.backend.introspection.backend_mixin import (
     IntrospectorBackendMixin,
 )
+from rhosocial.activerecord.backend.suggestion.definitions import (
+    DataAdapterSuggestion,
+    ExtraDataAdapterSuggestion,
+)
 from rhosocial.activerecord.backend.type_adapter import SQLTypeAdapter
 
 from ..config import BigQueryConnectionConfig
@@ -837,7 +841,7 @@ class BigQueryBackend(
             # same role ``prepare_parameters`` plays in the DB-API pipeline):
             # e.g. list/dict values become JSON strings, matching the string
             # columns the emulator actually stores them in.
-            suggestions = self.get_default_adapter_suggestions()
+            suggestions = self.suggest_data_adapters().table
             converted = []
             for value in params:
                 suggestion = suggestions.get(type(value))
@@ -1113,15 +1117,18 @@ class BigQueryBackend(
             result.affected_rows = matched
         return result
 
-    def get_default_adapter_suggestions(self) -> Dict:
-        """Core defaults, completed by the pairs this backend's driver accepts.
+    def suggest_data_adapters(self) -> DataAdapterSuggestion:
+        """Portable defaults, completed by the pairs this backend's driver accepts.
 
-        The core table is the base (``super().get_default_adapter_suggestions``);
-        the pairs below are this backend's own answers and replace the core
+        The reusable portable table (``PORTABLE_TYPE_MAPPINGS``) is the base;
+        the pairs below are this backend's own answers and replace the portable
         entry for the same Python type.  The neutral families are carried as
         text here (``STRING``), because the BigQuery client binds a ``str``
         scalar natively and the emulator's column set has no array/dict
         transport for them beyond the explicit adapters.
+
+        ``AsyncBigQueryBackend`` is a separate hierarchy that reuses this method
+        unbound, so nothing here depends on a zero-argument ``super()``.
         """
         from datetime import datetime
         from decimal import Decimal
@@ -1129,17 +1136,12 @@ class BigQueryBackend(
         from rhosocial.activerecord.backend.adapters.bitstring import BitString
         from rhosocial.activerecord.backend.adapters.geometry import Geometry
         from rhosocial.activerecord.backend.adapters.network import MacAddress
+        from rhosocial.activerecord.backend.adapters.portable import PORTABLE_TYPE_MAPPINGS
         from rhosocial.activerecord.backend.adapters.range import Multirange, Range
         from rhosocial.activerecord.backend.adapters.vector import Vector
-        from rhosocial.activerecord.backend.base.type_adaption import (
-            TypeAdaptionMixin,
-            merge_adapter_suggestions,
-        )
+        from rhosocial.activerecord.backend.base.type_adaption import merge_adapter_suggestions
 
-        # ``AsyncBigQueryBackend`` is a separate hierarchy that reuses this
-        # method unbound, so a zero-argument ``super()`` cannot resolve there;
-        # naming the mixin that defines the core table works for both classes.
-        base = TypeAdaptionMixin.get_default_adapter_suggestions(self)
+        base = merge_adapter_suggestions({}, PORTABLE_TYPE_MAPPINGS, self.adapter_registry)
 
         # (python type, preferred driver-side type)
         # list prefers the native ARRAY transport: the client binds a Python list
@@ -1161,7 +1163,12 @@ class BigQueryBackend(
             (MacAddress, str),
         ]
 
-        return merge_adapter_suggestions(base, type_mappings, self.adapter_registry)
+        suggestions = merge_adapter_suggestions(base, type_mappings, self.adapter_registry)
+        return DataAdapterSuggestion(table=suggestions)
+
+    def suggest_extra_data_adapters(self) -> ExtraDataAdapterSuggestion:
+        """No backend-owned extra adapter types."""
+        return ExtraDataAdapterSuggestion(table={})
 
     def get_type_adapters(self) -> List["SQLTypeAdapter"]:
         """Return the adapter instances this backend provides.
@@ -1172,13 +1179,13 @@ class BigQueryBackend(
         Two sources the backend already owns are combined: the adapter registry
         (every adapter registered for this backend, including ones that carry
         no default suggestion) and the adapters named by
-        :meth:`get_default_adapter_suggestions`. Instances are deduplicated by
+        :meth:`suggest_data_adapters`. Instances are deduplicated by
         class -- ``(module, qualname)`` -- and sorted by that pair, so the order
         is deterministic and a new list is returned on every call.
         """
         adapters = list(self.adapter_registry.get_all_adapters().values())
         adapters.extend(
-            suggestion[0] for suggestion in self.get_default_adapter_suggestions().values()
+            suggestion[0] for suggestion in self.suggest_data_adapters().table.values()
         )
         unique: Dict[Tuple[str, str], SQLTypeAdapter] = {}
         for adapter in adapters:

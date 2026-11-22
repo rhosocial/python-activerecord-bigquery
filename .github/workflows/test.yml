@@ -20,10 +20,10 @@ permissions:
 env:
   # rhosocial-activerecord and rhosocial-activerecord-testsuite dev releases are
   # not published to PyPI; install them from git.
-  # This branch pins the core and testsuite release branches that carry the
-  # directory-owned-database architecture.
-  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@release/v1.0.0.dev30"
-  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@release/v1.0.0.dev17"
+  # Install the migration feature branches of core and testsuite so CI verifies
+  # this backend against the refactored suggestion protocol, not a stale release.
+  CORE_PKG: "rhosocial-activerecord @ git+https://github.com/rhosocial/python-activerecord.git@feature/activerecord-migration"
+  TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/activerecord-migration"
 
 jobs:
   test:

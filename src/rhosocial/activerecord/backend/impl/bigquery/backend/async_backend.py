@@ -59,9 +59,13 @@ class AsyncBigQueryBackend(
         from .backend import BigQueryBackend
         BigQueryBackend._register_bigquery_adapters(self)
 
-    def get_default_adapter_suggestions(self) -> Dict:
+    def suggest_data_adapters(self):
         from .backend import BigQueryBackend
-        return BigQueryBackend.get_default_adapter_suggestions(self)
+        return BigQueryBackend.suggest_data_adapters(self)
+
+    def suggest_extra_data_adapters(self):
+        from .backend import BigQueryBackend
+        return BigQueryBackend.suggest_extra_data_adapters(self)
 
     def get_type_adapters(self) -> List["SQLTypeAdapter"]:
         """Return the adapter instances this backend provides.

@@ -26,7 +26,7 @@ from rhosocial.activerecord.backend.adapters import (
     Range,
     Vector,
 )
-from rhosocial.activerecord.backend.dialect.mixins import ColumnTypeMixin
+from rhosocial.activerecord.backend.suggestion.definitions import ExtraColumnTypeSuggestion
 from rhosocial.activerecord.backend.expression import (
     BitStringColumn,
     ColumnBase,
@@ -191,10 +191,11 @@ def test_every_answer_selects_to_a_buildable_column(dialect_factory, table):
         assert column.to_sql() == ('"c"', ())
 
 
-def test_the_base_mixin_still_states_no_table():
-    """Neither dialect learnt a fallback: the tables are the answers."""
+def test_there_is_no_inherited_extra_table():
+    """Core deleted its inherited table mixin: neither dialect learnt a fallback."""
 
-    class Bare(ColumnTypeMixin):
-        pass
+    class Bare:
+        def suggest_extra_column_types(self) -> ExtraColumnTypeSuggestion:
+            return ExtraColumnTypeSuggestion(table={})
 
-    assert Bare().suggested_extra_column_types() == {}
+    assert Bare().suggest_extra_column_types().table == {}

@@ -82,6 +82,11 @@ import enum
 import uuid
 from typing import Any, Dict, Optional
 
+from rhosocial.activerecord.backend.suggestion.definitions import (
+    DataTypeSuggestion,
+    ExtraDataTypeSuggestion,
+)
+
 from rhosocial.activerecord.backend.adapters import (
     BitString,
     Geometry,
@@ -158,13 +163,17 @@ class BigQueryDataTypeSuggestionsMixin:
     wins the lookup.
     """
 
-    def suggested_data_types(self) -> Dict[Any, Optional[Any]]:
+    def suggest_data_types(self) -> DataTypeSuggestion:
         """A fresh copy of :data:`BIGQUERY_DATA_TYPE_SUGGESTIONS`.
 
         All twenty-four framework-modelled Python types are answered, none is
         ``None``, and every value is a ``DataType`` this dialect renders.
         """
-        return dict(BIGQUERY_DATA_TYPE_SUGGESTIONS)
+        return DataTypeSuggestion(table=dict(BIGQUERY_DATA_TYPE_SUGGESTIONS))
+
+    def suggest_extra_data_types(self) -> ExtraDataTypeSuggestion:
+        """No backend-owned extra data types."""
+        return ExtraDataTypeSuggestion(table={})
 
 
 __all__ = ["BIGQUERY_DATA_TYPE_SUGGESTIONS", "BigQueryDataTypeSuggestionsMixin"]

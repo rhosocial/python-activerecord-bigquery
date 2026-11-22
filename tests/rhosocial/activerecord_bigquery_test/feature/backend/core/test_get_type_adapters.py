@@ -82,6 +82,19 @@ def test_inventory_includes_the_bigquery_specific_adapters(backend):
     assert any(isinstance(adapter, BigQueryStructAdapter) for adapter in adapters)
 
 
-def test_default_adapter_suggestions_is_unchanged(backend):
-    assert callable(backend.get_default_adapter_suggestions)
-    assert backend.get_default_adapter_suggestions()
+def test_adapter_suggestions_are_unchanged(backend):
+    from rhosocial.activerecord.backend.suggestion.definitions import (
+        DataAdapterSuggestion,
+        ExtraDataAdapterSuggestion,
+    )
+    from rhosocial.activerecord.backend.suggestion.protocols import DataAdapterSuggestionSupport
+
+    assert isinstance(backend, DataAdapterSuggestionSupport)
+    suggestion = backend.suggest_data_adapters()
+    assert isinstance(suggestion, DataAdapterSuggestion)
+    assert isinstance(suggestion.table, dict)
+    assert suggestion.table
+    assert backend.suggest_data_adapters().table == suggestion.table
+    extra = backend.suggest_extra_data_adapters()
+    assert isinstance(extra, ExtraDataAdapterSuggestion)
+    assert extra.table == {}

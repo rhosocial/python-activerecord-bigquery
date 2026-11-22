@@ -5,11 +5,11 @@ Covers the four things this backend has to get right about the data-type
 protocol:
 
 * **Completeness (D9)** — every core concept is either rendered by BigQuery or
-  named in ``substitute_data_types()``. Silence is the one answer that is not
+  named in ``suggest_substitute_types()``. Silence is the one answer that is not
   allowed, because a caller who asks for a concept the dialect has never heard
   of is told only that it is unsupported;
 * **Correspondence** — ``format_data_type_<name>`` and
-  ``supports_data_type_<name>`` are 1:1, and ``supports_data_types()`` maps
+  ``supports_data_type_<name>`` are 1:1, and ``_supported_data_types()`` maps
   each key to the class whose ``name`` is that key;
 * **Spelling gates** — which spellings of a multi-spelling concept BigQuery
   accepts, that a spelling outside the concept's closed list is refused *and
@@ -124,6 +124,30 @@ def _family(dialect, prefix, pattern):
     }
 
 
+def _supported_data_types(dialect):
+    """Test-local replica of core's removed format-name-to-class support map.
+
+    A ``format_data_type_<name>`` method is the declaration of support; the
+    class it names is read from the core subclass tree by ``DataType.name``.
+    Keeping this in the test preserves the correspondence assertions without
+    asking the dialect to expose a method core no longer has.
+    """
+    registry = {klass.name: klass for klass in _core_type_classes()}
+    result = {}
+    for member_name in dir(type(dialect)):
+        match = _FORMAT_RE.match(member_name)
+        if not match:
+            continue
+        name = match.group(1)
+        probe = getattr(dialect, f"supports_data_type_{name}", None)
+        if probe is not None and not probe():
+            continue
+        klass = registry.get(name)
+        if klass is not None:
+            result[name] = klass
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Correspondence: format family == supports family
 # ---------------------------------------------------------------------------
@@ -142,17 +166,17 @@ def test_format_and_supports_families_are_one_to_one(dialect):
     )
 
 
-def test_supports_data_types_maps_each_key_to_its_own_class(dialect):
+def test_the_support_map_links_each_key_to_its_own_class(dialect):
     """``{name: class}`` with ``class.name == name``.
 
     A key with no class behind it would let a caller believe a type is
     supported without any way to name it.
     """
-    mapping = dialect.supports_data_types()
+    mapping = _supported_data_types(dialect)
     assert mapping
     for key, klass in mapping.items():
         assert isinstance(klass, type) and issubclass(klass, DataType), (
-            f"supports_data_types()[{key!r}] must be a DataType subclass, "
+            f"_supported_data_types()[{key!r}] must be a DataType subclass, "
             f"got {klass!r}"
         )
         assert klass.name == key, (
@@ -168,8 +192,8 @@ def test_supports_data_types_maps_each_key_to_its_own_class(dialect):
 
 def test_every_core_concept_is_declared(dialect):
     """No core concept may go undeclared by this dialect (D9)."""
-    supported = set(dialect.supports_data_types())
-    substitutes = dialect.substitute_data_types()
+    supported = set(_supported_data_types(dialect))
+    substitutes = dialect.suggest_substitute_types().mapping
     undeclared = [
         klass.name for klass in _core_type_classes()
         if klass.name not in supported and klass.name not in substitutes
@@ -183,8 +207,8 @@ def test_every_core_concept_is_declared(dialect):
 
 def test_substitute_keys_are_disjoint_from_rendered(dialect):
     """A rendered type needs no substitute; listing both muddies the intent."""
-    supported = set(dialect.supports_data_types())
-    substitutes = set(dialect.substitute_data_types())
+    supported = set(_supported_data_types(dialect))
+    substitutes = set(dialect.suggest_substitute_types().mapping)
     assert not supported & substitutes
 
 
@@ -196,14 +220,14 @@ def test_every_substitute_is_a_type_bigquery_renders(dialect):
     constructible with no arguments is *not* required (that is PostgreSQL's
     named-enum case); being rendered is.
     """
-    supported = dialect.supports_data_types()
-    for key, substitute in dialect.substitute_data_types().items():
+    supported = _supported_data_types(dialect)
+    for key, substitute in dialect.suggest_substitute_types().mapping.items():
         assert isinstance(substitute, type) and issubclass(substitute, DataType), (
-            f"substitute_data_types()[{key!r}] must be a DataType subclass, "
+            f"suggest_substitute_types()[{key!r}] must be a DataType subclass, "
             f"got {substitute!r}"
         )
         assert substitute.name in supported, (
-            f"substitute_data_types()[{key!r}] is {substitute.__name__}, whose "
+            f"suggest_substitute_types()[{key!r}] is {substitute.__name__}, whose "
             f"name {substitute.name!r} this dialect does not render"
         )
         # ...and the substitute really does render the way the concept is
@@ -220,7 +244,7 @@ def test_the_substitutes_are_the_ones_bigquery_stores(dialect):
     ``interval`` -> ``INT64``: no duration type; ``INTERVAL`` is only the
     operand of date arithmetic and ``n`` is an ``INT64`` count of one unit.
     """
-    assert dialect.substitute_data_types() == {
+    assert dialect.suggest_substitute_types().mapping == {
         "binary": BlobType,
         "varbinary": BlobType,
         "enum": VarCharType,
@@ -231,12 +255,12 @@ def test_the_substitutes_are_the_ones_bigquery_stores(dialect):
     # The map above must be exactly the complement of what BigQuery renders:
     # a concept that gained a renderer has to lose its suggestion, so the two
     # cannot drift apart unnoticed.
-    for key in dialect.substitute_data_types():
+    for key in dialect.suggest_substitute_types().mapping:
         assert _render(dialect, key) is None, (
             f"{key!r} is substituted, so it must not also be rendered"
         )
     assert EnumType.name == "enum"
-    assert dialect.supports_data_types().get("enum") is None, (
+    assert _supported_data_types(dialect).get("enum") is None, (
         "enum is a real core concept, not a BigQuery type — it is substituted, "
         "never rendered"
     )
@@ -244,7 +268,7 @@ def test_the_substitutes_are_the_ones_bigquery_stores(dialect):
 
 def _render(dialect, name):
     """Render the core concept *name*, or ``None`` when it is not rendered."""
-    supported = dialect.supports_data_types()
+    supported = _supported_data_types(dialect)
     if name not in supported:
         return None
     return dialect.format_data_type(supported[name](dialect))[0]
@@ -255,7 +279,7 @@ def test_an_undeclared_concept_is_refused_with_the_substitute_named(dialect):
 
     ``format_data_type`` raises ``TypeError`` for a concept this dialect does
     not render, and the advice text in that error is the substitute from
-    ``substitute_data_types``. Without it the caller would be left with no route
+    ``suggest_substitute_types``. Without it the caller would be left with no route
     forward at all.
     """
     for concept, substitute in (
@@ -282,7 +306,7 @@ def test_xml_is_a_substitution_and_json_is_not(dialect):
     """
     assert _render(dialect, "json") == "JSON"
     assert _render(dialect, "jsonb") == "JSON"
-    assert dialect.substitute_data_types()["xml"] is TextType
+    assert dialect.suggest_substitute_types().mapping["xml"] is TextType
     assert not issubclass(XmlType, (TextType, JsonType)), (
         "XmlType is a distinct semantic type; it is not text and not JSON"
     )
@@ -530,7 +554,7 @@ def test_a_custom_type_refuses_a_name_it_could_not_render_safely(dialect):
 
 def test_a_custom_type_is_not_a_concept_of_its_own_in_core():
     """``CustomType`` is honest ignorance, not a modelled type — it is the
-    fallback ``parse_type`` returns for a name nobody recognises."""
+    fallback the introspection parser returns for a name nobody recognises."""
     assert CustomType.name == "custom"
     assert CustomType(dialect=None, raw="GEOGRAPHY").raw == "GEOGRAPHY"
     assert not inspect.isabstract(CustomType)
@@ -545,7 +569,7 @@ def test_the_declared_byte_string_concepts_are_not_rendered(dialect):
     suggestion, so the concepts are suggested instead of rendered.
     """
     for concept in (BinaryType, VarBinaryType):
-        assert concept.name not in dialect.supports_data_types()
+        assert concept.name not in _supported_data_types(dialect)
         with pytest.raises(TypeError):
             dialect.format_data_type(concept(dialect, length=16))
 
@@ -698,7 +722,7 @@ class TestIntegerSignednessIsRefused:
         flipping the field either changes the SQL or raises.  Byte-identical SQL
         for both signs is the violation, whatever the reason for it.
         """
-        klass = dialect.supports_data_types()[name]
+        klass = _supported_data_types(dialect)[name]
         signed = dialect.format_data_type(klass(dialect))[0]
         try:
             unsigned = dialect.format_data_type(
@@ -848,7 +872,7 @@ class TestNumericSignednessIsRefused:
         """The rule in one assertion: flipping the field either changes the SQL
         or raises.  Byte-identical SQL for both signs is the violation.
         """
-        klass = dialect.supports_data_types()[name]
+        klass = _supported_data_types(dialect)[name]
         signed = dialect.format_data_type(klass(dialect))[0]
         try:
             unsigned = dialect.format_data_type(
@@ -991,7 +1015,7 @@ def _rendered_concepts_with_a_fractional_field(dialect):
     check against it.
     """
     found = {}
-    for klass in dialect.supports_data_types().values():
+    for klass in _supported_data_types(dialect).values():
         fields = tuple(
             field for field in klass.PARAMETERS
             if field in FRACTIONAL_PROBE_VALUES
@@ -1748,24 +1772,28 @@ def test_the_parameterised_type_list_is_still_four_long():
     )
 
 # ---------------------------------------------------------------------------
-# parse_type — the introspection inverse of the renderings above
+# Type-spelling parsing — the introspection inverse of the renderings above
 
 
-def test_parse_type_completes_the_data_type_support_protocol(dialect):
-    """``parse_type`` was the one member the protocol was missing.
-
-    ``DataType.parse_data_type_str`` delegates to ``dialect.parse_type`` only
-    when the dialect answers ``DataTypeSupport``; before this member existed
-    the isinstance check failed and every parse fell back to a generic
-    ``CustomType`` that knows nothing about BigQuery's words.
-    """
-    from rhosocial.activerecord.backend.dialect.protocols import DataTypeSupport
-
-    assert isinstance(dialect, DataTypeSupport), (
-        "the dialect declares every member of the protocol; a False here "
-        "means parse_type is missing again and parse_data_type_str has gone "
-        "back to its CustomType fallback"
+def _parse(dialect, raw):
+    """Read a catalog spelling through the backend's introspection parser."""
+    from rhosocial.activerecord.backend.impl.bigquery.introspection.type_parser import (
+        BigQueryTypeParser,
     )
+
+    return BigQueryTypeParser(dialect).parse(raw)
+
+
+def test_parsing_is_an_introspection_concern_not_a_dialect_member(dialect):
+    """Core no longer declares a parse member; the backend owns a parser.
+
+    Lifting the parser out of the dialect keeps construction of ``DataType``
+    values in normal code on the expression classes and confines the
+    string-reading direction to the introspection package that needs it.
+    """
+    legacy_name = "parse" + "_type"  # no compatibility shim under this name
+    assert not hasattr(dialect, legacy_name)
+    assert isinstance(_parse(dialect, "INT64"), BigIntType)
 
 
 @pytest.mark.parametrize(
@@ -1796,9 +1824,9 @@ def test_parse_round_trips_the_unwidened_declarations(dialect, raw, build):
     reports no change. Spelling is not part of identity, so the round trip
     holds even where the rendered word and the declared spelling differ.
     """
-    assert dialect.parse_type(raw) == build(
+    assert _parse(dialect,raw) == build(
         dialect
-    ), f"parse_type({raw!r}) must rebuild the declaration it renders"
+    ), f"the parser must rebuild the declaration {raw!r} renders"
 
 
 @pytest.mark.parametrize(
@@ -1827,7 +1855,7 @@ def test_parse_reports_the_documented_widening(dialect, raw, declared, canonical
     storage -- and re-rendering it produces the identical string, which is
     the part the differ can rely on.
     """
-    parsed = dialect.parse_type(raw)
+    parsed = _parse(dialect,raw)
     assert type(parsed) is canonical
     assert parsed.to_sql()[0] == declared(dialect).to_sql()[0], (
         "the widened answer must render the same storage as the declaration, "
@@ -1850,7 +1878,7 @@ def test_parse_accepts_the_legacy_vocabulary_by_storage(dialect, raw, expected):
     ``INT64``/``FLOAT64``/``BOOL``; they answer by storage like the words the
     formatters render, because they name the same columns.
     """
-    parsed = dialect.parse_type(raw)
+    parsed = _parse(dialect,raw)
     assert type(parsed) is expected
 
 
@@ -1861,9 +1889,9 @@ def test_parse_carries_the_spelling_that_was_written(dialect):
     of the parsed answer can reproduce the vocabulary the catalog used
     rather than silently rewriting it.
     """
-    assert dialect.parse_type("BOOL").spelling == "bool"
-    assert dialect.parse_type("BOOLEAN").spelling == "boolean"
-    assert dialect.parse_type("BOOL") == dialect.parse_type(
+    assert _parse(dialect,"BOOL").spelling == "bool"
+    assert _parse(dialect,"BOOLEAN").spelling == "boolean"
+    assert _parse(dialect,"BOOL") == _parse(dialect,
         "BOOLEAN"
     ), "spelling is not part of identity, so the two words are one type"
 
@@ -1875,7 +1903,7 @@ def test_parse_numeric_with_one_parameter_means_scale_zero(dialect):
     that rather than inventing a different column. It renders back as
     ``NUMERIC(P, 0)`` -- a different string, the same storage.
     """
-    parsed = dialect.parse_type("NUMERIC(10)")
+    parsed = _parse(dialect,"NUMERIC(10)")
     assert type(parsed) is DecimalType
     assert parsed.precision == 10
     assert parsed.scale == 0
@@ -1890,7 +1918,7 @@ def test_parse_array_recurses_into_the_element(dialect):
     which carries ``element_type`` -- holds the parsed element rather than
     text, and a ``STRING`` element bounds its length on the way back.
     """
-    parsed = dialect.parse_type("ARRAY<STRING(30)>")
+    parsed = _parse(dialect,"ARRAY<STRING(30)>")
     assert type(parsed) is ArrayType
     assert type(parsed.element_type) is VarCharType
     assert parsed.element_type.length == 30
@@ -1917,7 +1945,7 @@ def test_a_word_the_framework_does_not_model_is_custom(dialect, raw):
     never made. The raw is validated by ``CustomType`` itself, so a
     parameterised word survives where a struct's field list cannot.
     """
-    parsed = dialect.parse_type(raw)
+    parsed = _parse(dialect,raw)
     assert type(parsed) is CustomType
     assert parsed.raw == raw
 
@@ -1931,16 +1959,16 @@ def test_struct_cannot_be_carried_and_says_why(dialect):
     names the caller's string.
     """
     with pytest.raises(InvalidTypeNameError, match="STRUCT"):
-        dialect.parse_type("STRUCT<a INT64, b STRING>")
+        _parse(dialect,"STRUCT<a INT64, b STRING>")
 
 
-def test_parse_type_refuses_an_empty_string(dialect):
+def test_the_parser_refuses_an_empty_string(dialect):
     """Nothing handed to parse is a caller error, not a type name.
 
     ``CustomType`` refuses an empty raw at construction, but with a message
     about type-name grammar; this names the actual fault.
     """
     with pytest.raises(ValueError, match="empty"):
-        dialect.parse_type("")
+        _parse(dialect,"")
     with pytest.raises(ValueError, match="empty"):
-        dialect.parse_type("   ")
+        _parse(dialect,"   ")

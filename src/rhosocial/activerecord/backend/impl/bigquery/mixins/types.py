@@ -2,14 +2,16 @@
 """BigQuery type support mixin."""
 from __future__ import annotations
 
-import re
-
-from typing import Dict, Tuple
+from typing import Tuple
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.suggestion.definitions import (
+    SubstituteAdviceSuggestion,
+    SubstituteTypeSuggestion,
+)
 
 # Imported for real, not under TYPE_CHECKING: the spelling gates below pass the
-# concept class to ``check_spelling`` as a *value* (it reads ``SPELLINGS`` off
+# concept class to ``_check_spelling`` as a *value* (it reads ``SPELLINGS`` off
 # it), so these names have to exist at runtime. The core types package imports
 # no backend, so this does not close a cycle.
 from rhosocial.activerecord.backend.expression.types import (
@@ -19,7 +21,6 @@ from rhosocial.activerecord.backend.expression.types import (
     BooleanType,
     CharType,
     CustomType,
-    DataType,
     DateTimeType,
     DateType,
     DecimalType,
@@ -52,7 +53,7 @@ class BigQueryTypeSupportMixin:
     integer, ``STRING`` is character data, ``NUMERIC`` is exact fixed-point,
     ``BOOL`` is a boolean, ``BYTES`` is a byte string, ``JSON`` is JSON. So the
     backend declares formatters for the core concepts and substitutes the rest
-    (see :meth:`substitute_data_types`), and a subclass of ``DataType`` would
+    (see :meth:`suggest_substitute_types`), and a subclass of ``DataType`` would
     only add a second name for a type that already has one.
 
     The three BigQuery types with no core concept — ``GEOGRAPHY``,
@@ -63,7 +64,7 @@ class BigQueryTypeSupportMixin:
 
     Every concept is *declared* one way or the other: rendered (a
     ``format_data_type_<name>`` / ``supports_data_type_<name>`` pair) or
-    substituted (an entry in ``substitute_data_types()``). Silence is the one
+    substituted (an entry in ``suggest_substitute_types()``). Silence is the one
     answer that is not allowed — it leaves a caller who asked told only that
     the type is unsupported.
 
@@ -188,7 +189,7 @@ class BigQueryTypeSupportMixin:
           datetime_part`` is the *operand* of date arithmetic, an ``INT64``
           count of one unit, and ``INTERVAL`` is a duration type rather than a
           column type on this backend at all (see
-          :meth:`substitute_data_types`).
+          :meth:`suggest_substitute_types`).
 
         The signed range does cover every width's unsigned range, so nothing is
         lost by dropping the *concept* on this backend; what would be lost is
@@ -256,7 +257,7 @@ class BigQueryTypeSupportMixin:
         :meth:`_refuse_unsigned_integer`, which is also where the reason for
         the refusal is written down.
         """
-        self.check_spelling(expr, TinyIntType)
+        self._check_spelling(expr, TinyIntType)
         self._refuse_unsigned_integer(expr, "TINYINT")
         return "INT64", ()
 
@@ -273,7 +274,7 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self.check_spelling(expr, SmallIntType)
+        self._check_spelling(expr, SmallIntType)
         self._refuse_unsigned_integer(expr, "SMALLINT")
         return "INT64", ()
 
@@ -290,7 +291,7 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self.check_spelling(expr, IntegerType)
+        self._check_spelling(expr, IntegerType)
         self._refuse_unsigned_integer(expr, "INT")
         return "INT64", ()
 
@@ -308,7 +309,7 @@ class BigQueryTypeSupportMixin:
         ``unsigned`` is refused rather than ignored; see
         :meth:`_refuse_unsigned_integer`.
         """
-        self.check_spelling(expr, BigIntType)
+        self._check_spelling(expr, BigIntType)
         self._refuse_unsigned_integer(expr, "BIGINT")
         return "INT64", ()
 
@@ -580,7 +581,7 @@ class BigQueryTypeSupportMixin:
         about zero and whose field layout has a signed exponent, so there is no
         unsigned double-precision column for the request to have become.
         """
-        self.check_spelling(expr, DoubleType)
+        self._check_spelling(expr, DoubleType)
         self._refuse_unsigned_numeric(expr, "DOUBLE PRECISION")
         return "FLOAT64", ()
 
@@ -746,7 +747,7 @@ class BigQueryTypeSupportMixin:
         type-modifier position, so there is no ``NUMERIC UNSIGNED`` to write.
         """
         self._refuse_unsigned_numeric(expr, "DECIMAL")
-        self.check_spelling(expr, DecimalType)
+        self._check_spelling(expr, DecimalType)
         self._check_numeric_parameters(expr)
         if expr.scale is not None and expr.precision is None:
             ranges = (
@@ -798,7 +799,7 @@ class BigQueryTypeSupportMixin:
         spellings are accepted and normalised, since the concept is the same
         two-valued column either way.
         """
-        self.check_spelling(expr, BooleanType)
+        self._check_spelling(expr, BooleanType)
         return "BOOL", ()
 
     # ------------------------------------------------------------------
@@ -888,7 +889,7 @@ class BigQueryTypeSupportMixin:
         A declared length is range-checked against the one bound the reference
         states; see :meth:`_check_string_length`.
         """
-        self.check_spelling(expr, CharType)
+        self._check_spelling(expr, CharType)
         length = expr.length
         self._check_string_length(length)
         # ``is not None`` rather than a truthiness test: a length of 0 is an
@@ -907,7 +908,7 @@ class BigQueryTypeSupportMixin:
         ``STRING(length)`` is. Both spellings render identically, and a declared
         length is range-checked the same way; see :meth:`_check_string_length`.
         """
-        self.check_spelling(expr, VarCharType)
+        self._check_spelling(expr, VarCharType)
         length = expr.length
         self._check_string_length(length)
         return (f"STRING({length})", ()) if length is not None else ("STRING", ())
@@ -924,7 +925,7 @@ class BigQueryTypeSupportMixin:
         would refuse a spelling of a type BigQuery does have, which tells the
         caller less than the widened column does.
         """
-        self.check_spelling(expr, TextType)
+        self._check_spelling(expr, TextType)
         return "STRING", ()
 
     # ------------------------------------------------------------------
@@ -1163,10 +1164,10 @@ class BigQueryTypeSupportMixin:
         are accepted and normalised.
 
         The fixed- and variable-length byte-string concepts do **not** render
-        here at all — see :meth:`substitute_data_types` for why ``BYTES``'s
+        here at all — see :meth:`suggest_substitute_types` for why ``BYTES``'s
         declared length is a maximum rather than a width.
         """
-        self.check_spelling(expr, BlobType)
+        self._check_spelling(expr, BlobType)
         return "BYTES", ()
 
     # ------------------------------------------------------------------
@@ -1278,7 +1279,7 @@ class BigQueryTypeSupportMixin:
     # Core types BigQuery stores some other way
     # ------------------------------------------------------------------
 
-    def substitute_data_types(self) -> Dict[str, type]:
+    def suggest_substitute_types(self) -> SubstituteTypeSuggestion:
         """Core types BigQuery stores some other way.
 
         BigQuery's type list is closed, documented and short, so most core
@@ -1333,152 +1334,20 @@ class BigQueryTypeSupportMixin:
         rendering path here, so there is nothing to suggest (suggested and
         supported keys are disjoint by contract).
         """
-        return {
-            "binary": BlobType,
-            "varbinary": BlobType,
-            "enum": VarCharType,
-            "interval": IntegerType,
-            "uuid": VarCharType,
-            "xml": TextType,
-        }
+        return SubstituteTypeSuggestion(
+            mapping={
+                "binary": BlobType,
+                "varbinary": BlobType,
+                "enum": VarCharType,
+                "interval": IntegerType,
+                "uuid": VarCharType,
+                "xml": TextType,
+            }
+        )
 
-    #: ``ARRAY<T>`` with the element as a captured group, so the element can be
-    #: handed back to :meth:`parse_type` itself. Decided before any word list
-    #: because the element is a type string and the word is not.
-    _PARSE_ARRAY_RE = re.compile(r"^ARRAY\s*<\s*(.+?)\s*>$", re.IGNORECASE)
-    #: ``STRING`` or ``STRING(L)`` — two answers, not one: the bounded form is a
-    #: different concept from the unbounded one.
-    _PARSE_STRING_RE = re.compile(r"^STRING(?:\s*\(\s*(\d+)\s*\))?$", re.IGNORECASE)
-    #: ``NUMERIC`` / ``NUMERIC(P)``, ``NUMERIC(P, S)``. ``BIGNUMERIC`` does not
-    #: match: it is a separate BigQuery type this dialect does not render, and
-    #: the word list below never reaches it.
-    _PARSE_NUMERIC_RE = re.compile(
-        r"^NUMERIC(?:\s*\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\))?$", re.IGNORECASE
-    )
-
-    def parse_type(self, raw: str) -> DataType:
-        """Turn a BigQuery type string back into the ``DataType`` it names.
-
-        Canonical, with the same shape of contract the other backends hold:
-
-        **One concept in, one class out.** Every word below answers with the
-        *one* class whose rendering is that storage. Where a declaration was
-        widened on the way in — the four integer widths are all ``INT64``, the
-        three float concepts are all ``FLOAT64`` — the parse answers with the
-        storage's own concept, which is the one that was *not* widened:
-        ``INT64`` is the 64-bit integer (``BigIntType``, the "eight bytes" the
-        ``tinyint`` formatter names), ``FLOAT64`` is double precision
-        (``DoubleType``), bare ``STRING`` is unbounded text (``TextType``),
-        ``STRING(L)`` is the variable-length bounded string the ``varchar``
-        formatter documents ``STRING(length)`` as being, and ``TIMESTAMP`` is
-        the absolute instant BigQuery documents — the ``timestamptz`` concept,
-        because a BigQuery ``TIMESTAMP`` is UTC-normalised rather than naive.
-        A narrowed declaration reading back as its widened concept is the
-        differ reporting a real widening, which is what happened on the
-        server; it is not a parse error.
-
-        **The vocabulary is doubled, and the second half is legacy.** The
-        formatters above are one vocabulary; the legacy schema surfaces (the
-        ``bq`` tool and the legacy-format column list) are a second one naming
-        the same storages: ``INTEGER``/``FLOAT``/``BOOLEAN`` answer by
-        storage, and ``RECORD`` — the legacy word for ``STRUCT`` — falls
-        through to ``CustomType``, the framework having no concept for it.
-
-        **A word the framework does not model is ``CustomType``, not a
-        guess.** ``GEOGRAPHY``, ``INTERVAL`` and ``BIGNUMERIC`` are real
-        BigQuery types with no core concept (the last is documented above the
-        formatters as out of this dialect's scope), so they answer
-        ``CustomType`` carrying the word, exactly as MySQL's parse answers
-        words MySQL does not write. ``STRUCT<...>`` cannot even be carried —
-        a struct's field list is not identifier-shaped, so the type-name
-        validation refuses it — and the resulting ``InvalidTypeNameError``
-        names the caller's string rather than misreporting the column as a
-        bare ``STRUCT`` two different tables would compare equal.
-
-        Args:
-            raw: a type string as the catalog reports it, or as a caller's
-                DDL spells it.
-
-        Returns:
-            The ``DataType`` naming that storage.
-
-        Raises:
-            ValueError: *raw* is empty — nothing was handed to parse.
-            InvalidTypeNameError: *raw* names a type whose text cannot be
-                carried as a type name at all (``STRUCT<...>``).
-        """
-        stripped = raw.strip()
-        if not stripped:
-            raise ValueError("parse_type needs a type string; an empty one names nothing")
-        upper = stripped.upper()
-
-        # ARRAY<T> first: the element is itself a type string, so the word
-        # lists below must not see it. Nested arrays answer structurally —
-        # whether the *server* can hold one is a declaration question the
-        # formatter already refuses by name.
-        array_match = self._PARSE_ARRAY_RE.match(stripped)
-        if array_match is not None:
-            return ArrayType(dialect=self, element_type=self.parse_type(array_match.group(1)))
-
-        # STRING(L) is decided before STRING: a bounded string and an
-        # unbounded one are two concepts, not one.
-        string_match = self._PARSE_STRING_RE.match(stripped)
-        if string_match is not None:
-            length = string_match.group(1)
-            if length is None:
-                return TextType(dialect=self)
-            return VarCharType(dialect=self, length=int(length))
-
-        # NUMERIC and its parameters. A single parameter means scale 0 — the
-        # "S is interpreted to be 0 if unspecified" the decimal formatter
-        # quotes — so the answer says it rather than inventing a different
-        # column. This form never comes from a rendering above; it comes from
-        # a caller's DDL, and the answer renders back as NUMERIC(P, 0),
-        # which is the same storage the server holds.
-        numeric_match = self._PARSE_NUMERIC_RE.match(stripped)
-        if numeric_match is not None:
-            precision, scale = numeric_match.group(1), numeric_match.group(2)
-            if precision is None:
-                return DecimalType(dialect=self)
-            if scale is None:
-                return DecimalType(dialect=self, precision=int(precision), scale=0)
-            return DecimalType(dialect=self, precision=int(precision), scale=int(scale))
-
-        # Words with no parameters at all: the rendered vocabulary and the
-        # legacy one, each answered by its storage. The spelling is carried
-        # where the concept has more than one word, so BOOL and BOOLEAN stay
-        # distinguishable in the rendering without ever being two classes.
-        if upper in ("INT64", "INTEGER"):
-            return BigIntType(dialect=self)
-        if upper in ("FLOAT64", "FLOAT"):
-            return DoubleType(dialect=self)
-        if upper == "BOOL":
-            return BooleanType(dialect=self, spelling="bool")
-        if upper == "BOOLEAN":
-            return BooleanType(dialect=self, spelling="boolean")
-        if upper == "BYTES":
-            return BlobType(dialect=self)
-        if upper == "JSON":
-            return JsonType(dialect=self)
-        if upper == "DATE":
-            return DateType(dialect=self)
-        if upper == "TIME":
-            return TimeType(dialect=self)
-        if upper == "DATETIME":
-            return DateTimeType(dialect=self)
-        if upper == "TIMESTAMP":
-            # A BigQuery TIMESTAMP is an absolute point in time,
-            # UTC-normalised, exactly the instant the timestamptz concept
-            # names. A naive TIMESTAMP declaration reads back as this, which
-            # the differ reports as the widening the server performed.
-            return TimestampTzType(dialect=self)
-
-        # Everything else is a word the framework has no concept for, and the
-        # honest answer carries the word rather than guessing: GEOGRAPHY,
-        # INTERVAL, BIGNUMERIC, RECORD, an extension type. STRUCT<...> never
-        # reaches CustomType, because its field list is not identifier-shaped
-        # and the type-name validation refuses it by design.
-        return CustomType(dialect=self, raw=stripped)
+    def suggest_substitute_advice(self, name: str) -> SubstituteAdviceSuggestion:
+        """No extra caveat: each substitution above names its actual storage."""
+        return SubstituteAdviceSuggestion(advice="")
 
 
 __all__ = ["BigQueryTypeSupportMixin"]

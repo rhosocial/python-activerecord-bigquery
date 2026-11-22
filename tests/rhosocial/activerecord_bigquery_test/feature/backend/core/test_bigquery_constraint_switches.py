@@ -598,19 +598,19 @@ class TestRefusalsTheFalseValuesProduce:
     def test_column_check_is_refused_by_name(self):
         d = _dialect()
         branch = ColumnCheckConstraint(d, _predicate(d))
-        with pytest.raises(UnsupportedFeatureError, match="CHECK column constraint"):
+        with pytest.raises(UnsupportedFeatureError, match="CHECK column expr"):
             d.format_column_check_constraint(branch)
 
     def test_column_check_is_refused_on_the_full_column_path(self):
         """The same refusal through the dispatcher a ``ColumnDefinition`` takes."""
         d = _dialect()
         constraint = ColumnConstraint(d, branch=ColumnCheckConstraint(d, _predicate(d)))
-        with pytest.raises(UnsupportedFeatureError, match="CHECK column constraint"):
+        with pytest.raises(UnsupportedFeatureError, match="CHECK column expr"):
             d.format_column_constraint(constraint)
 
     def test_column_unique_is_refused_by_name(self):
         d = _dialect()
-        with pytest.raises(UnsupportedFeatureError, match="UNIQUE column constraint"):
+        with pytest.raises(UnsupportedFeatureError, match="UNIQUE column expr"):
             d.format_column_constraint(
                 ColumnConstraint(d, branch=ColumnUniqueConstraint(d))
             )

@@ -2,7 +2,7 @@
 """Which column class BigQuery suggests for each common Python type.
 
 This is BigQuery's answer to the twenty-four-entry closed list the
-:class:`~rhosocial.activerecord.backend.dialect.protocols.ColumnTypeSupport`
+:class:`~rhosocial.activerecord.backend.suggestion.protocols.ColumnTypeSuggestionSupport`
 protocol names: ``bool``, ``int``, ``float``, ``decimal.Decimal``, ``str``,
 ``bytes``, ``bytearray``, ``datetime.date``, ``datetime.time``,
 ``datetime.datetime``, ``datetime.timedelta``, ``uuid.UUID``, ``dict``,
@@ -71,8 +71,9 @@ answering them would be a ruling nobody has made:
   array"), which this backend's array formatter refuses explicitly.
 * **``RANGE<DATE|DATETIME|TIMESTAMP>`` (fix item #8).** Documented as
   ``RANGE<DATE>`` / ``RANGE<DATETIME>`` / ``RANGE<TIMESTAMP>`` on the data-types
-  page, but this backend's ``parse_type`` cannot carry the parameterised form
-  and raises ``InvalidTypeNameError`` (bare ``RANGE`` works, as a word-carrying
+  page, but the backend's introspection type parser (see
+  :mod:`~...introspection.type_parser`) cannot carry the parameterised form and
+  raises ``InvalidTypeNameError`` (bare ``RANGE`` works, as a word-carrying
   ``CustomType``). That gap is the DataType layer's and stays open here; it is
   named so a reader does not read this table as covering it.
 
@@ -101,7 +102,10 @@ from rhosocial.activerecord.backend.adapters import (
     Range,
     Vector,
 )
-from rhosocial.activerecord.backend.dialect.mixins import ColumnTypeMixin
+from rhosocial.activerecord.backend.suggestion.definitions import (
+    ColumnTypeSuggestion,
+    ExtraColumnTypeSuggestion,
+)
 from rhosocial.activerecord.backend.expression.column_types import (
     ArrayColumn,
     BinaryColumn,
@@ -264,7 +268,7 @@ BIGQUERY_COLUMN_TYPES: Dict[Any, Type[ColumnBase]] = {
     frozenset: ArrayColumn,
     # BigQuery has no `ENUM` type -- the documented `SQL type name:` rows do
     # not include one -- so the value is stored as `STRING` and constrained
-    # outside the type, which is what this backend's `substitute_data_types`
+    # outside the type, which is what this backend's `suggest_substitute_types`
     # already says for `enum`. The column class is unaffected: comparison,
     # `IN` and `ORDER BY` are the text surface, which is `StringColumn`'s.
     #
@@ -298,28 +302,32 @@ BIGQUERY_COLUMN_TYPES: Dict[Any, Type[ColumnBase]] = {
 }
 
 
-class BigQueryColumnTypeMixin(ColumnTypeMixin):
-    """BigQuery's answer to the column-type protocol.
+class BigQueryColumnTypeMixin:
+    """BigQuery's answer to the column-type suggestion protocol.
 
-    Composed into ``BigQueryDialect`` as the whole table: the rebuilt core
-    declares no generic common-type table to sit behind it, so
-    :meth:`suggested_column_types` here is the answer the model layer reads for
+    The rebuilt core declares no generic common-type table and no
+    ``ColumnTypeMixin`` to sit behind this one, so this is a standalone mixin:
+    :meth:`suggest_column_types` here is the answer the model layer reads for
     every one of the twenty-four framework types, and
-    :meth:`~rhosocial.activerecord.backend.dialect.mixins.column_type.ColumnTypeMixin.suggested_extra_column_types`
-    stays empty because this backend models no Python type of its own.
+    :meth:`suggest_extra_column_types` stays empty because this backend models
+    no Python type of its own.
 
     Evidence level for the whole table is 文档（待云验） -- see the module
     docstring. Nothing here was measured against a server.
     """
 
-    def suggested_column_types(self) -> Dict[Any, Type[ColumnBase]]:
+    def suggest_column_types(self) -> ColumnTypeSuggestion:
         """A fresh copy of :data:`BIGQUERY_COLUMN_TYPES`, one class per entry.
 
         All twenty-four entries of the protocol's closed list are answered, and
         none is ``None``: BigQuery has a documented type for every value
         family, so the protocol's last resort never applies here.
         """
-        return dict(BIGQUERY_COLUMN_TYPES)
+        return ColumnTypeSuggestion(table=dict(BIGQUERY_COLUMN_TYPES))
+
+    def suggest_extra_column_types(self) -> ExtraColumnTypeSuggestion:
+        """No backend-owned extra column types."""
+        return ExtraColumnTypeSuggestion(table={})
 
 
 __all__ = ["BIGQUERY_COLUMN_TYPES", "BigQueryColumnTypeMixin"]

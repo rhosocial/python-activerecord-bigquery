@@ -3,6 +3,10 @@
 
 from typing import Dict, Tuple
 
+from rhosocial.activerecord.backend.suggestion.definitions import (
+    ConcatenationFunctionSuggestion,
+)
+
 
 class BigQueryCapabilityMixin:
     """BigQuery capability detection.
@@ -14,6 +18,9 @@ class BigQueryCapabilityMixin:
     #: the only spelling.
     STRING_CONCATENATION = "CONCAT"
 
+    def suggest_concatenation_function(self) -> ConcatenationFunctionSuggestion:
+        """BigQuery spells concatenation as ``CONCAT(a, b)``; it has no ``||``."""
+        return ConcatenationFunctionSuggestion(function=self.STRING_CONCATENATION)
 
     def supports_table_comment(self) -> bool:
         """Whether an inline table comment is supported.
