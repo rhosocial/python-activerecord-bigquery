@@ -768,7 +768,7 @@ dialect.supports_foreign_key_introspection() # False
 dialect.get_supported_introspection_scopes() # []
 ```
 
-于是每个元数据查询格式化方法都会拒绝：
+于是每个元数据查询格式化函数都会拒绝：
 
 ```python
 TableInfoQueryStatement(d, "orders").to_sql()
@@ -886,7 +886,7 @@ project 这一级。见[物化视图](#物化视图)。
 语句塞一个裸字符串确实会在构造期被拦下，只是那是 `TypeError`。
 
 **去找元数据内省功能。** `supports_introspection()` 返回 `True`，而各个分项内省
-标志都是 `False`，查询格式化方法一律抛异常。见 [本后端的内省](#本后端的内省)。
+标志都是 `False`，查询格式化函数一律抛异常。见 [本后端的内省](#本后端的内省)。
 
 **dataset 名字的大小写写错。** 渲染器保留大小写，而 dataset 名默认区分大小写，
 因此 `` `app` `` 找不到建为 `APP` 的 dataset。见 [渲染](#渲染)。

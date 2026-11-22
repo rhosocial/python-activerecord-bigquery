@@ -11,7 +11,7 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect <TYPE> [NAME] 
 
 ## What it can ask about
 
-Fifteen types, each gated by the dialect capability switch that answers for it
+Fifteen types, each gated by the dialect support switch that answers for it
 (`_TYPE_CAPABILITIES` in `introspect.py`). A type whose switch is `False` is
 refused with exit code 2 rather than answered with an empty row: "this project
 cannot report per-index use counters" and "this project has no counters" are

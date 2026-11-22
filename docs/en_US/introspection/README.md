@@ -205,7 +205,7 @@ print(coverage.left_coverage, coverage.right_coverage)
 
 ## The `COLUMNS` Projection and the Emulator
 
-`INFORMATION_SCHEMA.COLUMNS` reports its own columns nowhere, so the only question that says which of them an endpoint carries is the `COLUMNS` question itself. There is no version and no capability switch for it: BigQuery reports no server release, and this backend's version is a feature level rather than a negotiated one.
+`INFORMATION_SCHEMA.COLUMNS` reports its own columns nowhere, so the only question that says which of them an endpoint carries is the `COLUMNS` question itself. There is no version and no support switch for it: BigQuery reports no server release, and this backend's version is a feature level rather than a negotiated one.
 
 Two projections exist, and they answer different questions.
 

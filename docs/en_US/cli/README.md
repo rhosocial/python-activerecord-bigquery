@@ -44,7 +44,7 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect value-samples 
 Fifteen introspection types are offered: `tables`, `views`, `routines`, `columns`,
 `datasets`, `database`, `partitions`, `column-profiles`, `value-samples`, `join-coverage`,
 `unused-indexes`, `table-stats`, `runtime`, `index-stats`, `dependencies`. The list is
-derived from the same mapping that gates each type on its capability switch, so a family
+derived from the same mapping that gates each type on its support switch, so a family
 cannot be advertised and forgotten by the probe. Unsupported types exit 2 with the reason
 on stderr. `ddl` is not offered because no extraction statement exists.
 

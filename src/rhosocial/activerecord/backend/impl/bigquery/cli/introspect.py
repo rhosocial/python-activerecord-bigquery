@@ -58,7 +58,7 @@ from .connection import (
 )
 from .output import OUTPUT_CHOICES, create_provider
 
-#: Subcommand -> the dialect capability switch that decides whether the
+#: Subcommand -> the dialect support switch that decides whether the
 #: connected project can answer it.
 #:
 #: The advertised list is derived from this mapping, so a subcommand cannot

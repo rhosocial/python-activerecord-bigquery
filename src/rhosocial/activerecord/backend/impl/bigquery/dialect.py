@@ -75,7 +75,7 @@ from .mixins import (
     BigQuerySchemaMixin,
     BigQueryNamespaceMixin,
     BigQueryDDLColumnMixin,
-    # Constraint capability switches, all declared locally and all read off the
+    # Constraint support switches, all declared locally and all read off the
     # official ``column_schema`` / ``constraint_definition`` / ``ALTER TABLE``
     # grammar (grammar-only: no BigQuery instance is reachable and the CI
     # emulator implements neither ALTER constraint statement).  Before this
@@ -128,7 +128,7 @@ class BigQueryDialect(
     BigQueryDQLMixin,
     BigQuerySchemaMixin,
     BigQueryDDLColumnMixin,
-    # Constraint capability switches. Ahead of core's ConstraintMixin and
+    # Constraint support switches. Ahead of core's ConstraintMixin and
     # DDLColumnMixin below: every constraint answer BigQuery gives is declared
     # in this package with the official grammar it rests on, so a moved core
     # default cannot silently become BigQuery's contract.  Several values

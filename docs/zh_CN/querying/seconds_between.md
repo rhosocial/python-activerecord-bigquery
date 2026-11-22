@@ -47,7 +47,7 @@ sql, params = seconds_between(dialect, started, ended).to_sql()
 | `/ 1000.0` | 把毫秒计数换算成秒；小数分母让除法保持浮点。 |
 | `ended_at` 写在前面 | `TIMESTAMP_DIFF` 的第一个参数是**结束**时刻；通用 `start, end` 必须交换，否则符号会反。 |
 
-换成绑定参数时，结束参数的绑定顺序在前——格式化器按 SQL 的书写顺序收集参数：
+换成绑定参数时，结束参数的绑定顺序在前——格式化函数按 SQL 的书写顺序收集参数：
 
 ```python
 seconds_between(dialect, Literal(dialect, start_dt), Literal(dialect, end_dt)).to_sql()
@@ -100,6 +100,6 @@ live 用例位于
 只有在配置了场景、且端点可达时才会运行；本仓库唯一能连到的端点是 CI 使用的
 `goccy/bigquery-emulator`。若端点无法求值 `TIMESTAMP_DIFF`——模拟器只实现
 GoogleSQL 的一个子集——用例会带着服务器给出的原因跳过，而不是把模拟器的能力
-缺口报成格式化器失败。撰写本页时没有模拟器在运行，live 用例的结果是
+缺口报成格式化函数失败。撰写本页时没有模拟器在运行，live 用例的结果是
 **skipped: no reachable BigQuery endpoint**；上面关于渲染与绑定顺序的用例是已经
 验证的部分。
