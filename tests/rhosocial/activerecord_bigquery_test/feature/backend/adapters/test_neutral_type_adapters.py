@@ -11,6 +11,7 @@ ones documented in ``rhosocial.activerecord.backend.impl.bigquery.adapters``:
     Range      -> RANGE<...> ({"start", "end"} mapping / [start, end) literal)
     Multirange -> STRING (JSON text; BigQuery has no MULTIRANGE)
     MacAddress -> STRING (canonical colon text)
+    IPAddress  -> STRING (canonical IPv4/IPv6 text)
 """
 
 import datetime
@@ -21,6 +22,7 @@ import pytest
 from rhosocial.activerecord.backend.adapters import (
     BitString,
     Geometry,
+    IPAddress,
     MacAddress,
     Multirange,
     Point,
@@ -31,6 +33,7 @@ from rhosocial.activerecord.backend.errors import TypeConversionError
 from rhosocial.activerecord.backend.impl.bigquery.adapters import (
     BigQueryBitStringAdapter,
     BigQueryGeometryAdapter,
+    BigQueryIPAddressAdapter,
     BigQueryMacAddressAdapter,
     BigQueryRangeAdapter,
     BigQueryVectorAdapter,
@@ -43,6 +46,7 @@ from rhosocial.activerecord.backend.impl.bigquery.backend.backend import (
 NEUTRAL_ADAPTER_CLASSES = (
     BigQueryBitStringAdapter,
     BigQueryGeometryAdapter,
+    BigQueryIPAddressAdapter,
     BigQueryMacAddressAdapter,
     BigQueryRangeAdapter,
     BigQueryVectorAdapter,
@@ -212,6 +216,22 @@ class TestMacAddressAdapter:
         adapter = BigQueryMacAddressAdapter()
         with pytest.raises(TypeConversionError):
             adapter.from_database("nope", MacAddress)
+
+
+class TestIPAddressAdapter:
+    @pytest.mark.parametrize("text", ["192.0.2.1", "2001:db8::1"])
+    def test_canonical_text_round_trip(self, text):
+        adapter = BigQueryIPAddressAdapter()
+        ip = IPAddress.parse(text)
+
+        encoded = adapter.to_database(ip, str)
+        assert encoded == text
+        assert adapter.from_database(encoded, IPAddress) == ip
+
+    def test_bad_text_is_wrapped(self):
+        adapter = BigQueryIPAddressAdapter()
+        with pytest.raises(TypeConversionError):
+            adapter.from_database("not-an-ip", IPAddress)
 
 
 def test_inventory_contains_neutral_adapters():

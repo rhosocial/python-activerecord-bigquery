@@ -1196,14 +1196,14 @@ class BigQueryBackend(
     def _register_bigquery_adapters(self):
         from ..adapters import (
             BigQueryBitStringAdapter, BigQueryGeometryAdapter,
-            BigQueryMacAddressAdapter, BigQueryRangeAdapter,
+            BigQueryIPAddressAdapter, BigQueryMacAddressAdapter, BigQueryRangeAdapter,
             BigQueryStructAdapter, BigQueryArrayAdapter,
             BigQueryJSONAdapter, BigQueryDecimalAdapter,
             BigQueryTimestampAdapter, BigQueryVectorAdapter,
         )
         for adapter in [
             BigQueryBitStringAdapter(), BigQueryGeometryAdapter(),
-            BigQueryMacAddressAdapter(), BigQueryRangeAdapter(),
+            BigQueryIPAddressAdapter(), BigQueryMacAddressAdapter(), BigQueryRangeAdapter(),
             BigQueryStructAdapter(), BigQueryArrayAdapter(),
             BigQueryJSONAdapter(), BigQueryDecimalAdapter(),
             BigQueryTimestampAdapter(), BigQueryVectorAdapter(),

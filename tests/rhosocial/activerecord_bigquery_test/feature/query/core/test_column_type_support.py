@@ -109,9 +109,10 @@ def test_the_canonical_entry_list_is_the_declared_order():
     """Order is the protocol's reading order, and the list lives in the framework.
 
     Both dialect tables are keyed by ``FRAMEWORK_PYTHON_TYPES``, so the order
-    stated here is the one both lookups walk. The six complex families come last
+    stated here is the one both lookups walk. The complex families come last
     because the subclass walk must meet ``bool`` before ``int`` and must meet
-    ``Geometry`` only for a geometry annotation.
+    ``Geometry`` only for a geometry annotation; ``AwareDatetime`` precedes
+    ``datetime`` so the exact-match step wins over the subclass walk.
     """
     assert _ENTRY_IDS == [
         "bool",
@@ -123,6 +124,7 @@ def test_the_canonical_entry_list_is_the_declared_order():
         "bytearray",
         "date",
         "time",
+        "AwareDatetime",
         "datetime",
         "timedelta",
         "UUID",
@@ -138,6 +140,7 @@ def test_the_canonical_entry_list_is_the_declared_order():
         "Range",
         "Multirange",
         "MacAddress",
+        "IPAddress",
     ]
 
 
@@ -299,7 +302,7 @@ def test_there_is_no_inherited_common_table():
 
 
 def test_sqlite_answers_exactly_the_framework_types():
-    """Its table is complete, and none of the twenty-four entries is refused.
+    """Its table is complete, and none of the framework entries is refused.
 
     The six complex families used to be ``None`` for a real reason -- SQLite
     has no spatial or vector operation -- but the core classes they now name

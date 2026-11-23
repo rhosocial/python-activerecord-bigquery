@@ -1,12 +1,13 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/column_type.py
 """Which column class BigQuery suggests for each common Python type.
 
-This is BigQuery's answer to the twenty-four-entry closed list the
+This is BigQuery's answer to the framework-committed closed list the
 :class:`~rhosocial.activerecord.backend.suggestion.protocols.ColumnTypeSuggestionSupport`
 protocol names: ``bool``, ``int``, ``float``, ``decimal.Decimal``, ``str``,
 ``bytes``, ``bytearray``, ``datetime.date``, ``datetime.time``,
-``datetime.datetime``, ``datetime.timedelta``, ``uuid.UUID``, ``dict``,
-``list``, ``tuple``, ``set``, ``frozenset``, ``enum.Enum``. Everything here is
+``AwareDatetime``, ``datetime.datetime``, ``datetime.timedelta``,
+``uuid.UUID``, ``dict``, ``list``, ``tuple``, ``set``, ``frozenset``,
+``enum.Enum``. Everything here is
 a **column** decision -- what operations a value carries -- and none of it is a
 storage decision: whether ``ARRAY<T>`` or ``JSON`` spells the column is the DDL
 layer's separate answer (see :class:`~...mixins.types.BigQueryTypeSupportMixin`),
@@ -95,8 +96,10 @@ import uuid
 from typing import Any, Dict, Type
 
 from rhosocial.activerecord.backend.adapters import (
+    AwareDatetime,
     BitString,
     Geometry,
+    IPAddress,
     MacAddress,
     Multirange,
     Range,
@@ -115,6 +118,7 @@ from rhosocial.activerecord.backend.expression.column_types import (
     GeometryColumn,
     IntegerColumn,
     IntervalColumn,
+    IPAddressColumn,
     JSONColumn,
     MacAddressColumn,
     MultirangeColumn,
@@ -188,6 +192,9 @@ BIGQUERY_COLUMN_TYPES: Dict[Any, Type[ColumnBase]] = {
     # 文档（待云验）.
     datetime.date: TimestampColumn,
     datetime.time: TimestampColumn,
+    # An instant still carries the shared temporal surface; the tz fact is a
+    # storage decision, made by the data-type table and the TIMESTAMP formatter.
+    AwareDatetime: TimestampColumn,
     datetime.datetime: TimestampColumn,
     # A duration is a span, not a number, so it answers `IntervalColumn`,
     # which promises no arithmetic. BigQuery also expresses a duration as
@@ -299,6 +306,7 @@ BIGQUERY_COLUMN_TYPES: Dict[Any, Type[ColumnBase]] = {
     Range: RangeColumn,
     Multirange: MultirangeColumn,
     MacAddress: MacAddressColumn,
+    IPAddress: IPAddressColumn,
 }
 
 
@@ -308,7 +316,7 @@ class BigQueryColumnTypeMixin:
     The rebuilt core declares no generic common-type table and no
     ``ColumnTypeMixin`` to sit behind this one, so this is a standalone mixin:
     :meth:`suggest_column_types` here is the answer the model layer reads for
-    every one of the twenty-four framework types, and
+    every framework-committed type, and
     :meth:`suggest_extra_column_types` stays empty because this backend models
     no Python type of its own.
 
@@ -319,7 +327,7 @@ class BigQueryColumnTypeMixin:
     def suggest_column_types(self) -> ColumnTypeSuggestion:
         """A fresh copy of :data:`BIGQUERY_COLUMN_TYPES`, one class per entry.
 
-        All twenty-four entries of the protocol's closed list are answered, and
+        Every entry of the protocol's framework-committed list is answered, and
         none is ``None``: BigQuery has a documented type for every value
         family, so the protocol's last resort never applies here.
         """

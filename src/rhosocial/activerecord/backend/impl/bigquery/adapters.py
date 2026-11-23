@@ -10,6 +10,8 @@ from rhosocial.activerecord.backend.adapters import (
     Geometry,
     GeometryAdapterBase,
     GeometryCollection,
+    IPAddress,
+    IPAddressAdapterBase,
     LineString,
     MacAddress,
     MacAddressAdapterBase,
@@ -174,6 +176,7 @@ class BigQueryTimestampAdapter(SQLTypeAdapter):
 #                                             ``[start, end)`` string
 #   Multirange     STRING (no native type)    JSON text of Range objects
 #   MacAddress     STRING                     canonical lowercase colon text
+#   IPAddress      STRING (no native type)    canonical IPv4/IPv6 text
 #
 # BigQuery RANGE is always half-open ``[start, end)`` and uses NULL endpoints
 # for ``UNBOUNDED``. The Python client (google-cloud-bigquery 3.47) has no
@@ -448,3 +451,21 @@ class BigQueryMacAddressAdapter(MacAddressAdapterBase):
 
     def _decode(self, value: Any, options: Dict[str, Any]) -> MacAddress:
         return MacAddress.parse(self._require_text(value))
+
+
+class BigQueryIPAddressAdapter(IPAddressAdapterBase):
+    """Encodes neutral IP addresses as canonical text in a ``STRING`` column.
+
+    BigQuery has no IP type; the wire value is the canonical compressed form
+    produced by ``str(IPAddress)`` (``192.0.2.1`` / ``2001:db8::1``).
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.register_type(IPAddress, str)
+
+    def _encode(self, ip_addr: IPAddress, target_type: Type, options: Dict[str, Any]) -> str:
+        return str(ip_addr)
+
+    def _decode(self, value: Any, options: Dict[str, Any]) -> IPAddress:
+        return IPAddress.parse(self._require_text(value))

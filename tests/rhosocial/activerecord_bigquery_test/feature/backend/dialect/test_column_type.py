@@ -1,5 +1,5 @@
 # tests/rhosocial/activerecord_bigquery_test/feature/backend/dialect/test_column_type.py
-"""BigQuery's twenty-four-entry column-type table.
+"""BigQuery's framework-committed column-type table.
 
 Pure dialect tests -- no server, no emulator. What is asserted here is the
 **declaration**: that the table answers every entry of the protocol's closed
@@ -27,8 +27,10 @@ import uuid
 
 import pytest
 from rhosocial.activerecord.backend.adapters import (
+    AwareDatetime,
     BitString,
     Geometry,
+    IPAddress,
     MacAddress,
     Multirange,
     Range,
@@ -50,6 +52,7 @@ from rhosocial.activerecord.backend.expression.column_types import (
     GeometryColumn,
     IntegerColumn,
     IntervalColumn,
+    IPAddressColumn,
     JSONColumn,
     MacAddressColumn,
     MultirangeColumn,
@@ -83,6 +86,7 @@ COMMON_TYPES = (
     bytearray,
     datetime.date,
     datetime.time,
+    AwareDatetime,
     datetime.datetime,
     datetime.timedelta,
     uuid.UUID,
@@ -98,6 +102,7 @@ COMMON_TYPES = (
     Range,
     Multirange,
     MacAddress,
+    IPAddress,
 )
 
 #: ``{entry: column class}`` as BigQuery states it. Written out in full rather
@@ -113,6 +118,7 @@ BIGQUERY_ANSWERS = [
     (bytearray, BinaryColumn),
     (datetime.date, TimestampColumn),
     (datetime.time, TimestampColumn),
+    (AwareDatetime, TimestampColumn),
     (datetime.datetime, TimestampColumn),
     (datetime.timedelta, IntervalColumn),
     (uuid.UUID, UUIDColumn),
@@ -128,6 +134,7 @@ BIGQUERY_ANSWERS = [
     (Range, RangeColumn),
     (Multirange, MultirangeColumn),
     (MacAddress, MacAddressColumn),
+    (IPAddress, IPAddressColumn),
 ]
 
 _ENTRY_IDS = [getattr(entry, "__name__", str(entry)) for entry in COMMON_TYPES]
@@ -182,8 +189,8 @@ class TestTableCompleteness:
         """Core deleted its inherited table mixin; the backend answers the protocol itself.
 
         Both tables are now supplied by this backend's own mixin, and the
-        twenty-four answers can only come from its own table -- which the next
-        test then holds to.
+        framework-committed answers can only come from its own table -- which
+        the next test then holds to.
         """
         mixin = _column_type_mixin(dialect)()
         assert isinstance(mixin, ColumnTypeSuggestionSupport)
@@ -191,7 +198,10 @@ class TestTableCompleteness:
         assert isinstance(mixin.suggest_extra_column_types(), ExtraColumnTypeSuggestion)
 
     def test_every_entry_is_answered(self, dialect):
-        """All twenty-four, by name -- an omission fails here rather than at lookup."""
+        """All framework-committed entries, by name.
+
+        An omission fails here rather than at lookup.
+        """
         missing = [e for e in COMMON_TYPES if e not in dialect.suggest_column_types().table]
         assert missing == []
 
@@ -369,7 +379,7 @@ class TestBaselineCells:
 class TestArrayCells:
     """``ARRAY<T>`` in REPEATED mode is native, which is why these are arrays."""
 
-    @pytest.mark.parametrize("entry", [list, tuple, set, frozenset], ids=_ENTRY_IDS[13:17])
+    @pytest.mark.parametrize("entry", [list, tuple, set, frozenset], ids=_ENTRY_IDS[14:18])
     def test_container_entry_is_an_array(self, dialect, entry):
         assert dialect.suggest_column_types().table[entry] is ArrayColumn
 

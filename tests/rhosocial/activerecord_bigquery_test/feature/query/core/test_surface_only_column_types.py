@@ -1,5 +1,5 @@
 # tests/rhosocial/activerecord_bigquery_test/feature/query/core/test_surface_only_column_types.py
-"""The seven surface-only column classes and the tables that answer them.
+"""The surface-only column classes and the tables that answer them.
 
 These families have no operation the framework can promise on every backend --
 see ``value_types.SurfaceOnlyValue`` for the evidence -- so their column
@@ -10,7 +10,7 @@ follows from:
 2. it offers the column surface (alias, null tests, casting) and no family
    operation, in particular no comparison;
 3. every dialect table that names it -- SQLite and the dummy baseline -- stays
-   complete (all twenty-four entries) and answers nothing with ``None``.
+   complete (all framework-committed entries) and answers nothing with ``None``.
 """
 
 import datetime
@@ -21,6 +21,7 @@ import pytest
 from rhosocial.activerecord.backend.adapters import (
     BitString,
     Geometry,
+    IPAddress,
     MacAddress,
     Multirange,
     Range,
@@ -31,6 +32,7 @@ from rhosocial.activerecord.backend.expression import (
     BitStringColumn,
     ColumnBase,
     GeometryColumn,
+    IPAddressColumn,
     IntervalColumn,
     MacAddressColumn,
     MultirangeColumn,
@@ -61,6 +63,7 @@ SURFACE_ONLY = [
     (RangeColumn, Range),
     (MultirangeColumn, Multirange),
     (MacAddressColumn, MacAddress),
+    (IPAddressColumn, IPAddress),
     (IntervalColumn, datetime.timedelta),
 ]
 
@@ -162,7 +165,7 @@ def test_the_annotation_renders_an_aliasless_source():
     ids=["sqlite", "dummy"],
 )
 def test_the_table_is_complete_and_refuses_nothing(table, dialect_factory, expected):
-    """Twenty-four entries, none answered with ``None``."""
+    """Every framework-committed entry, none answered with ``None``."""
     assert set(table) == set(FRAMEWORK_PYTHON_TYPES)
     assert [key for key, value in table.items() if value is None] == []
 

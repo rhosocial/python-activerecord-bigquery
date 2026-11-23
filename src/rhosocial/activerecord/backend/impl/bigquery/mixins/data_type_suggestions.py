@@ -31,6 +31,13 @@ answer below:
   ``datetime.datetime`` declares bare ``TIMESTAMP``; writing
   ``TimestampType(precision=3)`` here would produce a suggestion this dialect
   cannot render.
+* **``AwareDatetime`` is an instant, and BigQuery's ``TIMESTAMP`` already is
+  one.** A bare ``datetime`` is a wall-clock reading and declares the same
+  ``TIMESTAMP`` only for want of a zone-less concept; ``AwareDatetime`` means
+  it. The type is UTC-normalised, so it answers ``TimestampTzType`` -- which
+  renders to the very same ``TIMESTAMP`` through this dialect's
+  ``format_data_type_timestamptz``. No separate storage is needed for the
+  aware concept.
 * **there is no duration type.** ``INTERVAL`` appears in BigQuery's grammar as
   the operand of date arithmetic (``DATE_ADD(d, INTERVAL n DAY)``), where the
   unit belongs to the function and the value is an ``INT64`` count; no column
@@ -64,6 +71,8 @@ with ``UseSqlType``:
   decision; the neutral range literal is text.
 * ``MacAddress`` -- the canonical 17-character form (six two-hex-digit pairs
   and five separators) is ``STRING(17)``.
+* ``IPAddress`` -- no native IP type; the canonical text form fits in at most
+  45 characters (a compressed IPv6 address), so it is ``STRING(45)``.
 
 No key answers ``None``: a suggestion is what a bare field gets, and taking the
 table away from the caller is not an answer.
@@ -88,8 +97,10 @@ from rhosocial.activerecord.backend.suggestion.definitions import (
 )
 
 from rhosocial.activerecord.backend.adapters import (
+    AwareDatetime,
     BitString,
     Geometry,
+    IPAddress,
     MacAddress,
     Multirange,
     Range,
@@ -107,10 +118,11 @@ from rhosocial.activerecord.backend.expression.types import (
     TextType,
     TimeType,
     TimestampType,
+    TimestampTzType,
     VarCharType,
 )
 
-#: BigQuery's suggested declaration per framework-modelled Python type.
+#: BigQuery's suggested declaration per framework-committed Python type.
 BIGQUERY_DATA_TYPE_SUGGESTIONS: Dict[Any, Optional[Any]] = {
     bool: BooleanType(),
     int: IntegerType(),
@@ -121,6 +133,9 @@ BIGQUERY_DATA_TYPE_SUGGESTIONS: Dict[Any, Optional[Any]] = {
     bytearray: BlobType(),
     datetime.date: DateType(),
     datetime.time: TimeType(),
+    # An instant: BigQuery's TIMESTAMP is UTC-normalised, so the tz-aware
+    # concept renders to the same storage as the bare datetime below.
+    AwareDatetime: TimestampTzType(),
     # No precision: TIMESTAMP stores microseconds here and the formatter
     # refuses a parameter rather than silently dropping it.
     datetime.datetime: TimestampType(),
@@ -150,6 +165,8 @@ BIGQUERY_DATA_TYPE_SUGGESTIONS: Dict[Any, Optional[Any]] = {
     Multirange: TextType(),
     # Six hex pairs plus five separators: the canonical MAC form.
     MacAddress: VarCharType(length=17),
+    # No native IP type; canonical text fits in at most 45 characters.
+    IPAddress: VarCharType(length=45),
 }
 
 
@@ -166,8 +183,8 @@ class BigQueryDataTypeSuggestionsMixin:
     def suggest_data_types(self) -> DataTypeSuggestion:
         """A fresh copy of :data:`BIGQUERY_DATA_TYPE_SUGGESTIONS`.
 
-        All twenty-four framework-modelled Python types are answered, none is
-        ``None``, and every value is a ``DataType`` this dialect renders.
+        All framework-committed Python types are answered, none is ``None``,
+        and every value is a ``DataType`` this dialect renders.
         """
         return DataTypeSuggestion(table=dict(BIGQUERY_DATA_TYPE_SUGGESTIONS))
 
