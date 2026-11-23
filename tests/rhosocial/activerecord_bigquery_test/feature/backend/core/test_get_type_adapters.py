@@ -98,3 +98,13 @@ def test_adapter_suggestions_are_unchanged(backend):
     extra = backend.suggest_extra_data_adapters()
     assert isinstance(extra, ExtraDataAdapterSuggestion)
     assert extra.table == {}
+
+
+def test_suggest_data_adapters_maps_ipaddress_to_str(backend):
+    from rhosocial.activerecord.backend.adapters.network import IPAddress
+    from rhosocial.activerecord.backend.impl.bigquery.adapters import BigQueryIPAddressAdapter
+
+    adapter, driver_type = backend.suggest_data_adapters().table[IPAddress]
+
+    assert isinstance(adapter, BigQueryIPAddressAdapter)
+    assert driver_type is str
