@@ -10,12 +10,14 @@ rendered by ``BigQueryIdentityColumnMixin.format_identity_clause`` when a
 column clause is explicitly requested, but it is not the default answer for
 an inferred key.
 
-Returning ``no-action`` therefore keeps the portable column baseline plain
-(``INT64 PRIMARY KEY``). The core consumer degrades an inferred identity to a
-plain column on ``no-action``; only an explicitly declared ``IdentityAttribute``
-that cannot be honoured raises. An explicit identity request is still rendered
-through the expression-layer ``IdentityClause`` channel, independent of this
-suggestion.
+The generated value is reported as ``embedded-in-type``: the value lives in
+the column's declared storage type, with no DDL clause appended, so the
+portable baseline stays byte-for-byte ``INT64 PRIMARY KEY``. This is the
+actionable answer that lets core accept both an inferred key and an explicit
+``IdentityAttribute`` -- ``no-action`` is read by core as "not a generated
+column" and makes an explicit declaration raise. The expression-layer
+``IdentityClause`` / ``format_identity_clause`` path for an explicitly
+requested clause remains independent of this suggestion.
 
 Deliberately a plain class, like the other suggestion mixins: a protocol
 subclass would intercept ``super().__init__()`` and leave ``strict_validation``
@@ -30,10 +32,19 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 class BigQueryGeneratedValueSuggestionMixin:
-    """Decline a generated value for an inferred key; keep the column plain."""
+    """Report the generated-value mechanism as embedded in the storage type."""
 
     def suggest_generated_value(self, default_type: "DataType") -> GeneratedValueSuggestion:
-        return GeneratedValueSuggestion(state="no-action")
+        """Keep the declared type and append no clause for a generated key.
+
+        ``embedded-in-type`` keeps the rendered DDL identical to a plain
+        column -- no IDENTITY clause -- while giving core an actionable answer
+        for both inferred and explicitly declared integer keys.
+        """
+        return GeneratedValueSuggestion(
+            state="embedded-in-type",
+            storage_type=default_type,
+        )
 
 
 __all__ = ["BigQueryGeneratedValueSuggestionMixin"]
