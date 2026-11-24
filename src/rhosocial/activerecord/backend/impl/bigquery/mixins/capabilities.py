@@ -117,6 +117,24 @@ class BigQueryCapabilityMixin:
         """
         return True
 
+    def format_create_view_statement(self, expr) -> Tuple[str, tuple]:
+        """Render ``CREATE VIEW``, refusing the mutually exclusive header pair.
+
+        BigQuery's grammar says ``OR REPLACE`` *cannot appear with*
+        ``IF NOT EXISTS``.  Core renders each flag independently, so without
+        this guard a node carrying both would produce SQL the service rejects.
+        The materialized-view path already raises ``ValueError`` for the same
+        pair; this makes the regular-view path agree with it.
+
+        Raises:
+            ValueError: when both ``replace`` and ``if_not_exists`` are set.
+        """
+        if getattr(expr, "replace", False) and getattr(expr, "if_not_exists", False):
+            raise ValueError(
+                "BigQuery rejects OR REPLACE together with IF NOT EXISTS"
+            )
+        return super().format_create_view_statement(expr)
+
     def supports_if_exists_view(self) -> bool:
         """Whether ``DROP VIEW IF EXISTS`` is supported.
 
@@ -240,6 +258,25 @@ class BigQueryCapabilityMixin:
         https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_table_statement
         """
         return True
+
+    def format_create_table_statement(self, expr) -> Tuple[str, tuple]:
+        """Render ``CREATE TABLE``, refusing the mutually exclusive header pair.
+
+        ``OR REPLACE`` arrives as ``expr.table_options.or_replace``; BigQuery's
+        grammar forbids combining it with ``expr.if_not_exists``.  Core checks
+        each flag on its own, so the pair has to be refused here.
+
+        Raises:
+            ValueError: when both ``or_replace`` and ``if_not_exists`` are set.
+        """
+        table_options = getattr(expr, "table_options", None)
+        if getattr(expr, "if_not_exists", False) and getattr(
+            table_options, "or_replace", False
+        ):
+            raise ValueError(
+                "BigQuery rejects OR REPLACE together with IF NOT EXISTS"
+            )
+        return super().format_create_table_statement(expr)
 
     def supports_rename_column(self) -> bool:
         """Whether ``ALTER TABLE ... RENAME COLUMN`` is supported.

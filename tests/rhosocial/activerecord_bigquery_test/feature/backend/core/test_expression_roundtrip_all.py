@@ -598,6 +598,16 @@ def register_specials():
     )
 
     # -- views --------------------------------------------------------------
+    # ``if_not_exists`` is the clause this probe flip made reachable.  The
+    # generic guess sets every bool, which now trips the dialect's
+    # OR-REPLACE/IF-NOT-EXISTS exclusivity guard, so name a valid one.  The
+    # class stays pinned in LEGITIMATE_NON_ROUNDTRIPS for its ViewOptions slot.
+    register_special_constructor(
+        "statements.ddl_view.CreateViewStatement",
+        lambda d: ddl_view.CreateViewStatement(
+            d, View(d, "v"), _one_column_query(d), if_not_exists=True
+        ),
+    )
     register_special_constructor(
         "statements.ddl_view.DropViewStatement",
         lambda d: ddl_view.DropViewStatement(d, View(d, "v")),

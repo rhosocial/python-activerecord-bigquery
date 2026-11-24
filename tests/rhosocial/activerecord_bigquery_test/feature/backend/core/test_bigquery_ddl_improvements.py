@@ -12,6 +12,7 @@ from rhosocial.activerecord.backend.expression import (
 from rhosocial.activerecord.backend.expression.objects import Table, View
 from rhosocial.activerecord.backend.expression.statements import (
     ColumnDefinition,
+    CreateTableOptions,
     DropViewStatement,
 )
 from rhosocial.activerecord.backend.expression.types import IntegerType
@@ -66,6 +67,21 @@ class TestBigQueryViewCapabilityGating:
         ).to_sql()
         assert sql == "DROP VIEW IF EXISTS `v`"
         assert params == ()
+
+    def test_view_rejects_or_replace_with_if_not_exists(self):
+        """The DDL page says the two header qualifiers cannot appear together."""
+        dialect = BigQueryDialect()
+        query = QueryStatement(
+            dialect, select=[Column(dialect, "id")], from_=Table(dialect, "t")
+        )
+        with pytest.raises(ValueError, match="OR REPLACE together with IF NOT EXISTS"):
+            CreateViewStatement(
+                dialect,
+                View(dialect, "v"),
+                query,
+                replace=True,
+                if_not_exists=True,
+            ).to_sql()
 
     def test_materialized_view_supported(self):
         """BigQuery has native materialized views.
@@ -134,6 +150,19 @@ class TestBigQueryTableDeclarationGating:
         assert "plain_table_defaults" in sql.lower()
         assert "id" in sql.lower()
         assert params == ()
+
+    def test_table_rejects_or_replace_with_if_not_exists(self):
+        """``OR REPLACE TABLE IF NOT EXISTS`` is not BigQuery's grammar."""
+        dialect = BigQueryDialect()
+        expression = CreateTableStatement(
+            dialect,
+            Table(dialect, "t"),
+            [ColumnDefinition(dialect, "id", IntegerType(dialect))],
+            if_not_exists=True,
+            table_options=CreateTableOptions(dialect, or_replace=True),
+        )
+        with pytest.raises(ValueError, match="OR REPLACE together with IF NOT EXISTS"):
+            expression.to_sql()
 
     def test_table_inherits_is_propagated_and_rejected(self):
         dialect = BigQueryDialect()

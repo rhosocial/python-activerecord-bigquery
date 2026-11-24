@@ -160,7 +160,11 @@ class BigQueryPartitionMixin:
         Returns:
             The full SQL statement and its bind parameters.
         """
-        sql, params = super().format_create_table_statement(expr)
+        # ``self`` rather than ``super()`` so the dialect's header guard
+        # (OR REPLACE cannot accompany IF NOT EXISTS) runs before core's
+        # renderer; ``self.format_create_table_statement`` resolves through
+        # BigQueryCapabilityMixin and then to core's implementation.
+        sql, params = self.format_create_table_statement(expr)
         clause = expr.partition_by
         if clause is not None:
             clause_sql, clause_params = clause.to_sql()
