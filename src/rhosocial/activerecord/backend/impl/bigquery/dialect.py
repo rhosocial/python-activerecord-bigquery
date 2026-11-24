@@ -321,9 +321,13 @@ class BigQueryDialect(
         """BigQuery cannot change a column type in place."""
         return False
 
-    def supports_alter_column_properties(self) -> bool:
-        """No ALTER COLUMN SET DEFAULT in BigQuery."""
-        return False
+    def supports_alter_column_default(self) -> bool:
+        """GoogleSQL supports ``ALTER COLUMN ... SET/DROP DEFAULT``."""
+        return True
+
+    def supports_alter_column_nullability(self) -> bool:
+        """GoogleSQL supports ``ALTER COLUMN ... SET/DROP NOT NULL``."""
+        return True
 
     def supports_alter_table_index_actions(self) -> bool:
         """BigQuery has no ALTER TABLE ADD/DROP INDEX."""
