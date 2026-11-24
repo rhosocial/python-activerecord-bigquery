@@ -76,6 +76,14 @@ from .mixins import (
     BigQueryDataTypeSuggestionsMixin,
     BigQueryCreateTableLayoutSuggestionMixin,
     BigQueryGeneratedValueSuggestionMixin,
+    BigQueryPartitionBuildSuggestionMixin,
+    BigQueryPartitionAddSuggestionMixin,
+    BigQueryPartitionDropSuggestionMixin,
+    BigQueryPartitionRetentionSuggestionMixin,
+    BigQueryPartitionTableDropSuggestionMixin,
+    BigQueryPartitionTableAlterSuggestionMixin,
+    BigQueryPartitionSplitSuggestionMixin,
+    BigQueryPartitionMergeSuggestionMixin,
     BigQueryDQLMixin,
     BigQuerySchemaMixin,
     BigQueryNamespaceMixin,
@@ -133,6 +141,16 @@ class BigQueryDialect(
     # other backend suggestion mixins ahead of SQLDialectBase without
     # intercepting __init__ (strict_validation stays set).
     BigQueryGeneratedValueSuggestionMixin,
+    # Partition lifecycle: BigQuery has no partition-level DDL, so only build
+    # and table_drop carry a real mechanism; the rest answer explicit False.
+    BigQueryPartitionBuildSuggestionMixin,
+    BigQueryPartitionAddSuggestionMixin,
+    BigQueryPartitionDropSuggestionMixin,
+    BigQueryPartitionRetentionSuggestionMixin,
+    BigQueryPartitionTableDropSuggestionMixin,
+    BigQueryPartitionTableAlterSuggestionMixin,
+    BigQueryPartitionSplitSuggestionMixin,
+    BigQueryPartitionMergeSuggestionMixin,
     BigQueryCapabilityMixin,
     # Suggested data types: the DDL half of the type answer, ahead of
     # BigQueryTypeSupportMixin (whose core DataTypeMixin otherwise withholds

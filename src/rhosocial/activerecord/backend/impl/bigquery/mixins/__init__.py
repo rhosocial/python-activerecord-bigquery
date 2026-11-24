@@ -9,6 +9,16 @@ from .ddl import BigQueryDDLColumnMixin
 from .dql import BigQueryDQLMixin
 from .general_suggestions import BigQueryCreateTableLayoutSuggestionMixin
 from .generated_value_suggestion import BigQueryGeneratedValueSuggestionMixin
+from .partition_suggestions import (
+    BigQueryPartitionAddSuggestionMixin,
+    BigQueryPartitionBuildSuggestionMixin,
+    BigQueryPartitionDropSuggestionMixin,
+    BigQueryPartitionMergeSuggestionMixin,
+    BigQueryPartitionRetentionSuggestionMixin,
+    BigQueryPartitionSplitSuggestionMixin,
+    BigQueryPartitionTableAlterSuggestionMixin,
+    BigQueryPartitionTableDropSuggestionMixin,
+)
 from .identifier import BigQueryIdentifierMixin
 from .identity_column import BigQueryIdentityColumnMixin
 from .introspection import BigQueryIntrospectionMixin
@@ -55,6 +65,14 @@ __all__ = [
     "BigQueryDataTypeSuggestionsMixin",
     "BigQueryCreateTableLayoutSuggestionMixin",
     "BigQueryGeneratedValueSuggestionMixin",
+    "BigQueryPartitionBuildSuggestionMixin",
+    "BigQueryPartitionAddSuggestionMixin",
+    "BigQueryPartitionDropSuggestionMixin",
+    "BigQueryPartitionRetentionSuggestionMixin",
+    "BigQueryPartitionTableDropSuggestionMixin",
+    "BigQueryPartitionTableAlterSuggestionMixin",
+    "BigQueryPartitionSplitSuggestionMixin",
+    "BigQueryPartitionMergeSuggestionMixin",
     "BigQueryIdentityColumnMixin",
     "BigQueryIdentifierMixin",
     "BigQueryMaterializedViewMixin",
