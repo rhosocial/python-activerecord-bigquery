@@ -4,7 +4,6 @@
 This is the backend-named feature group for the proprietary partition clause
 in ``impl.bigquery.expression.partition``. Core has no counterpart, so this
 mixin owns the one formatter the clause declares through ``format_method``.
-All validation happens here; the node itself only collects parameters.
 """
 
 import re

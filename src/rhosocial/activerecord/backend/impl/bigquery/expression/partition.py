@@ -15,10 +15,6 @@ RANGE / LIST / HASH partitioning of other engines, which BigQuery does not
 accept here. Under the absent-expression case this backend therefore owns a
 proprietary node with its own name and its own ``kind()`` payload id; nothing
 here is re-exported from core.
-
-The node is pure data: it collects the caller's parameters and performs no
-validation. Every check lives in the dialect formatter named by
-:attr:`BigQueryTablePartitionByClause.format_method`.
 """
 
 from typing import TYPE_CHECKING
@@ -44,14 +40,8 @@ class BigQueryTablePartitionByClause(BaseExpression):
     Args:
         dialect: the BigQuery dialect instance; may be ``None`` and bound later.
         partition_expression: the GoogleSQL partitioning expression, kept as
-            written by the caller. The formatter accepts the date/timestamp/
-            datetime truncation forms and ``RANGE_BUCKET`` integer ranges;
-            every other spelling is refused there, not here.
-        cluster_by: optional clustering column names, also validated by the
-            formatter.
-
-    This class deliberately validates nothing at construction time. It is the
-    formatter that decides whether the collected parameters are supported.
+            written by the caller.
+        cluster_by: optional clustering column names.
     """
 
     def __init__(
