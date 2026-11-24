@@ -23,15 +23,17 @@ execution-confirmed at all. One query against a real connection would settle
 it.
 """
 
-from rhosocial.activerecord.backend.expression.statements import ColumnDefinition
+from rhosocial.activerecord.backend.expression.statements import (
+    ColumnDefinition,
+    IdentityClause,
+)
 from rhosocial.activerecord.backend.expression.types import IntegerType
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
-from rhosocial.activerecord.base import IdentityAttribute
 
 
 def _bare_identity_column(dialect):
     column = ColumnDefinition(dialect, "id", IntegerType(dialect))
-    column.attributes = [IdentityAttribute()]
+    column.attributes = [IdentityClause(dialect)]
     return column
 
 
