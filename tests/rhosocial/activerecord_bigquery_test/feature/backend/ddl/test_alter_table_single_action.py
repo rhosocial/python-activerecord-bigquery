@@ -4,11 +4,16 @@
 GoogleSQL's ALTER TABLE grammar lists its actions as alternatives; it has no
 comma-separated action list. Core's generic renderer comma-joins actions when
 ``supports_multi_action_alter_table()`` is True (its default), so BigQuery must
-declare False. These are pure construction tests -- no instance required.
+declare False. On a dialect declaring False, core now fails fast with
+``UnsupportedFeatureError`` instead of semicolon-joining actions into one
+unexecutable string: one expression must render as exactly one SQL statement.
+Single-action statements still render normally. These are pure construction
+tests -- no instance required.
 """
 
 import pytest
 
+from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression import AlterTableStatement
 from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.expression.statements import ColumnDefinition
@@ -26,12 +31,12 @@ def dialect():
 
 
 class TestBigQueryAlterTableSingleAction:
-    """Capability declaration and rendering for multi-action ALTER TABLE."""
+    """Capability declaration and fail-fast rendering for multi-action ALTER TABLE."""
 
     def test_supports_multi_action_alter_table_is_false(self, dialect):
         assert dialect.supports_multi_action_alter_table() is False
 
-    def test_two_actions_are_not_comma_joined(self, dialect):
+    def test_two_actions_fail_fast(self, dialect):
         expr = AlterTableStatement(
             dialect,
             table=Table(dialect, "t"),
@@ -40,12 +45,20 @@ class TestBigQueryAlterTableSingleAction:
                 DropColumnAction(dialect, column_name="c2"),
             ],
         )
+
+        # Core refuses to emit two statements from one expression: the caller
+        # (migration planner) must split into one AlterTableStatement per action.
+        with pytest.raises(UnsupportedFeatureError, match="multiple actions"):
+            expr.to_sql()
+
+    def test_single_action_renders_one_alter_table(self, dialect):
+        expr = AlterTableStatement(
+            dialect,
+            table=Table(dialect, "t"),
+            actions=[AddColumnAction(dialect, ColumnDefinition(dialect, "c1", TextType(dialect)))],
+        )
         sql, params = expr.to_sql()
 
-        # Core's False branch emits one ALTER TABLE per action instead of a
-        # single comma-joined statement GoogleSQL would reject.
-        assert sql.count("ALTER TABLE") == 2
-        assert "ADD COLUMN `c1` STRING, DROP COLUMN `c2`" not in sql
-        assert "ALTER TABLE `t` ADD COLUMN `c1` STRING" in sql
-        assert "ALTER TABLE `t` DROP COLUMN `c2`" in sql
+        assert sql.count("ALTER TABLE") == 1
+        assert sql == "ALTER TABLE `t` ADD COLUMN `c1` STRING"
         assert params == ()
