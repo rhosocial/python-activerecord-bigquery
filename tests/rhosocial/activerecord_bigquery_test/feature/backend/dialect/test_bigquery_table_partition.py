@@ -135,14 +135,34 @@ class TestFormatterValidation:
 class TestPartitionDecoratedTable:
     """A table name addresses one partition by appending ``$<decorator>``."""
 
-    def test_date_decorator(self, dialect):
-        ref = BigQueryPartitionDecoratedTable(dialect, "events", "20260101")
-        assert ref.to_sql() == ("`events`$20260101", ())
-
-    def test_null_and_unpartitioned_sentinels(self, dialect):
-        for sentinel in ("__NULL__", "__UNPARTITIONED__"):
-            ref = BigQueryPartitionDecoratedTable(dialect, "events", sentinel)
-            assert ref.to_sql()[0] == f"`events`${sentinel}"
+    @pytest.mark.parametrize(
+        "decorator,expected",
+        (
+            ("2021071205", "`events`$2021071205"),  # hourly YYYYMMDDHH
+            ("20210712", "`events`$20210712"),  # daily YYYYMMDD
+            ("202107", "`events`$202107"),  # monthly YYYYMM
+            ("2021", "`events`$2021"),  # yearly YYYY
+            (40, "`events`$40"),  # integer range_start, int form
+            ("40", "`events`$40"),  # integer range_start, string form
+            ("123456789012345", "`events`$123456789012345"),  # multi-digit range_start
+            ("__NULL__", "`events`$__NULL__"),
+            ("__UNPARTITIONED__", "`events`$__UNPARTITIONED__"),
+        ),
+        ids=(
+            "hourly",
+            "daily",
+            "monthly",
+            "yearly",
+            "range-start-int",
+            "range-start-string",
+            "range-start-multidigit",
+            "null-sentinel",
+            "unpartitioned-sentinel",
+        ),
+    )
+    def test_documented_decorator_forms_render(self, decorator, expected, dialect):
+        ref = BigQueryPartitionDecoratedTable(dialect, "events", decorator)
+        assert ref.to_sql() == (expected, ())
 
     def test_project_dataset_table(self, dialect):
         ref = BigQueryPartitionDecoratedTable(
@@ -152,11 +172,37 @@ class TestPartitionDecoratedTable:
         assert sql.endswith("$20260101")
         assert "events" in sql
 
-    @pytest.mark.parametrize("bad", ["", "  ", "2026-01-01", "202601", "NULL", "x; DROP"])
-    def test_bad_decorator_is_refused_at_render(self, dialect, bad):
+    @pytest.mark.parametrize("blank", ("", "  "))
+    def test_blank_decorator_is_refused_by_name(self, blank, dialect):
+        ref = BigQueryPartitionDecoratedTable(dialect, "events", blank)
+        with pytest.raises(ValueError, match="must not be blank"):
+            ref.to_sql()
+
+    @pytest.mark.parametrize("negative", (-10, "-10"))
+    def test_negative_range_start_is_refused_by_name(self, negative, dialect):
+        ref = BigQueryPartitionDecoratedTable(dialect, "events", negative)
+        with pytest.raises(ValueError, match="must be non-negative"):
+            ref.to_sql()
+
+    @pytest.mark.parametrize(
+        "bad",
+        (1.5, True, "NULL", "__null__", "2026-01-01", "x; DROP", "+40"),
+    )
+    def test_non_decorator_values_are_refused_by_name(self, bad, dialect):
         ref = BigQueryPartitionDecoratedTable(dialect, "events", bad)
         with pytest.raises(ValueError, match="partition decorator"):
             ref.to_sql()
+
+    @pytest.mark.parametrize("value", ("20211301", "202113", "2021130100"))
+    def test_numeric_form_is_accepted_without_a_calendar_check(self, value, dialect):
+        """A numeral may be an integer ``range_start``; only the server knows.
+
+        The node carries no partitioning type, so ``20211301`` (month 13) is
+        still a syntactically valid integer-range decorator.  The reference
+        leaves that semantic check to the target table's definition.
+        """
+        ref = BigQueryPartitionDecoratedTable(dialect, "events", value)
+        assert ref.to_sql()[0] == f"`events`${value}"
 
 
 class TestCreateTableAttachment:

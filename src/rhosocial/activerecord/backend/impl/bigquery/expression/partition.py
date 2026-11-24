@@ -40,10 +40,29 @@ class BigQueryPartitionDecoratedTable(Table):
     """A BigQuery table reference carrying a partition decorator.
 
     BigQuery addresses a single partition by appending ``$<decorator>`` to the
-    table name: ``project.dataset.table$20260101`` for a date partition, and
-    the sentinels ``$__NULL__`` / ``$__UNPARTITIONED__``. Core's ``Table`` has
-    no such notion, so this is a backend-owned relation that stays usable
-    wherever a table is (it derives from ``Table``).
+    table name.  The documented decorator forms are:
+
+    * ``YYYYMMDDHH`` -- hourly; time-unit column partitioning on a
+      ``TIMESTAMP`` / ``DATETIME`` column, or ingestion-time partitioning with
+      hour granularity,
+    * ``YYYYMMDD`` -- daily,
+    * ``YYYYMM`` -- monthly,
+    * ``YYYY`` -- yearly,
+    * an integer ``range_start`` -- integer-range partitioning,
+    * ``__NULL__`` -- the partition holding rows whose partition key is NULL,
+    * ``__UNPARTITIONED__`` -- the partition holding rows outside an integer
+      range.
+
+    The node only collects the decorator: it does not know the target table's
+    partitioning type, so it accepts any documented syntactic form and the
+    formatter validates syntax.  The server performs the semantic check (for
+    example, whether a ``$YYYYMM`` decorator is legal depends on the table
+    being time-unit or ingestion-time partitioned rather than integer-range
+    partitioned).
+
+    The constructor accepts either the string form or a non-negative integer
+    for ``range_start``; validation and normalisation happen in
+    :meth:`BigQueryPartitionMixin.format_bigquery_partition_decorated_table`.
     """
 
     __slots__ = ("partition",)

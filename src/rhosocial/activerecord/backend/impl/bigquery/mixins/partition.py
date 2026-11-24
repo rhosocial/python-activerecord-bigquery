@@ -50,7 +50,80 @@ _PARTITION_EXPRESSION = re.compile(
 )
 _CLUSTER_COLUMN = re.compile(_IDENTIFIER, re.IGNORECASE)
 _MAX_CLUSTER_COLUMNS = 4
-_PARTITION_DECORATOR = re.compile(r"(?:\d{8}|__NULL__|__UNPARTITIONED__)")
+_PARTITION_DECORATOR_SENTINELS = frozenset({"__NULL__", "__UNPARTITIONED__"})
+_PARTITION_NUMERIC_DECORATOR = re.compile(r"\d+")
+
+
+def _partition_decorator_spec(value) -> str:
+    """Validate and normalise a ``$<decorator>`` segment.
+
+    The documented forms are:
+
+    * ``YYYYMMDDHH`` -- hourly (time-unit column or ingestion-time with hour
+      granularity; not available to ``DATE`` partitioning columns),
+    * ``YYYYMMDD`` -- daily,
+    * ``YYYYMM`` -- monthly,
+    * ``YYYY`` -- yearly,
+    * an integer ``range_start`` -- integer-range partitioning only,
+    * ``__NULL__`` -- the partition holding rows whose partition key is NULL,
+    * ``__UNPARTITIONED__`` -- the partition holding rows outside an integer
+      range.
+
+    Apart from the two sentinels, every form is a non-negative decimal
+    integer, so this function validates syntax only.  Whether a given numeral
+    is a date decorator or an integer ``range_start`` depends on the target
+    table's partitioning type, which a bare table reference does not know; the
+    server performs that semantic check.
+
+    Args:
+        value: a non-negative ``int`` or the string form of one of the forms
+            above.
+
+    Returns:
+        The decorator segment, without the leading ``$``.
+
+    Raises:
+        ValueError: for a Boolean, float, negative, blank, or otherwise
+            unparseable value.  The offending value is named in the message.
+    """
+    if isinstance(value, bool):
+        raise ValueError(
+            "BigQuery partition decorator must be a non-negative integer or "
+            f"a documented string form, got {value!r}"
+        )
+    if isinstance(value, int):
+        if value < 0:
+            raise ValueError(
+                "BigQuery partition decorator range_start must be non-negative, "
+                f"got {value}"
+            )
+        return str(value)
+    if not isinstance(value, str):
+        raise ValueError(
+            "BigQuery partition decorator must be a non-negative integer or "
+            f"a documented string form, got {value!r}"
+        )
+    spec = value.strip()
+    if not spec:
+        raise ValueError(
+            "BigQuery partition decorator must not be blank, got "
+            f"{value!r}"
+        )
+    if spec in _PARTITION_DECORATOR_SENTINELS:
+        return spec
+    if spec.startswith("-"):
+        raise ValueError(
+            "BigQuery partition decorator range_start must be non-negative, "
+            f"got {spec!r}"
+        )
+    if _PARTITION_NUMERIC_DECORATOR.fullmatch(spec):
+        return spec
+    raise ValueError(
+        f"unsupported BigQuery partition decorator {spec!r}; expected an "
+        "hourly (YYYYMMDDHH), daily (YYYYMMDD), monthly (YYYYMM), yearly "
+        "(YYYY) or integer range (range_start) decorator, or __NULL__ / "
+        "__UNPARTITIONED__"
+    )
 
 
 class BigQueryPartitionMixin(PartitionMixin):
@@ -262,10 +335,17 @@ class BigQueryPartitionMixin(PartitionMixin):
     ) -> Tuple[str, tuple]:
         """Render a table name with a BigQuery partition decorator.
 
-        GoogleSQL addresses a partition by appending ``$<decorator>``: an
-        eight-digit date (``$20260101``), or the sentinels ``$__NULL__`` /
-        ``$__UNPARTITIONED__``. The base name is rendered by this dialect's
-        standard table formatter; the decorator is validated here.
+        GoogleSQL addresses a partition by appending ``$<decorator>``.  The
+        verified forms are hourly ``YYYYMMDDHH``, daily ``YYYYMMDD``, monthly
+        ``YYYYMM``, yearly ``YYYY``, an integer ``range_start``, and the
+        sentinels ``__NULL__`` / ``__UNPARTITIONED__``.  The base name is
+        rendered by this dialect's standard table formatter; the decorator is
+        validated here.
+
+        Only syntax is checked.  Whether a numeral is a date decorator or an
+        integer ``range_start`` -- and therefore whether it is legal for the
+        target table -- depends on that table's partitioning type, which this
+        reference does not carry.  The server performs the semantic check.
 
         Args:
             expr: the decorated table reference.
@@ -274,22 +354,11 @@ class BigQueryPartitionMixin(PartitionMixin):
             The decorated name and its parameters.
 
         Raises:
-            ValueError: if the decorator is empty or uses a spelling BigQuery
-                does not accept.
+            ValueError: for a Boolean, float, negative, blank, or otherwise
+                unparseable decorator.  The offending value is named.
         """
-        decorator = expr.partition
-        if not isinstance(decorator, str) or not decorator.strip():
-            raise ValueError(
-                f"BigQuery partition decorator must be a non-empty string, "
-                f"got {decorator!r}"
-            )
-        spec = decorator.strip()
-        if not _PARTITION_DECORATOR.fullmatch(spec):
-            raise ValueError(
-                f"unsupported BigQuery partition decorator {spec!r}; expected "
-                "an eight-digit date (YYYYMMDD) or __NULL__ / __UNPARTITIONED__"
-            )
         base_sql, params = self.format_table_object(expr)
+        spec = _partition_decorator_spec(expr.partition)
         return f"{base_sql}${spec}", params
 
     def format_bigquery_create_table_statement(
