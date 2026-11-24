@@ -75,6 +75,7 @@ from .mixins import (
     # a table placed after the class that withholds it never wins.
     BigQueryDataTypeSuggestionsMixin,
     BigQueryCreateTableLayoutSuggestionMixin,
+    BigQueryGeneratedValueSuggestionMixin,
     BigQueryDQLMixin,
     BigQuerySchemaMixin,
     BigQueryNamespaceMixin,
@@ -125,6 +126,12 @@ class BigQueryDialect(
     # (supports_inline_index / supports_table_comment), both of which are
     # available on the fully constructed dialect regardless of ordering.
     BigQueryCreateTableLayoutSuggestionMixin,
+    # Generated value: BigQuery declares identity columns through
+    # BigQueryIdentityColumnMixin, so the answer is an IdentityClause rendered
+    # by that mixin's format_identity_clause. Plain class, so this sits with the
+    # other backend suggestion mixins ahead of SQLDialectBase without
+    # intercepting __init__ (strict_validation stays set).
+    BigQueryGeneratedValueSuggestionMixin,
     BigQueryCapabilityMixin,
     # Suggested data types: the DDL half of the type answer, ahead of
     # BigQueryTypeSupportMixin (whose core DataTypeMixin otherwise withholds
@@ -186,11 +193,12 @@ class BigQueryDialect(
     IntrospectionMixin, TruncateMixin,
     PredicateMixin, ExpressionMixin, DQLMixin, DMLMixin,
     SetOperationMixin, DateTimeMixin,
-    # ColumnAttributeMixin owns core's singular format_column_attribute (and
-    # translate_ar_attribute) after the DDL-column refactor. BigQuery's
-    # BigQueryDDLColumnMixin overrides it and calls super() for the non-collation
-    # case, so the base implementation must sit after it in the MRO -- without
-    # it an IdentityAttribute reaches the super() call and raises AttributeError.
+    # ColumnAttributeMixin owns core's singular format_column_attribute after
+    # the DDL-column refactor. BigQuery's BigQueryDDLColumnMixin overrides it
+    # and calls super() for the non-collation case, so the base implementation
+    # must sit after it in the MRO. AR-layer attributes are translated by the
+    # deriver (base.derivation) before reaching the dialect; the deprecated
+    # translate_ar_attribute is no longer part of this path.
     DDLColumnMixin, ColumnAttributeMixin, DataTypeMixin,
     TransactionControlMixin, CollationMixin,
     # LPAD/RPAD/REPEAT are the three of the four string nodes BigQuery spells

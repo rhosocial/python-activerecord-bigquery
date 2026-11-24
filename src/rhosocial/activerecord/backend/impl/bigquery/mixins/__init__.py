@@ -8,6 +8,7 @@ from .data_type_suggestions import BigQueryDataTypeSuggestionsMixin
 from .ddl import BigQueryDDLColumnMixin
 from .dql import BigQueryDQLMixin
 from .general_suggestions import BigQueryCreateTableLayoutSuggestionMixin
+from .generated_value_suggestion import BigQueryGeneratedValueSuggestionMixin
 from .identifier import BigQueryIdentifierMixin
 from .identity_column import BigQueryIdentityColumnMixin
 from .introspection import BigQueryIntrospectionMixin
@@ -51,6 +52,7 @@ __all__ = [
     "BigQueryColumnTypeMixin",
     "BigQueryDataTypeSuggestionsMixin",
     "BigQueryCreateTableLayoutSuggestionMixin",
+    "BigQueryGeneratedValueSuggestionMixin",
     "BigQueryIdentityColumnMixin",
     "BigQueryIdentifierMixin",
     "BigQueryMaterializedViewMixin",
