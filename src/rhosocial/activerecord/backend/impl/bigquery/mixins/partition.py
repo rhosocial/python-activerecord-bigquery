@@ -12,6 +12,7 @@ from typing import Tuple, TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover
     from ..expression.partition import (
         BigQueryCreateTableStatement,
+        BigQueryPartitionDecoratedTable,
         BigQueryTablePartitionByClause,
     )
 
@@ -34,6 +35,7 @@ _PARTITION_EXPRESSION = re.compile(
 )
 _CLUSTER_COLUMN = re.compile(_IDENTIFIER, re.IGNORECASE)
 _MAX_CLUSTER_COLUMNS = 4
+_PARTITION_DECORATOR = re.compile(r"(?:\d{8}|__NULL__|__UNPARTITIONED__)")
 
 
 class BigQueryPartitionMixin:
@@ -110,6 +112,41 @@ class BigQueryPartitionMixin:
                 "CLUSTER BY columns"
             )
         return "".join(parts), ()
+
+    def format_bigquery_partition_decorated_table(
+        self, expr: "BigQueryPartitionDecoratedTable"
+    ) -> Tuple[str, tuple]:
+        """Render a table name with a BigQuery partition decorator.
+
+        GoogleSQL addresses a partition by appending ``$<decorator>``: an
+        eight-digit date (``$20260101``), or the sentinels ``$__NULL__`` /
+        ``$__UNPARTITIONED__``. The base name is rendered by this dialect's
+        standard table formatter; the decorator is validated here.
+
+        Args:
+            expr: the decorated table reference.
+
+        Returns:
+            The decorated name and its parameters.
+
+        Raises:
+            ValueError: if the decorator is empty or uses a spelling BigQuery
+                does not accept.
+        """
+        decorator = expr.partition
+        if not isinstance(decorator, str) or not decorator.strip():
+            raise ValueError(
+                f"BigQuery partition decorator must be a non-empty string, "
+                f"got {decorator!r}"
+            )
+        spec = decorator.strip()
+        if not _PARTITION_DECORATOR.fullmatch(spec):
+            raise ValueError(
+                f"unsupported BigQuery partition decorator {spec!r}; expected "
+                "an eight-digit date (YYYYMMDD) or __NULL__ / __UNPARTITIONED__"
+            )
+        base_sql, params = self.format_table_object(expr)
+        return f"{base_sql}${spec}", params
 
     def format_bigquery_create_table_statement(
         self, expr: "BigQueryCreateTableStatement"

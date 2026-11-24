@@ -20,6 +20,7 @@ here is re-exported from core.
 from typing import TYPE_CHECKING
 
 from rhosocial.activerecord.backend.expression.bases import BaseExpression
+from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.expression.statements.ddl_table import (
     CreateTableStatement,
 )
@@ -31,7 +32,43 @@ if TYPE_CHECKING:  # pragma: no cover
 __all__ = [
     "BigQueryCreateTableStatement",
     "BigQueryTablePartitionByClause",
+    "BigQueryPartitionDecoratedTable",
 ]
+
+
+class BigQueryPartitionDecoratedTable(Table):
+    """A BigQuery table reference carrying a partition decorator.
+
+    BigQuery addresses a single partition by appending ``$<decorator>`` to the
+    table name: ``project.dataset.table$20260101`` for a date partition, and
+    the sentinels ``$__NULL__`` / ``$__UNPARTITIONED__``. Core's ``Table`` has
+    no such notion, so this is a backend-owned relation that stays usable
+    wherever a table is (it derives from ``Table``).
+    """
+
+    __slots__ = ("partition",)
+
+    def __init__(
+        self,
+        dialect: "BigQueryDialect",
+        name,
+        partition,
+        *,
+        catalog_name=None,
+        schema_name=None,
+    ):
+        super().__init__(
+            dialect,
+            name,
+            catalog_name=catalog_name,
+            schema_name=schema_name,
+        )
+        self.partition = partition
+
+    @property
+    def format_method(self) -> str:
+        """The dialect formatting method that renders the decorated name."""
+        return "format_bigquery_partition_decorated_table"
 
 
 class BigQueryTablePartitionByClause(BaseExpression):

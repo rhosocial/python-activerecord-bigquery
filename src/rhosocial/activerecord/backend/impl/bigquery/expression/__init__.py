@@ -21,6 +21,7 @@ from .materialized_view import (
 )
 from .partition import (
     BigQueryCreateTableStatement,
+    BigQueryPartitionDecoratedTable,
     BigQueryTablePartitionByClause,
 )
 
@@ -30,6 +31,7 @@ __all__ = [
     "BigQueryCreateMaterializedViewReplicaStatement",
     "BigQueryDropMaterializedViewStatement",
     "BigQueryCreateTableStatement",
+    "BigQueryPartitionDecoratedTable",
     "BigQueryTablePartitionByClause",
     "BigQueryDatabaseInfoQueryStatement",
     "BigQueryTableListQueryStatement",

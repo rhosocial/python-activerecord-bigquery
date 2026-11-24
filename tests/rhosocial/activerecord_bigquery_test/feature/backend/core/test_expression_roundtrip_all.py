@@ -226,6 +226,7 @@ from rhosocial.activerecord.backend.expression.xml import (
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryAlterMaterializedViewSetOptionsStatement,
     BigQueryCreateTableStatement,
+    BigQueryPartitionDecoratedTable,
     BigQueryTablePartitionByClause,
 )
 from rhosocial.activerecord_bigquery_test.feature.backend.expression_roundtrip_harness import (
@@ -935,6 +936,12 @@ def register_specials():
             [_integer_column(d)],
             partition_by=BigQueryTablePartitionByClause(d, "DATE(ts)"),
         ),
+    )
+    # A decorated table is a Table-derived relation; the introspective guess
+    # cannot supply the decorator, so register a real one.
+    register_special_constructor(
+        "partition.BigQueryPartitionDecoratedTable",
+        lambda d: BigQueryPartitionDecoratedTable(d, "events", "20260101"),
     )
 
 

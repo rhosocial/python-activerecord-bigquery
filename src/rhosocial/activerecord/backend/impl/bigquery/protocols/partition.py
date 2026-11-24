@@ -18,5 +18,11 @@ class BigQueryPartitionSupport(Protocol):
         """Format the table-level ``PARTITION BY`` / ``CLUSTER BY`` clause."""
         ...
 
+    def format_bigquery_partition_decorated_table(
+        self, expr: Any
+    ) -> Tuple[str, tuple]:
+        """Render a table name with a ``$<decorator>`` partition suffix."""
+        ...
+
 
 __all__ = ["BigQueryPartitionSupport"]

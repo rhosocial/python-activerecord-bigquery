@@ -19,6 +19,7 @@ from rhosocial.activerecord.backend.expression.types import IntegerType
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryCreateTableStatement,
+    BigQueryPartitionDecoratedTable,
     BigQueryTablePartitionByClause,
 )
 from rhosocial.activerecord.backend.impl.bigquery.protocols import (
@@ -113,6 +114,33 @@ class TestFormatterValidation:
         clause = BigQueryTablePartitionByClause(dialect, cluster_by=list("abcde"))
         with pytest.raises(ValueError, match="at most 4"):
             clause.to_sql()
+
+
+class TestPartitionDecoratedTable:
+    """A table name addresses one partition by appending ``$<decorator>``."""
+
+    def test_date_decorator(self, dialect):
+        ref = BigQueryPartitionDecoratedTable(dialect, "events", "20260101")
+        assert ref.to_sql() == ("`events`$20260101", ())
+
+    def test_null_and_unpartitioned_sentinels(self, dialect):
+        for sentinel in ("__NULL__", "__UNPARTITIONED__"):
+            ref = BigQueryPartitionDecoratedTable(dialect, "events", sentinel)
+            assert ref.to_sql()[0] == f"`events`${sentinel}"
+
+    def test_project_dataset_table(self, dialect):
+        ref = BigQueryPartitionDecoratedTable(
+            dialect, "events", "20260101", catalog_name="proj", schema_name="ds"
+        )
+        sql, _ = ref.to_sql()
+        assert sql.endswith("$20260101")
+        assert "events" in sql
+
+    @pytest.mark.parametrize("bad", ["", "  ", "2026-01-01", "202601", "NULL", "x; DROP"])
+    def test_bad_decorator_is_refused_at_render(self, dialect, bad):
+        ref = BigQueryPartitionDecoratedTable(dialect, "events", bad)
+        with pytest.raises(ValueError, match="partition decorator"):
+            ref.to_sql()
 
 
 class TestCreateTableAttachment:

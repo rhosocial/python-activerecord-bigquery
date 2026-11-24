@@ -77,6 +77,7 @@ class TestThreeSourcesAgree:
             f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryCreateMaterializedViewStatement",
             f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryDropMaterializedViewStatement",
             f"{BIGQUERY_EXPR_PKG}.partition.BigQueryCreateTableStatement",
+            f"{BIGQUERY_EXPR_PKG}.partition.BigQueryPartitionDecoratedTable",
             f"{BIGQUERY_EXPR_PKG}.partition.BigQueryTablePartitionByClause",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryDatabaseInfoQueryStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryTableListQueryStatement",
@@ -109,10 +110,18 @@ class TestThreeSourcesAgree:
 
     @pytest.mark.parametrize("fqn", sorted(NODES))
     def test_the_class_name_ends_with_its_nature(self, fqn):
-        """§3/§6.5: the suffix says the category -- statement or clause."""
+        """§3/§6.5: the suffix says the category.
+
+        Statement and Clause nodes carry that nature in both the class name and
+        the kind. A backend may also own a relation object (e.g. a partitioned
+        table reference); that nature is its own and is not forced to a
+        statement/clause suffix.
+        """
         cls = NODES[fqn]
-        assert cls.__name__.endswith(("Statement", "Clause")), cls.__name__
-        assert cls.kind().endswith(("_statement", "_clause")), cls.kind()
+        for kind_suffix, name_suffix in (("_statement", "Statement"), ("_clause", "Clause")):
+            if cls.__name__.endswith(name_suffix):
+                assert cls.kind().endswith(kind_suffix), cls.kind()
+                return
 
 
 class TestTheEntryResolvesAheadOfCore:
