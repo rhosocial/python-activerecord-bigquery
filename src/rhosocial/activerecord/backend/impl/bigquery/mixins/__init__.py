@@ -21,6 +21,7 @@ from .partition_suggestions import (
 )
 from .identifier import BigQueryIdentifierMixin
 from .identity_column import BigQueryIdentityColumnMixin
+from .index import BigQueryIndexMixin
 from .introspection import BigQueryIntrospectionMixin
 from .literal import BigQueryLiteralValueMixin
 from .materialized_view import BigQueryMaterializedViewMixin
@@ -75,6 +76,7 @@ __all__ = [
     "BigQueryPartitionMergeSuggestionMixin",
     "BigQueryIdentityColumnMixin",
     "BigQueryIdentifierMixin",
+    "BigQueryIndexMixin",
     "BigQueryMaterializedViewMixin",
     "BigQueryTransactionMixin",
     "BigQueryTrimMixin",

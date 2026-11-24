@@ -140,11 +140,14 @@ def test_if_exists_family_probes(dialect):
     2026-11-25):
     https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language
 
-    The two index switches stay ``False``: BigQuery has no plain
-    ``CREATE INDEX`` / ``DROP INDEX`` statement.  Its only index DDL is
-    ``CREATE SEARCH INDEX`` / ``DROP SEARCH INDEX``, a different statement
-    with its own ``ON table`` syntax, which the generic index expressions do
-    not model.
+    The two index ``IF`` switches stay ``False``, and the rest of the plain
+    index switch set follows them: BigQuery has no plain ``CREATE INDEX`` /
+    ``DROP INDEX`` statement.  Its index DDL is the separate ``CREATE SEARCH
+    INDEX`` / ``DROP SEARCH INDEX`` / ``ALTER SEARCH INDEX`` family (plus the
+    preview AI INDEX family), with its own ``ON table`` syntax, which the
+    generic index expressions do not model.  See
+    ``ddl.test_bigquery_index_capabilities`` for the full set and the
+    by-name refusals.
     """
     assert dialect.supports_if_not_exists_table() is True
     assert dialect.supports_add_column_if_not_exists() is True

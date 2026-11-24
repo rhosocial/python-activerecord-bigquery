@@ -102,6 +102,7 @@ from .mixins import (
     BigQueryColumnTypeMixin,
     BigQueryIdentityColumnMixin,
     BigQueryIdentifierMixin,
+    BigQueryIndexMixin,  # Before SQLDialectBase: overrides core's plain-index answers
     BigQueryMaterializedViewMixin,
     # Introspection: the capability probes and the format_* entries that
     # render the BigQuery introspection statements. It subclasses core's
@@ -175,6 +176,11 @@ class BigQueryDialect(
     # documented Preview feature.
     BigQueryIdentityColumnMixin,
     BigQueryIdentifierMixin,
+    # Plain index DDL: BigQuery has none.  Every index probe answers False and
+    # both statement formatters refuse by name; the SEARCH INDEX / AI INDEX
+    # families are a different grammar and are not modelled.  Before
+    # SQLDialectBase so core's IndexMixin answers cannot win.
+    BigQueryIndexMixin,
     BigQueryMaterializedViewMixin,  # Before ViewMixin to override materialized view DDL
     # Proprietary table-level PARTITION BY / CLUSTER BY. Ahead of core's
     # TableMixin so the CREATE TABLE extension reaches core's renderer through
