@@ -33,7 +33,7 @@ from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.expression.types import JsonType, VarCharType
 from rhosocial.activerecord.base import (
     CollationAttribute,
-    DDLSource,
+    ModelDDLDeclaration,
     IdentityAttribute,
     UseColumn,
     UseColumnAttributes,
@@ -287,7 +287,7 @@ PLAIN_MODEL_CLASSES = (PlainModel, AsyncPlainModel)
 
 
 def _assert_declaration_model(model):
-    assert isinstance(model, DDLSource)
+    assert isinstance(model, ModelDDLDeclaration)
     assert model.table_name().startswith("ddl_source_declarations")
     assert model.schema_name() == "analytics"
     assert model.primary_key_columns() == ("record_id",)
@@ -391,9 +391,9 @@ def _assert_declaration_model(model):
     assert model.table_partition().keys[0].name == "physical_value"
     assert model.table_inherits() is TABLE_INHERITS
     assert model.table_tablespace() == TABLE_TABLESPACE
-    # Statement-class selection is no longer part of the DDLSource contract:
+    # Statement-class selection is no longer part of the ModelDDLDeclaration contract:
     # the rebuilt core derives the statement from the model's declarations
-    # (``DDLSource`` answers what is declared, never how it is rendered).
+    # (``ModelDDLDeclaration`` answers what is declared, never how it is rendered).
     assert model.table_constraints() == TABLE_CONSTRAINTS
     assert all(
         actual is expected
@@ -445,7 +445,7 @@ def _assert_batch_interfaces(model):
 
 
 def _assert_plain_defaults(model):
-    assert isinstance(model, DDLSource)
+    assert isinstance(model, ModelDDLDeclaration)
     assert model.ddl_field_names() == ("id", "value")
     assert model.column_type("value") is None
     assert model.column_data_type("value") is None

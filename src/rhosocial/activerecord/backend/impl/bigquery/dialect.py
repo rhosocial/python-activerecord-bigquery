@@ -53,6 +53,9 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     # BigQueryTrimMixin (below) for the reason documented there.
     LpadMixin, RepeatMixin, RpadMixin,
 )
+from rhosocial.activerecord.backend.suggestion.protocols import (
+    CreateTableLayoutSuggestionSupport,
+)
 from .protocols import (
     BigQueryArraySupport,
     BigQueryColumnQualificationSupport,
@@ -71,6 +74,7 @@ from .mixins import (
     # BigQueryTypeSupportMixin and the core DataTypeMixin it composes --
     # a table placed after the class that withholds it never wins.
     BigQueryDataTypeSuggestionsMixin,
+    BigQueryCreateTableLayoutSuggestionMixin,
     BigQueryDQLMixin,
     BigQuerySchemaMixin,
     BigQueryNamespaceMixin,
@@ -117,6 +121,10 @@ class BigQueryDialect(
     # defines has to precede the base, and a mixin that subclasses a core
     # mixin has to precede it too (C3: a subclass precedes its base).
     # New BigQuery-specific mixins (BEFORE SQLDialectBase and generic mixins they override)
+    # CREATE TABLE layout answer: assembled from the capability probes below
+    # (supports_inline_index / supports_table_comment), both of which are
+    # available on the fully constructed dialect regardless of ordering.
+    BigQueryCreateTableLayoutSuggestionMixin,
     BigQueryCapabilityMixin,
     # Suggested data types: the DDL half of the type answer, ahead of
     # BigQueryTypeSupportMixin (whose core DataTypeMixin otherwise withholds
@@ -228,6 +236,9 @@ class BigQueryDialect(
     CreateTypeSupport, AlterTypeSupport, DropTypeSupport,
     CreateDomainSupport, AlterDomainSupport, DropDomainSupport,
     NamespaceSupport,
+    # Suggestion protocol: the layout mixin above already implements it; the
+    # protocol is listed here as the explicit contract the dialect advertises.
+    CreateTableLayoutSuggestionSupport,
 ):
     def __init__(
         self,
