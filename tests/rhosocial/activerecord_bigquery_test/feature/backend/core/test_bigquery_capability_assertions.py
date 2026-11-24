@@ -10,6 +10,7 @@ import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.expression import (
+    AlterTableStatement,
     ArithmeticOperation,
     Column,
     CreateTableStatement,
@@ -23,6 +24,10 @@ from rhosocial.activerecord.backend.expression.statements import (
     DropTableStatement,
     GeneratedColumnType,
     TruncateStatement,
+)
+from rhosocial.activerecord.backend.expression.statements.ddl_alter import (
+    DropTableConstraintAction,
+    RenameColumnAction,
 )
 from rhosocial.activerecord.backend.expression.types import IntegerType
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
@@ -126,3 +131,73 @@ def test_views_supported_and_render(dialect):
     sql, _ = CreateViewStatement(dialect, view=View(dialect, "v"), query=query).to_sql()
     assert sql.startswith("CREATE VIEW `v`")
     assert "SELECT `id` FROM `t`" in sql
+
+
+def test_if_exists_family_probes(dialect):
+    """Pin the IF [NOT] EXISTS answers this dialect owns.
+
+    Each ``True`` below is read off the official DDL grammar (fetched
+    2026-11-25):
+    https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language
+
+    The two index switches stay ``False``: BigQuery has no plain
+    ``CREATE INDEX`` / ``DROP INDEX`` statement.  Its only index DDL is
+    ``CREATE SEARCH INDEX`` / ``DROP SEARCH INDEX``, a different statement
+    with its own ``ON table`` syntax, which the generic index expressions do
+    not model.
+    """
+    assert dialect.supports_if_not_exists_table() is True
+    assert dialect.supports_add_column_if_not_exists() is True
+    assert dialect.supports_drop_column_if_exists() is True
+    assert dialect.supports_if_exists_table() is True
+    assert dialect.supports_schema_if_not_exists() is True
+    assert dialect.supports_schema_if_exists() is True
+    assert dialect.supports_index_if_not_exists() is False
+    assert dialect.supports_index_if_exists() is False
+
+
+def test_create_table_if_not_exists_renders(dialect):
+    column = ColumnDefinition(dialect, "id", IntegerType(dialect))
+    sql, params = CreateTableStatement(
+        dialect, Table(dialect, "t"), [column], if_not_exists=True
+    ).to_sql()
+    assert sql == "CREATE TABLE IF NOT EXISTS `t` (`id` INT64)"
+    assert params == ()
+
+
+def test_rename_column_renders(dialect):
+    """The grammar is ``RENAME COLUMN column_name TO new_column_name``.
+
+    BigQuery has supported it since 2022-08-19 (preview), generally available
+    since 2023-02-21:
+    https://cloud.google.com/bigquery/docs/release-notes-archive
+    """
+    assert dialect.supports_rename_column() is True
+    expression = AlterTableStatement(
+        dialect,
+        table=Table(dialect, "t"),
+        actions=[RenameColumnAction(dialect, "old", "new")],
+    )
+    sql, params = expression.to_sql()
+    assert sql == "ALTER TABLE `t` RENAME COLUMN `old` TO `new`"
+    assert params == ()
+
+
+def test_drop_constraint_if_exists_renders(dialect):
+    """BigQuery's DDL page does contain constraint DDL, foreign keys only.
+
+    ``ALTER TABLE ... DROP CONSTRAINT [ IF EXISTS ] constraint_name``:
+    https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#alter_table_drop_constraint_statement
+    """
+    assert dialect.supports_drop_constraint() is True
+    assert dialect.supports_drop_constraint_if_exists() is True
+    expression = AlterTableStatement(
+        dialect,
+        table=Table(dialect, "t"),
+        actions=[
+            DropTableConstraintAction(dialect, "fk", if_exists=True),
+        ],
+    )
+    sql, params = expression.to_sql()
+    assert sql == "ALTER TABLE `t` DROP CONSTRAINT IF EXISTS `fk`"
+    assert params == ()

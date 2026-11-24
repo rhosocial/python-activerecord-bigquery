@@ -1212,6 +1212,9 @@ class BigQueryConstraintMixin:
         ClickHouse, and differs from MySQL (no ``DROP CONSTRAINT IF EXISTS`` at
         all) and from Firebird and SQLite.
 
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#alter_table_drop_constraint_statement
+
         文档（待云验）: grammar-only, not server-verified.
         """
         return True

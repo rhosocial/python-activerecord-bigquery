@@ -3,9 +3,17 @@
 import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression import CreateTableStatement
-from rhosocial.activerecord.backend.expression.objects import Table
-from rhosocial.activerecord.backend.expression.statements import ColumnDefinition
+from rhosocial.activerecord.backend.expression import (
+    Column,
+    CreateTableStatement,
+    CreateViewStatement,
+    QueryStatement,
+)
+from rhosocial.activerecord.backend.expression.objects import Table, View
+from rhosocial.activerecord.backend.expression.statements import (
+    ColumnDefinition,
+    DropViewStatement,
+)
 from rhosocial.activerecord.backend.expression.types import IntegerType
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 
@@ -18,15 +26,46 @@ class TestBigQueryViewCapabilityGating:
         dialect = BigQueryDialect()
         assert dialect.supports_create_or_replace_view() is True
 
-    def test_create_view_if_not_exists_not_supported(self):
-        """BigQuery does not support CREATE VIEW IF NOT EXISTS."""
-        dialect = BigQueryDialect()
-        assert dialect.supports_if_not_exists_view() is False
+    def test_create_view_if_not_exists_supported(self):
+        """BigQuery supports CREATE VIEW IF NOT EXISTS.
 
-    def test_drop_view_if_exists_not_supported(self):
-        """BigQuery does not support DROP VIEW IF EXISTS."""
+        Grammar: ``CREATE [ OR REPLACE ] VIEW [ IF NOT EXISTS ] view_name``.
+        Evidence (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_view_statement
+        """
         dialect = BigQueryDialect()
-        assert dialect.supports_if_exists_view() is False
+        assert dialect.supports_if_not_exists_view() is True
+
+    def test_drop_view_if_exists_supported(self):
+        """BigQuery supports DROP VIEW IF EXISTS.
+
+        Grammar: ``DROP VIEW [ IF EXISTS ] view_name``.
+        Evidence (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#drop_view_statement
+        """
+        dialect = BigQueryDialect()
+        assert dialect.supports_if_exists_view() is True
+
+    def test_view_if_not_exists_renders(self):
+        dialect = BigQueryDialect()
+        query = QueryStatement(
+            dialect, select=[Column(dialect, "id")], from_=Table(dialect, "t")
+        )
+        sql, params = CreateViewStatement(
+            dialect, View(dialect, "v"), query, if_not_exists=True
+        ).to_sql()
+        assert " ".join(sql.split()) == (
+            "CREATE VIEW IF NOT EXISTS `v` AS SELECT `id` FROM `t`"
+        )
+        assert params == ()
+
+    def test_drop_view_if_exists_renders(self):
+        dialect = BigQueryDialect()
+        sql, params = DropViewStatement(
+            dialect, View(dialect, "v"), if_exists=True
+        ).to_sql()
+        assert sql == "DROP VIEW IF EXISTS `v`"
+        assert params == ()
 
     def test_materialized_view_supported(self):
         """BigQuery has native materialized views.

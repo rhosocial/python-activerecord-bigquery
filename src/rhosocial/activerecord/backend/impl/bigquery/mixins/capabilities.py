@@ -104,8 +104,32 @@ class BigQueryCapabilityMixin:
         return True
 
     def supports_if_not_exists_view(self) -> bool:
-        """BigQuery does not support IF NOT EXISTS for views."""
-        return False
+        """Whether ``CREATE VIEW IF NOT EXISTS`` is supported.
+
+        ``True``: the documented grammar is
+        ``CREATE [ OR REPLACE ] VIEW [ IF NOT EXISTS ] view_name ... AS
+        query_expression``, and the two header qualifiers are mutually
+        exclusive.  This replaces the old ``False``, which the reference page
+        contradicts.
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_view_statement
+        """
+        return True
+
+    def supports_if_exists_view(self) -> bool:
+        """Whether ``DROP VIEW IF EXISTS`` is supported.
+
+        ``True``: the documented grammar is
+        ``DROP VIEW [ IF EXISTS ] view_name``.
+
+        Declared here, ahead of core's ``DropViewMixin`` default of ``False``,
+        so the answer is this dialect's rather than an inherited fallback.
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#drop_view_statement
+        """
+        return True
 
     def supports_truncate(self) -> bool:
         """Whether ``TRUNCATE TABLE`` is supported.
@@ -204,16 +228,73 @@ class BigQueryCapabilityMixin:
         """BigQuery supports CREATE OR REPLACE TABLE."""
         return True
 
+    def supports_if_not_exists_table(self) -> bool:
+        """Whether ``CREATE TABLE IF NOT EXISTS`` is supported.
+
+        ``True``: the documented grammar is
+        ``CREATE [ OR REPLACE ] [ TEMP | TEMPORARY ] TABLE [ IF NOT EXISTS ]
+        table_name ...``, and ``IF NOT EXISTS`` cannot appear together with
+        ``OR REPLACE``.  This replaces core's inherited ``False``.
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_table_statement
+        """
+        return True
+
+    def supports_rename_column(self) -> bool:
+        """Whether ``ALTER TABLE ... RENAME COLUMN`` is supported.
+
+        ``True``: the documented grammar is
+        ``ALTER TABLE [ IF EXISTS ] table_name RENAME COLUMN [ IF EXISTS ]
+        column_name TO new_column_name [, ...]``.  Several renames may appear
+        in one statement, but a rename cannot be combined with another
+        ``ALTER TABLE`` action; this dialect already answers ``False`` to
+        ``supports_multi_action_alter_table`` for that reason.
+
+        Availability: preview on 2022-08-19, generally available on
+        2023-02-21, per the BigQuery release-notes archive.
+
+        Declared here, ahead of core's ``AlterTableMixin`` default of ``True``,
+        so the answer and its evidence stay this dialect's.
+
+        References (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#alter_table_rename_column_statement
+        https://cloud.google.com/bigquery/docs/release-notes-archive
+        """
+        return True
+
     def supports_add_column_if_not_exists(self) -> bool:
-        """BigQuery supports ALTER TABLE ADD COLUMN IF NOT EXISTS."""
+        """Whether ``ALTER TABLE ADD COLUMN IF NOT EXISTS`` is supported.
+
+        ``True``: the documented grammar is
+        ``ALTER TABLE table_name ADD COLUMN [ IF NOT EXISTS ] column [, ...]``.
+        The qualifier is this backend's, not a core default.
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#alter_table_add_column_statement
+        """
         return True
 
     def supports_drop_column_if_exists(self) -> bool:
-        """BigQuery supports ALTER TABLE DROP COLUMN IF EXISTS."""
+        """Whether ``ALTER TABLE DROP COLUMN IF EXISTS`` is supported.
+
+        ``True``: the documented grammar is
+        ``ALTER TABLE table_name DROP COLUMN [ IF EXISTS ] column_name [, ...]``.
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#alter_table_drop_column_statement
+        """
         return True
 
     def supports_if_exists_table(self) -> bool:
-        """BigQuery supports DROP TABLE IF EXISTS."""
+        """Whether ``DROP TABLE IF EXISTS`` is supported.
+
+        ``True``: the documented grammar is
+        ``DROP TABLE [ IF EXISTS ] table_name``.
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#drop_table_statement
+        """
         return True
 
     def supports_drop_table_cascade(self) -> bool:
