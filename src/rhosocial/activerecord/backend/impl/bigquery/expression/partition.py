@@ -1,0 +1,118 @@
+# src/rhosocial/activerecord/backend/impl/bigquery/expression/partition.py
+"""BigQuery table-level ``PARTITION BY`` / ``CLUSTER BY`` DDL clause.
+
+GoogleSQL's ``CREATE TABLE`` grammar carries a table-level partitioning
+expression and a clustering column list::
+
+    CREATE TABLE [IF NOT EXISTS] table_name
+        [PARTITION BY partition_expression]
+        [CLUSTER BY clustering_column_list]
+        [OPTIONS(table_option_list)]
+        AS query_expression
+
+Core has no node for this form: its ``PartitionClause`` family renders the
+RANGE / LIST / HASH partitioning of other engines, which BigQuery does not
+accept here. Under the absent-expression case this backend therefore owns a
+proprietary node with its own name and its own ``kind()`` payload id; nothing
+here is re-exported from core.
+
+The node is pure data: it collects the caller's parameters and performs no
+validation. Every check lives in the dialect formatter named by
+:attr:`BigQueryTablePartitionByClause.format_method`.
+"""
+
+from typing import TYPE_CHECKING
+
+from rhosocial.activerecord.backend.expression.bases import BaseExpression
+from rhosocial.activerecord.backend.expression.statements.ddl_table import (
+    CreateTableStatement,
+)
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ..dialect import BigQueryDialect
+
+
+__all__ = [
+    "BigQueryCreateTableStatement",
+    "BigQueryTablePartitionByClause",
+]
+
+
+class BigQueryTablePartitionByClause(BaseExpression):
+    """Collect BigQuery's table-level partitioning and clustering parameters.
+
+    Args:
+        dialect: the BigQuery dialect instance; may be ``None`` and bound later.
+        partition_expression: the GoogleSQL partitioning expression, kept as
+            written by the caller. The formatter accepts the date/timestamp/
+            datetime truncation forms and ``RANGE_BUCKET`` integer ranges;
+            every other spelling is refused there, not here.
+        cluster_by: optional clustering column names, also validated by the
+            formatter.
+
+    This class deliberately validates nothing at construction time. It is the
+    formatter that decides whether the collected parameters are supported.
+    """
+
+    def __init__(
+        self,
+        dialect: "BigQueryDialect",
+        partition_expression=None,
+        cluster_by=None,
+    ):
+        super().__init__(dialect)
+        self.partition_expression = partition_expression
+        self.cluster_by = cluster_by
+
+    @property
+    def format_method(self) -> str:
+        """The dialect formatting method that renders this expression."""
+        return "format_bigquery_table_partition_by_clause"
+
+
+class BigQueryCreateTableStatement(CreateTableStatement):
+    """Core ``CREATE TABLE`` extended with BigQuery's partition clause.
+
+    Core's ``partition`` slot is typed to its own RANGE / LIST / HASH node, so a
+    BigQuery partition clause cannot be passed through it. This derived
+    statement carries the proprietary clause in its own ``partition_by`` slot
+    and hands the rest of the statement to core's renderer unchanged.
+    """
+
+    def __init__(
+        self,
+        dialect,
+        table,
+        columns,
+        indexes=None,
+        table_constraints=None,
+        temporary=False,
+        if_not_exists=False,
+        inherits=None,
+        tablespace=None,
+        storage_options=None,
+        *,
+        partition=None,
+        table_options=None,
+        partition_by=None,
+    ):
+        super().__init__(
+            dialect,
+            table,
+            columns,
+            indexes=indexes,
+            table_constraints=table_constraints,
+            temporary=temporary,
+            if_not_exists=if_not_exists,
+            inherits=inherits,
+            tablespace=tablespace,
+            storage_options=storage_options,
+            partition=partition,
+            table_options=table_options,
+        )
+        self.partition_by = partition_by
+
+    @property
+    def format_method(self) -> str:
+        """The dialect formatting method that renders this expression."""
+        return "format_bigquery_create_table_statement"

@@ -79,6 +79,7 @@ from .mixins import (
     BigQueryDQLMixin,
     BigQuerySchemaMixin,
     BigQueryNamespaceMixin,
+    BigQueryPartitionMixin,
     BigQueryDDLColumnMixin,
     # Constraint support switches, all declared locally and all read off the
     # official ``column_schema`` / ``constraint_definition`` / ``ALTER TABLE``
@@ -157,6 +158,10 @@ class BigQueryDialect(
     BigQueryIdentityColumnMixin,
     BigQueryIdentifierMixin,
     BigQueryMaterializedViewMixin,  # Before ViewMixin to override materialized view DDL
+    # Proprietary table-level PARTITION BY / CLUSTER BY. Ahead of core's
+    # TableMixin so the CREATE TABLE extension reaches core's renderer through
+    # super() and can append the rendered clause.
+    BigQueryPartitionMixin,
     # Transaction formatting: core's TransactionControlMixin drops the
     # lock-wait pair silently, so the refusals live here, ahead of it.
     BigQueryTransactionMixin,

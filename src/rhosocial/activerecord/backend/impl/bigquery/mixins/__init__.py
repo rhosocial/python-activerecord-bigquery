@@ -15,6 +15,7 @@ from .introspection import BigQueryIntrospectionMixin
 from .literal import BigQueryLiteralValueMixin
 from .materialized_view import BigQueryMaterializedViewMixin
 from .namespace import BigQueryNamespaceMixin
+from .partition import BigQueryPartitionMixin
 from .schema import BigQuerySchemaMixin
 from .transaction import BigQueryTransactionMixin
 from .trim import BigQueryTrimMixin
@@ -44,6 +45,7 @@ class BigQueryGeographyMixin:
 __all__ = [
     "BigQueryTypeSupportMixin",
     "BigQueryNamespaceMixin",
+    "BigQueryPartitionMixin",
     "BigQueryDQLMixin",
     "BigQuerySchemaMixin",
     "BigQueryDDLColumnMixin",

@@ -76,6 +76,8 @@ class TestThreeSourcesAgree:
             f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryCreateMaterializedViewReplicaStatement",
             f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryCreateMaterializedViewStatement",
             f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryDropMaterializedViewStatement",
+            f"{BIGQUERY_EXPR_PKG}.partition.BigQueryCreateTableStatement",
+            f"{BIGQUERY_EXPR_PKG}.partition.BigQueryTablePartitionByClause",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryDatabaseInfoQueryStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryTableListQueryStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryColumnInfoQueryStatement",
@@ -107,10 +109,10 @@ class TestThreeSourcesAgree:
 
     @pytest.mark.parametrize("fqn", sorted(NODES))
     def test_the_class_name_ends_with_its_nature(self, fqn):
-        """§3: these are statements, and their names say so."""
+        """§3/§6.5: the suffix says the category -- statement or clause."""
         cls = NODES[fqn]
-        assert cls.__name__.endswith("Statement"), cls.__name__
-        assert cls.kind().endswith("_statement"), cls.kind()
+        assert cls.__name__.endswith(("Statement", "Clause")), cls.__name__
+        assert cls.kind().endswith(("_statement", "_clause")), cls.kind()
 
 
 class TestTheEntryResolvesAheadOfCore:
@@ -128,6 +130,18 @@ class TestTheEntryResolvesAheadOfCore:
     def test_the_bigquery_mixin_owns_the_entry(self, entry):
         assert getattr(BigQueryDialect, entry).__qualname__.startswith(
             "BigQueryMaterializedViewMixin."
+        )
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            "format_bigquery_table_partition_by_clause",
+            "format_bigquery_create_table_statement",
+        ],
+    )
+    def test_the_partition_mixin_owns_the_entry(self, entry):
+        assert getattr(BigQueryDialect, entry).__qualname__.startswith(
+            "BigQueryPartitionMixin."
         )
 
     @pytest.mark.parametrize(

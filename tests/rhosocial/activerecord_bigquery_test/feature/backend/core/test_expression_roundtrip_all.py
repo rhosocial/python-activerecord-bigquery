@@ -225,6 +225,8 @@ from rhosocial.activerecord.backend.expression.xml import (
 )
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryAlterMaterializedViewSetOptionsStatement,
+    BigQueryCreateTableStatement,
+    BigQueryTablePartitionByClause,
 )
 from rhosocial.activerecord_bigquery_test.feature.backend.expression_roundtrip_harness import (
     collect_expression_classes,
@@ -916,6 +918,22 @@ def register_specials():
         "materialized_view.BigQueryAlterMaterializedViewSetOptionsStatement",
         lambda d: BigQueryAlterMaterializedViewSetOptionsStatement(
             d, MaterializedView(d, "mv"), {"enable_refresh": True}
+        ),
+    )
+    # The proprietary partition clause collects parameters only; the
+    # introspective guess leaves it empty and the formatter rightly refuses it.
+    # A real partition expression is what this matrix must render.
+    register_special_constructor(
+        "partition.BigQueryTablePartitionByClause",
+        lambda d: BigQueryTablePartitionByClause(d, "DATE(ts)", ["a", "b"]),
+    )
+    register_special_constructor(
+        "partition.BigQueryCreateTableStatement",
+        lambda d: BigQueryCreateTableStatement(
+            d,
+            _table(d, "events"),
+            [_integer_column(d)],
+            partition_by=BigQueryTablePartitionByClause(d, "DATE(ts)"),
         ),
     )
 
@@ -1670,9 +1688,11 @@ def expr_case(request, dialect):
             + "rescue it, so there is nothing for the matrix to assert on."
         )
     cls = REGISTERED[fqn]
-    # The four classes this backend defines are not core's built-ins, so the
-    # registry cannot find them by name when it decodes a nested one.
-    register_all({fqn: cls})
+    # Backend classes are not core's built-ins, so the registry cannot find
+    # them by name when a statement decodes a nested one (a CREATE TABLE with
+    # a BigQuery partition clause). Register the whole matrix, not just the
+    # class under test.
+    register_all(REGISTERED)
     instance, source = make_instance(cls, dialect)
     assert instance is not None, (
         f"{fqn} cannot be built by the constructors this module registers "

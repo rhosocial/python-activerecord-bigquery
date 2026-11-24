@@ -36,6 +36,7 @@ from .data_type import (
     BigQueryStructSupport,
 )
 from .materialized_view import BigQueryMaterializedViewSupport
+from .partition import BigQueryPartitionSupport
 from .schema import BigQuerySchemaSupport
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "BigQueryGeographySupport",
     "BigQueryJSONSupport",
     "BigQueryMaterializedViewSupport",
+    "BigQueryPartitionSupport",
     "BigQuerySchemaSupport",
     "BigQueryStructSupport",
 ]
