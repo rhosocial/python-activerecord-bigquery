@@ -2,12 +2,27 @@
 """BigQuery table-partition DDL formatter mixin.
 
 This is the backend-named feature group for the proprietary partition clause
-in ``impl.bigquery.expression.partition``. Core has no counterpart, so this
-mixin owns the one formatter the clause declares through ``format_method``.
+in ``impl.bigquery.expression.partition``.  It composes core's
+``PartitionMixin`` -- the capability surface (``supports_table_partitioning``,
+``partition_capability`` and the per-strategy gates) -- and adds the one
+formatter core has no counterpart for: the BigQuery-specific
+``PARTITION BY`` / ``CLUSTER BY`` clause.
+
+The generic ``PARTITION BY <method> (<keys>)`` shape is not GoogleSQL, so the
+inherited per-strategy gates all answer ``False`` and the inherited formatters
+refuse by name.  BigQuery's partitioning is expressed through
+``PARTITION BY <partition_expression>``: time-unit column partitioning
+(``DATE`` / ``TIMESTAMP_TRUNC`` / ``DATETIME_TRUNC``) and integer range
+partitioning (``RANGE_BUCKET(col, GENERATE_ARRAY(start, end, step))``).  Those
+spellings belong to :class:`BigQueryTablePartitionByClause`, which this mixin
+renders; they are not the generic clause's operator-key grammar.
 """
 
 import re
 from typing import Tuple, TYPE_CHECKING
+
+from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.dialect.mixins.partition import PartitionMixin
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..expression.partition import (
@@ -38,8 +53,137 @@ _MAX_CLUSTER_COLUMNS = 4
 _PARTITION_DECORATOR = re.compile(r"(?:\d{8}|__NULL__|__UNPARTITIONED__)")
 
 
-class BigQueryPartitionMixin:
-    """Format BigQuery's proprietary table-level partition clause."""
+class BigQueryPartitionMixin(PartitionMixin):
+    """Format BigQuery's partition clause and declare its capability surface.
+
+    Inherits core's ``PartitionMixin`` so the ``PartitionSupport`` protocol is
+    complete: without that base the dialect raised ``AttributeError`` for
+    ``supports_table_partitioning`` and ``partition_capability`` even though
+    it already rendered ``PARTITION BY``.
+    """
+
+    def supports_table_partitioning(self) -> bool:
+        """Whether table partitioning is supported at the database level.
+
+        ``True``: the ``CREATE TABLE`` grammar carries
+        ``[ PARTITION BY partition_expression ]``, and a partition is
+        addressable by name through the table decorator
+        ``table_name$partition_id`` (``table$YYYYMMDD`` is the daily form this
+        backend's decorator node renders).  Both mechanisms are already
+        modelled.
+
+        ``partition_capability()`` therefore derives ``NATIVE``; BigQuery does
+        not need the ``AUTOMATIC`` override, because partition DDL exists and
+        partitions can be targeted.
+
+        References (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_table_statement
+        https://cloud.google.com/bigquery/docs/partitioned-tables
+        """
+        return True
+
+    def supports_partitioned_table_creation(self) -> bool:
+        """Whether ``CREATE TABLE`` can create partitioned tables.
+
+        ``True``: ``CREATE TABLE ... PARTITION BY partition_expression`` is
+        the documented grammar, and the proprietary clause formatter
+        (:class:`BigQueryTablePartitionByClause`) already renders it.
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_table_statement
+        """
+        return True
+
+    def supports_partition_metadata_introspection(self) -> bool:
+        """Whether partition metadata can be introspected.
+
+        ``True``: ``INFORMATION_SCHEMA.PARTITIONS`` contains one row per
+        partition, and this backend's introspector already reads it
+        (``list_partitions`` / ``parse_partitions``).
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/information-schema-partitions
+        """
+        return True
+
+    def supports_range_table_partitioning(self) -> bool:
+        """Whether the generic ``PARTITION BY RANGE (...)`` form is supported.
+
+        ``False``.  BigQuery *does* support integer range partitioning, but it
+        is spelled ``PARTITION BY RANGE_BUCKET(column,
+        GENERATE_ARRAY(start, end, step))`` and is rendered by
+        :class:`BigQueryTablePartitionByClause`.  Core's generic RANGE clause
+        spells ``PARTITION BY RANGE (<keys>)``, which GoogleSQL does not
+        accept, so this gate must refuse it rather than render it.  The
+        inherited ``format_partition_clause`` raises by name.
+
+        References (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/partitioned-tables
+        https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_table_statement
+        """
+        return False
+
+    def supports_list_table_partitioning(self) -> bool:
+        """Whether ``LIST`` table partitioning is supported.
+
+        ``False``: the documented partitioning types are integer range,
+        time-unit column, and ingestion-time.  There is no ``PARTITION BY
+        LIST (...)`` production.  The inherited formatter refuses it by name.
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/partitioned-tables
+        """
+        return False
+
+    def supports_hash_table_partitioning(self) -> bool:
+        """Whether ``HASH`` table partitioning is supported.
+
+        ``False``: there is no ``PARTITION BY HASH (...)`` production.  The
+        inherited formatter refuses it by name.
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/partitioned-tables
+        """
+        return False
+
+    def supports_subpartitioning(self) -> bool:
+        """Whether table subpartitioning is supported.
+
+        ``False``: ``CREATE TABLE`` carries at most one ``PARTITION BY``
+        clause and the grammar has no subpartition definition; the documented
+        partitioning types (integer range, time-unit column, ingestion-time)
+        do not include a composite form.  The inherited
+        ``format_subpartition_definition_expression`` refuses it by name.
+
+        Reference (fetched 2026-11-25):
+        https://cloud.google.com/bigquery/docs/partitioned-tables
+        """
+        return False
+
+    def format_partition_clause(self, expr) -> Tuple[str, tuple]:
+        """Refuse core's generic ``PARTITION BY`` clause shapes.
+
+        BigQuery's clause takes a partition expression, not the generic
+        ``PARTITION BY <method> (<keys>)`` form.  The inherited per-method
+        refusals already name LIST and HASH; RANGE gets a BigQuery-specific
+        message because the engine does have integer range partitioning
+        spelled ``RANGE_BUCKET``, and a caller asking for the generic spelling
+        needs to be pointed at that node.
+
+        Raises:
+            UnsupportedFeatureError: always on this dialect.
+        """
+        method = str(expr.method).upper()
+        if method == "RANGE":
+            raise UnsupportedFeatureError(
+                self.name,
+                "RANGE partitioning",
+                "BigQuery's integer range partitioning is spelled PARTITION BY "
+                "RANGE_BUCKET(column, GENERATE_ARRAY(start, end, step)) and is "
+                "rendered by BigQueryTablePartitionByClause; the generic "
+                "PARTITION BY RANGE (...) form is not GoogleSQL.",
+            )
+        return super().format_partition_clause(expr)
 
     def format_bigquery_table_partition_by_clause(
         self, expr: "BigQueryTablePartitionByClause"

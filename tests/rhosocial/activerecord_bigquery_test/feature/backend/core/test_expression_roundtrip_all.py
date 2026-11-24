@@ -1542,12 +1542,6 @@ UNMODELLED_FORMATTERS = {
         "format_drop_database_statement",
     ),
     "COMMENT ON (BigQuery has no standalone COMMENT ON statement)": ("format_comment_on_statement",),
-    "the core PartitionBy* node family (BigQuery partitions tables through its "
-    "own PARTITION BY option clause, not these expression nodes)": (
-        "format_partition_options_expression",
-        "format_partition_definition_expression",
-        "format_subpartition_definition_expression",
-    ),
     "the core PIVOT / UNPIVOT expressions (this backend composes no formatter "
     "for either; aggregation over rotated rows is spelled by conditional "
     "aggregation)": (

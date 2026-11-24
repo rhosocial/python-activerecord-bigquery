@@ -10,8 +10,24 @@ validation, and the boundary that keeps the node out of core.
 
 import pytest
 
+from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.dialect.partition_capability import (
+    PartitionCapability,
+)
+from rhosocial.activerecord.backend.dialect.protocols.ddl.partition import (
+    PartitionSupport,
+)
 from rhosocial.activerecord.backend.expression import BaseExpression
+from rhosocial.activerecord.backend.expression.core import Column
 from rhosocial.activerecord.backend.expression.objects import Table
+from rhosocial.activerecord.backend.expression.statements.ddl_partition import (
+    PartitionByHashClause,
+    PartitionByListClause,
+    PartitionByRangeClause,
+    PartitionDefinitionExpression,
+    PartitionOptionsExpression,
+    SubpartitionDefinitionExpression,
+)
 from rhosocial.activerecord.backend.expression.statements.ddl_table import (
     ColumnDefinition,
 )
@@ -164,3 +180,98 @@ class TestCreateTableAttachment:
             [ColumnDefinition(dialect, "id", IntegerType(dialect))],
         )
         assert statement.to_sql()[0] == "CREATE TABLE `events` (`id` INT64)"
+
+
+#: Every core ``PartitionSupport`` member this dialect must expose.  The
+#: proprietary mixin used to be a bare ``object`` class, so these raised
+#: ``AttributeError`` even though partition rendering already worked.
+PARTITION_SUPPORT_MEMBERS = (
+    "supports_table_partitioning",
+    "partition_capability",
+    "supports_partitioned_table_creation",
+    "supports_partition_metadata_introspection",
+    "supports_range_table_partitioning",
+    "supports_list_table_partitioning",
+    "supports_hash_table_partitioning",
+    "supports_subpartitioning",
+    "format_partition_clause",
+    "format_partition_definition_expression",
+    "format_subpartition_definition_expression",
+    "format_partition_options_expression",
+)
+
+
+class TestCorePartitionCapabilitySurface:
+    """The core ``PartitionSupport`` protocol reaches the dialect."""
+
+    @pytest.mark.parametrize("member", PARTITION_SUPPORT_MEMBERS)
+    def test_member_exists(self, member, dialect):
+        assert hasattr(dialect, member), f"BigQueryDialect has no {member}"
+
+    def test_core_partition_protocol_is_satisfied(self, dialect):
+        assert isinstance(dialect, PartitionSupport)
+
+    def test_table_partitioning_is_native(self, dialect):
+        """BigQuery has partition DDL and addresses partitions by decorator."""
+        assert dialect.supports_table_partitioning() is True
+        assert dialect.partition_capability() is PartitionCapability.NATIVE
+        assert str(dialect.partition_capability()) == "native"
+
+    def test_creation_and_metadata_introspection_are_supported(self, dialect):
+        """``CREATE TABLE ... PARTITION BY`` and ``INFORMATION_SCHEMA.PARTITIONS``."""
+        assert dialect.supports_partitioned_table_creation() is True
+        assert dialect.supports_partition_metadata_introspection() is True
+
+    def test_generic_strategy_gates_are_declined(self, dialect):
+        """The generic RANGE/LIST/HASH grammar is not GoogleSQL."""
+        assert dialect.supports_range_table_partitioning() is False
+        assert dialect.supports_list_table_partitioning() is False
+        assert dialect.supports_hash_table_partitioning() is False
+        assert dialect.supports_subpartitioning() is False
+
+
+class TestGenericPartitionActionsAreRefused:
+    """Each generic partition node refuses by name instead of inventing SQL."""
+
+    @pytest.mark.parametrize(
+        "clause_cls,feature",
+        (
+            (PartitionByRangeClause, "RANGE partitioning"),
+            (PartitionByListClause, "LIST partitioning"),
+            (PartitionByHashClause, "HASH partitioning"),
+        ),
+        ids=("range", "list", "hash"),
+    )
+    def test_generic_partition_clause_refused(self, clause_cls, feature, dialect):
+        expression = clause_cls(dialect, [Column(dialect, "dt")])
+        with pytest.raises(UnsupportedFeatureError) as caught:
+            expression.to_sql()
+        assert caught.value.feature_name == feature
+
+    def test_partition_definition_refused(self, dialect):
+        expression = PartitionDefinitionExpression(
+            dialect, "p0", less_than=[Column(dialect, "dt")]
+        )
+        with pytest.raises(UnsupportedFeatureError) as caught:
+            expression.to_sql()
+        assert caught.value.feature_name == "partition definition"
+
+    def test_subpartition_definition_refused(self, dialect):
+        expression = SubpartitionDefinitionExpression(
+            dialect, "sp0", less_than=[Column(dialect, "dt")]
+        )
+        with pytest.raises(UnsupportedFeatureError) as caught:
+            expression.to_sql()
+        assert caught.value.feature_name == "subpartition definition"
+
+    def test_partition_options_refused(self, dialect):
+        expression = PartitionOptionsExpression(dialect, {"engine": "x"})
+        with pytest.raises(UnsupportedFeatureError) as caught:
+            expression.to_sql()
+        assert caught.value.feature_name == "partition options"
+
+    def test_range_refusal_points_at_range_bucket(self, dialect):
+        """Integer range partitioning exists, spelled RANGE_BUCKET."""
+        expression = PartitionByRangeClause(dialect, [Column(dialect, "id")])
+        with pytest.raises(UnsupportedFeatureError, match="RANGE_BUCKET"):
+            expression.to_sql()

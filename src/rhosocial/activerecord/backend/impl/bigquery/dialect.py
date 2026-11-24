@@ -10,6 +10,7 @@ from rhosocial.activerecord.backend.dialect.protocols import (
     # The object protocols derive from NamespaceSupport, so a subclass has to
     # precede its base: C3 will not accept NamespaceSupport ahead of them.
     ViewObjectSupport, IndexObjectSupport,
+    PartitionSupport,
     ConstraintSupport, IntrospectionSupport, TransactionControlSupport,
     SQLFunctionSupport, JSONSupport, TruncateSupport,
     # One protocol per TYPE / DOMAIN statement, in place of the two umbrella
@@ -182,9 +183,11 @@ class BigQueryDialect(
     # SQLDialectBase so core's IndexMixin answers cannot win.
     BigQueryIndexMixin,
     BigQueryMaterializedViewMixin,  # Before ViewMixin to override materialized view DDL
-    # Proprietary table-level PARTITION BY / CLUSTER BY. Ahead of core's
-    # TableMixin so the CREATE TABLE extension reaches core's renderer through
-    # super() and can append the rendered clause.
+    # Proprietary table-level PARTITION BY / CLUSTER BY.  It also inherits
+    # core's PartitionMixin, so the PartitionSupport probes and the generic
+    # partition-clause refusals travel with it.  Ahead of core's TableMixin so
+    # the CREATE TABLE extension reaches core's renderer through super() and
+    # can append the rendered clause.
     BigQueryPartitionMixin,
     # Transaction formatting: core's TransactionControlMixin drops the
     # lock-wait pair silently, so the refusals live here, ahead of it.
@@ -263,6 +266,7 @@ class BigQueryDialect(
     AdvancedGroupingSupport, ArraySupport, ExplainSupport,
     QualifyClauseSupport, UpsertSupport, LateralJoinSupport,
     JoinSupport, ViewObjectSupport, IndexObjectSupport,
+    PartitionSupport,
     ConstraintSupport, IntrospectionSupport, TransactionControlSupport,
     SQLFunctionSupport, JSONSupport, TruncateSupport,
     BigQueryStructSupport, BigQueryArraySupport,
