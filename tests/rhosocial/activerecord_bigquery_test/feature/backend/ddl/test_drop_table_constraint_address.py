@@ -2,17 +2,27 @@
 """BigQuery addresses DROP CONSTRAINT by name, never by declaration kind.
 
 Core's ``DropTableConstraintAction`` now carries either a ``constraint_name`` or
-a ``constraint`` declaration (and either may be absent).  This backend overrides
-neither the action nor the formatter: ``format_drop_table_constraint_action``
-resolves through core's ``DDLColumnMixin`` to the name-only implementation, which
-refuses a declaration-only action with ``UnsupportedFeatureError`` naming
-``DROP CONSTRAINT by kind`` before anything renders.
+a ``constraint`` declaration (and either may be absent), and core's
+``ConstraintMixin._resolve_drop_constraint_address`` decides which address a
+formatter may use -- one rule for every backend, not a per-dialect
+preference.  This backend overrides neither the action nor the formatter:
+``format_drop_table_constraint_action`` resolves through core's ``DDLColumnMixin``
+to the name-only implementation, which refuses a declaration-only action with
+``UnsupportedFeatureError`` naming ``DROP CONSTRAINT by kind`` before anything
+renders.
 
 That guard rests on this backend's own ``supports_drop_constraint_by_kind()``,
 declared ``False`` in ``mixins/constraint.py``.  The tests below pin the
 refusal -- so a hostile or merely moved core default cannot silently turn it
 into a render or an empty string -- and pin the name-only spelling byte for
 byte so the accepted path cannot drift while the refusal is being watched.
+
+The ``name`` address is not merely preferred: when both addresses are given,
+the declaration only **confirms** the name.  A declaration whose name differs
+from ``constraint_name``, or one that carries no name at all, is an **ambiguous
+address** and is refused naming ``DROP CONSTRAINT address``.  A name-only dialect
+such as this one cannot be the place where a second address is quietly dropped,
+so the ambiguity tests below matter as much as the by-kind ones.
 
 These are construction and rendering tests: no instance is required.
 """
@@ -38,14 +48,14 @@ def dialect():
     return BigQueryDialect()
 
 
-def _foreign_key(dialect):
+def _foreign_key(dialect, name="fk"):
     """A named, real foreign key: BigQuery's only nameable constraint kind."""
     return TableConstraint(
         dialect,
         branch=TableForeignKeyConstraint(
             dialect, ["a"], (Table(dialect, "parent"), ["id"])
         ),
-        name="fk",
+        name=name,
         not_enforced=True,
     )
 
@@ -126,18 +136,66 @@ class TestDropConstraintByNameIsUnchanged:
         assert sql == "ALTER TABLE `t` DROP CONSTRAINT IF EXISTS `fk`"
         assert params == ()
 
-    def test_the_name_wins_when_both_addresses_are_present(self, dialect):
-        """Core's rule on a name-only dialect: the name is what it can render.
+    def test_a_declaration_confirming_the_name_renders_by_name(self, dialect):
+        """Both addresses given, and the declaration carries the same name.
 
-        The declaration is ignored rather than refused, because the action is
-        still addressable -- and the rendered statement is byte-identical to the
-        name-only one above.
+        Core's rule is confirmation, not preference: an equally named
+        declaration adds no second address, so the drop is still spelled by
+        name -- byte-identical to the name-only statement above.  A differing
+        name is refused; see ``TestDropConstraintAddressMustNotBeAmbiguous``.
         """
         action = DropTableConstraintAction(
-            dialect, "fk", constraint=_foreign_key(dialect)
+            dialect, "fk", constraint=_foreign_key(dialect, name="fk")
         )
 
         sql, params = _alter_table(dialect, action).to_sql()
 
         assert sql == "ALTER TABLE `t` DROP CONSTRAINT `fk`"
         assert params == ()
+
+
+class TestDropConstraintAddressMustNotBeAmbiguous:
+    """Two addresses that disagree are refused, never resolved by preference.
+
+    The refusal belongs to core's ``_resolve_drop_constraint_address``
+    (``14fc3b58``), which this backend inherits unchanged because it overrides
+    no DROP CONSTRAINT formatter.  Pinned here because a name-only dialect is
+    exactly where a silent preference would look harmless: the declaration is
+    discarded, so a caller who named one constraint and declared another would
+    see the wrong one dropped with no error.
+    """
+
+    def test_a_differing_declaration_name_is_refused(self, dialect):
+        """``constraint_name`` says ``fk``; the declaration says ``other``."""
+        action = DropTableConstraintAction(
+            dialect, "fk", constraint=_foreign_key(dialect, name="other")
+        )
+
+        with pytest.raises(UnsupportedFeatureError) as exc:
+            _alter_table(dialect, action).to_sql()
+
+        assert exc.value.feature_name == "DROP CONSTRAINT address"
+        assert "'fk'" in str(exc.value)
+        assert "'other'" in str(exc.value)
+
+    def test_an_unnamed_declaration_is_refused(self, dialect):
+        """``constraint_name`` alone is not confirmed by an unnamed declaration."""
+        action = DropTableConstraintAction(
+            dialect, "fk", constraint=_foreign_key(dialect, name=None)
+        )
+
+        with pytest.raises(UnsupportedFeatureError) as exc:
+            _alter_table(dialect, action).to_sql()
+
+        assert exc.value.feature_name == "DROP CONSTRAINT address"
+
+    def test_the_action_itself_refuses_before_the_statement_can_join_it(self, dialect):
+        """Like the by-kind guard, the ambiguity guard sits at the action."""
+        action = DropTableConstraintAction(
+            dialect, "fk", constraint=_foreign_key(dialect, name="other")
+        )
+
+        with pytest.raises(UnsupportedFeatureError) as exc:
+            action.to_sql()
+
+        assert exc.value.feature_name == "DROP CONSTRAINT address"
