@@ -4,10 +4,9 @@
 Every answer here is read off the official GoogleSQL DDL reference and the
 capability probes this backend already declares. No expression class or SQL
 string is invented: an actionable answer reuses existing core statements and
-actions (or this backend's own partition nodes), and an unsupported answer is
-the explicit ``False`` tri-state. The reason for each ``False`` is recorded
-next to the answer and pinned by the tests; no constructor is handed SQL text
-assembled by this module.
+actions, and an unsupported answer is the explicit ``False`` tri-state. The
+reason for each ``False`` is recorded next to the answer and pinned by the
+tests; no constructor is handed SQL text assembled by this module.
 
 Source of the grammar quoted below (transcribed and verified by the existing
 capability modules and tests, not re-measured here):
@@ -32,11 +31,12 @@ capability modules and tests, not re-measured here):
   name, so an index change is explicitly unsupported.
 * Partition scheme change: partitioning is declared at CREATE time through
   ``PARTITION BY`` / ``CLUSTER BY`` and partitions are addressed by decorators;
-  there is no statement that alters a table's partitioning scheme. A real
-  chain exists only when the point carries a complete rebuild statement built
-  from this dialect's existing nodes: drop the old table, then create the new
-  one with its new partition clause. A bare partition clause cannot recreate a
-  table, so it is not enough to make the point actionable.
+  there is no statement that alters a table's partitioning scheme, and BigQuery
+  has no in-place ALTER of the partition scheme. ``DROP TABLE`` + ``CREATE
+  TABLE`` is a destructive rebuild that deletes every row, so it is not offered
+  here (the same rule that forbids destructive drop+add chains for column
+  reorder). A data-preserving rebuild must be a separate, explicitly authorized
+  migration plan; every scheme-change point here answers ``False``.
 """
 
 from typing import Any
@@ -44,13 +44,11 @@ from typing import Any
 from rhosocial.activerecord.backend.expression import AlterTableStatement
 from rhosocial.activerecord.backend.expression.bases import BaseExpression
 from rhosocial.activerecord.backend.expression.objects import Table
-from rhosocial.activerecord.backend.expression.statements import DropTableStatement
 from rhosocial.activerecord.backend.expression.statements.ddl_alter import (
     AddTableConstraintAction,
     DropTableConstraintAction,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_table import (
-    CreateTableStatement,
     TableConstraint,
     TableForeignKeyConstraint,
 )
@@ -59,11 +57,6 @@ from rhosocial.activerecord.backend.suggestion.definitions import (
     PartitionSchemeChangeSuggestion,
     TableConstraintChangeSuggestion,
     TableIndexChangeSuggestion,
-)
-
-from ..expression.partition import (
-    BigQueryCreateTableStatement,
-    BigQueryTablePartitionByClause,
 )
 
 
@@ -185,48 +178,24 @@ class BigQueryTableIndexChangeSuggestionMixin:
 
 
 class BigQueryPartitionSchemeChangeSuggestionMixin:
-    """A scheme change is a table rebuild, never an in-place ALTER."""
+    """No in-place ALTER exists; a destructive rebuild is never offered."""
 
     def suggest_partition_scheme_change(
         self, point: PartitionSchemeChangeSuggestion
     ) -> PartitionSchemeChangeSuggestion:
-        """Return a drop/recreate chain when the point carries the new table.
+        """Refuse every scheme change: there is no in-place answer.
 
-        The new projection must be a complete ``CreateTableStatement`` (this
-        dialect's partition-aware subclass included) whose target is the point's
-        table. Its partition clause must be this backend's own
-        ``BigQueryTablePartitionByClause``; a core RANGE / LIST / HASH clause
-        has no GoogleSQL spelling here. The old declaration needs no rendering
-        because dropping the table removes it. A bare clause, a frozen
-        projection, or a statement for another table cannot be turned into a
-        chain without inventing a declaration, so those answer ``False``.
+        BigQuery has no in-place ALTER of the partition scheme -- partitioning
+        is declared at ``CREATE TABLE`` time through ``PARTITION BY`` and no
+        statement changes it afterwards. A ``DROP TABLE`` + ``CREATE TABLE``
+        pair would rebuild the table with its new scheme but is a destructive
+        rebuild that deletes every row, so it is not offered here: the same
+        rule that already forbids destructive drop+add chains for column
+        reorder. A data-preserving rebuild must be a separate,
+        explicitly authorized migration plan, never an automatic answer. Every point
+        therefore answers ``False`` (``unaddressable``), including one carrying a
+        complete rebuild statement: ``resolve_suggestions`` appends returned
+        expressions verbatim to the executable statement list, so even a
+        well-formed chain would delete data when applied.
         """
-        table_name = point.table_name
-        if not isinstance(table_name, str) or not table_name.strip():
-            return PartitionSchemeChangeSuggestion(operations=False)
-        new = point.new_partition
-        if not isinstance(new, CreateTableStatement):
-            return PartitionSchemeChangeSuggestion(operations=False)
-        # Core's generic partition clause has no GoogleSQL spelling on this
-        # dialect; the BigQuery subclass puts its clause in ``partition_by``.
-        if getattr(new, "partition", None) is not None:
-            return PartitionSchemeChangeSuggestion(operations=False)
-        if isinstance(new, BigQueryCreateTableStatement):
-            clause = new.partition_by
-            if clause is not None and not isinstance(clause, BigQueryTablePartitionByClause):
-                return PartitionSchemeChangeSuggestion(operations=False)
-        target = getattr(new, "table", None)
-        if not isinstance(target, Table) or target.name != table_name:
-            return PartitionSchemeChangeSuggestion(operations=False)
-
-        old_table = Table(
-            self,
-            target.name,
-            catalog_name=target.catalog_name,
-            schema_name=target.schema_name,
-        )
-        operations = (
-            DropTableStatement(self, old_table),
-            new,
-        )
-        return PartitionSchemeChangeSuggestion(operations=operations)
+        return PartitionSchemeChangeSuggestion(operations=False)

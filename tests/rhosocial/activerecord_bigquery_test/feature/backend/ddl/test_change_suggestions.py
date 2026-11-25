@@ -14,12 +14,12 @@ tri-state is checked as a caller sees it, not only as a return value.
 """
 
 import inspect
+import re
 
 import pytest
 
 from rhosocial.activerecord.backend.expression import AlterTableStatement, Column
 from rhosocial.activerecord.backend.expression.objects import Table
-from rhosocial.activerecord.backend.expression.statements import DropTableStatement
 from rhosocial.activerecord.backend.expression.statements.ddl_partition import (
     PartitionByRangeClause,
 )
@@ -88,6 +88,60 @@ def _create(dialect, *, table="events", partition_by=None, partition=None, schem
         partition=partition,
         partition_by=partition_by,
     )
+
+
+_DESTRUCTIVE_DROP_CLASSES = {"DropTableStatement", "DropSchemaStatement"}
+
+
+def _operation_chain(answer):
+    """The expression chain an answer carries; a non-actionable answer has none."""
+    operations = answer.operations
+    return operations if isinstance(operations, (tuple, list)) else ()
+
+
+def _assert_no_destructive_drop(answer):
+    """Pin the safety rule: no returned expression drops a table or a schema.
+
+    Each expression is checked twice -- by its class name and by its rendered
+    SQL -- so a rebuild smuggled in through either route is caught.
+    """
+    for operation in _operation_chain(answer):
+        assert type(operation).__name__ not in _DESTRUCTIVE_DROP_CLASSES
+        sql = operation.to_sql()[0]
+        for statement in sql.split(";"):
+            assert not re.match(r"^\s*DROP\s+(TABLE|SCHEMA)\b", statement, re.IGNORECASE), sql
+
+
+_SCHEME_NEW_PARTITIONS = (
+    lambda d: BigQueryTablePartitionByClause(d, "DATE(ts)"),
+    lambda d: _create(
+        d, partition_by=BigQueryTablePartitionByClause(d, "DATE(created_at)", ["id"])
+    ),
+    lambda d: CreateTableStatement(
+        d, Table(d, "events"), [ColumnDefinition(d, "id", IntegerType(d))]
+    ),
+    lambda d: _create(
+        d,
+        schema_name="app",
+        partition_by=BigQueryTablePartitionByClause(d, "DATE(created_at)"),
+    ),
+    lambda d: _create(d, table="other"),
+    lambda d: _create(d, partition=PartitionByRangeClause(d, [Column(d, "ts")])),
+    lambda d: ("params", (("partition_expression", "DATE(ts)"),)),
+    lambda d: "DATE(ts)",
+    lambda d: None,
+)
+_SCHEME_NEW_PARTITION_IDS = (
+    "bigquery-clause",
+    "full-rebuild-add-partition",
+    "full-rebuild-remove-partition",
+    "qualified-full-rebuild",
+    "other-table",
+    "core-range-clause",
+    "frozen",
+    "string",
+    "missing",
+)
 
 
 class TestProtocolRegistration:
@@ -243,8 +297,45 @@ class TestIndexChange:
 
 
 class TestPartitionSchemeChange:
-    def test_rebuild_with_bigquery_partition_clause(self, dialect):
-        """The only real mechanism: drop the table, recreate it partitioned."""
+    """Safety: no answer may offer a destructive table rebuild.
+
+    ``resolve_suggestions`` appends returned expressions verbatim to the
+    executable statement list, so a ``DROP TABLE`` + ``CREATE TABLE`` chain
+    would delete every row when applied. The refusal is therefore total, not
+    conditional on the shape of the point.
+    """
+
+    @pytest.mark.parametrize(
+        "factory", _SCHEME_NEW_PARTITIONS, ids=_SCHEME_NEW_PARTITION_IDS
+    )
+    def test_every_scheme_change_point_is_explicitly_unaddressable(self, dialect, factory):
+        """Each answer is ``False`` / ``unaddressable``, even a full rebuild."""
+        point = PartitionSchemeChangeSuggestion(
+            table_name="events",
+            old_partition=BigQueryTablePartitionByClause(dialect, "DATE(ts)"),
+            new_partition=factory(dialect),
+        )
+        answer = dialect.suggest_partition_scheme_change(point)
+        assert isinstance(answer, PartitionSchemeChangeSuggestion)
+        assert answer.operations is False
+        assert answer.state == "unaddressable"
+        assert resolve_point(point, dialect).state == "unsupported"
+
+    @pytest.mark.parametrize(
+        "factory", _SCHEME_NEW_PARTITIONS, ids=_SCHEME_NEW_PARTITION_IDS
+    )
+    def test_no_answer_contains_a_destructive_drop(self, dialect, factory):
+        """No returned expression chain drops a TABLE or SCHEMA, by name or SQL."""
+        point = PartitionSchemeChangeSuggestion(
+            table_name="events", new_partition=factory(dialect)
+        )
+        answer = dialect.suggest_partition_scheme_change(point)
+        assert answer.operations is False
+        assert _operation_chain(answer) == ()
+        _assert_no_destructive_drop(answer)
+
+    def test_complete_rebuild_projection_is_refused_without_a_drop(self, dialect):
+        """The shape that used to render DROP + CREATE now refuses outright."""
         new = _create(
             dialect,
             partition_by=BigQueryTablePartitionByClause(dialect, "DATE(created_at)", ["id"]),
@@ -255,62 +346,19 @@ class TestPartitionSchemeChange:
             new_partition=new,
         )
         answer = dialect.suggest_partition_scheme_change(point)
-        assert answer.state == "actions"
-        assert _sql(answer) == [
-            "DROP TABLE `events`",
-            "CREATE TABLE `events` (`id` INT64) PARTITION BY DATE(created_at) CLUSTER BY id",
-        ]
-        assert isinstance(answer.operations[0], DropTableStatement)
-        assert answer.operations[1] is new
-        assert resolve_point(point, dialect).state == "actions"
-
-    def test_rebuild_can_remove_partitioning(self, dialect):
-        """An unpartitioned core CREATE TABLE is the other documented rebuild."""
-        new = CreateTableStatement(
-            dialect,
-            Table(dialect, "events"),
-            [ColumnDefinition(dialect, "id", IntegerType(dialect))],
-        )
-        point = PartitionSchemeChangeSuggestion(
-            table_name="events",
-            old_partition=BigQueryTablePartitionByClause(dialect, "DATE(ts)"),
-            new_partition=new,
-        )
-        answer = dialect.suggest_partition_scheme_change(point)
-        assert _sql(answer) == ["DROP TABLE `events`", "CREATE TABLE `events` (`id` INT64)"]
-
-    def test_drop_keeps_the_target_qualification(self, dialect):
-        """The drop addresses the same table the supplied create statement does."""
-        new = _create(
-            dialect,
-            schema_name="app",
-            partition_by=BigQueryTablePartitionByClause(dialect, "DATE(created_at)"),
-        )
-        point = PartitionSchemeChangeSuggestion(table_name="events", new_partition=new)
-        answer = dialect.suggest_partition_scheme_change(point)
-        assert _sql(answer) == [
-            "DROP TABLE `app`.`events`",
-            "CREATE TABLE `app`.`events` (`id` INT64) PARTITION BY DATE(created_at)",
-        ]
-
-    @pytest.mark.parametrize(
-        "factory",
-        [
-            lambda d: BigQueryTablePartitionByClause(d, "DATE(ts)"),
-            lambda d: ("params", (("partition_expression", "DATE(ts)"),)),
-            lambda d: "DATE(ts)",
-            lambda d: _create(d, table="other"),
-            lambda d: _create(
-                d, partition=PartitionByRangeClause(d, [Column(d, "ts")])
-            ),
-        ],
-        ids=["bare-clause", "frozen", "string", "other-table", "core-range-clause"],
-    )
-    def test_unusable_new_projection_is_unsupported(self, dialect, factory):
-        """A clause alone, a projection, or an unspellable clause is not a chain."""
-        point = PartitionSchemeChangeSuggestion(
-            table_name="events", new_partition=factory(dialect)
-        )
-        answer = dialect.suggest_partition_scheme_change(point)
         assert answer.operations is False
-        assert resolve_point(point, dialect).state == "unsupported"
+        assert answer.state == "unaddressable"
+        assert _operation_chain(answer) == ()
+        _assert_no_destructive_drop(answer)
+
+    def test_docstring_states_the_safety_rationale(self, dialect):
+        """The refusal documents why the destructive rebuild is not offered."""
+        doc = inspect.getdoc(dialect.suggest_partition_scheme_change) or ""
+        for phrase in (
+            "BigQuery has no in-place ALTER of the partition scheme",
+            "``DROP TABLE`` + ``CREATE TABLE``",
+            "destructive",
+            "data-preserving rebuild must be a separate",
+            "explicitly authorized migration plan",
+        ):
+            assert phrase in doc, f"the refusal must be documented: {phrase!r}"
