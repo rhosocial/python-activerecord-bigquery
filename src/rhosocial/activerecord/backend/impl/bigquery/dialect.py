@@ -55,7 +55,11 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     LpadMixin, RepeatMixin, RpadMixin,
 )
 from rhosocial.activerecord.backend.suggestion.protocols import (
+    ColumnReorderSuggestionSupport,
     CreateTableLayoutSuggestionSupport,
+    PartitionSchemeChangeSuggestionSupport,
+    TableConstraintChangeSuggestionSupport,
+    TableIndexChangeSuggestionSupport,
 )
 from .protocols import (
     BigQueryArraySupport,
@@ -76,6 +80,10 @@ from .mixins import (
     # a table placed after the class that withholds it never wins.
     BigQueryDataTypeSuggestionsMixin,
     BigQueryCreateTableLayoutSuggestionMixin,
+    BigQueryColumnReorderSuggestionMixin,
+    BigQueryTableConstraintChangeSuggestionMixin,
+    BigQueryTableIndexChangeSuggestionMixin,
+    BigQueryPartitionSchemeChangeSuggestionMixin,
     BigQueryGeneratedValueSuggestionMixin,
     BigQueryPartitionBuildSuggestionMixin,
     BigQueryPartitionAddSuggestionMixin,
@@ -153,6 +161,15 @@ class BigQueryDialect(
     BigQueryPartitionTableAlterSuggestionMixin,
     BigQueryPartitionSplitSuggestionMixin,
     BigQueryPartitionMergeSuggestionMixin,
+    # Migration change points (the four minimal suggestion protocols). Plain
+    # classes, so they intercept no __init__; the two actionable ones reuse
+    # existing core statements and this backend's partition nodes, and the two
+    # unsupported ones answer explicit False with the reason recorded in
+    # mixins/change_suggestions.py.
+    BigQueryColumnReorderSuggestionMixin,
+    BigQueryTableConstraintChangeSuggestionMixin,
+    BigQueryTableIndexChangeSuggestionMixin,
+    BigQueryPartitionSchemeChangeSuggestionMixin,
     BigQueryCapabilityMixin,
     # Suggested data types: the DDL half of the type answer, ahead of
     # BigQueryTypeSupportMixin (whose core DataTypeMixin otherwise withholds
@@ -277,9 +294,14 @@ class BigQueryDialect(
     CreateTypeSupport, AlterTypeSupport, DropTypeSupport,
     CreateDomainSupport, AlterDomainSupport, DropDomainSupport,
     NamespaceSupport,
-    # Suggestion protocol: the layout mixin above already implements it; the
-    # protocol is listed here as the explicit contract the dialect advertises.
+    # Suggestion protocols: the mixins above already implement them; the
+    # protocols are listed here as the explicit contracts the dialect
+    # advertises, so isinstance checks do not depend on a structural accident.
     CreateTableLayoutSuggestionSupport,
+    ColumnReorderSuggestionSupport,
+    TableConstraintChangeSuggestionSupport,
+    TableIndexChangeSuggestionSupport,
+    PartitionSchemeChangeSuggestionSupport,
 ):
     def __init__(
         self,

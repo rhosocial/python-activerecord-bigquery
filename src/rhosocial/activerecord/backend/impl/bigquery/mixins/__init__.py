@@ -3,6 +3,12 @@
 
 from .capabilities import BigQueryCapabilityMixin
 from .column_type import BigQueryColumnTypeMixin
+from .change_suggestions import (
+    BigQueryColumnReorderSuggestionMixin,
+    BigQueryPartitionSchemeChangeSuggestionMixin,
+    BigQueryTableConstraintChangeSuggestionMixin,
+    BigQueryTableIndexChangeSuggestionMixin,
+)
 from .constraint import BigQueryConstraintMixin
 from .data_type_suggestions import BigQueryDataTypeSuggestionsMixin
 from .ddl import BigQueryDDLColumnMixin
@@ -65,6 +71,10 @@ __all__ = [
     "BigQueryColumnTypeMixin",
     "BigQueryDataTypeSuggestionsMixin",
     "BigQueryCreateTableLayoutSuggestionMixin",
+    "BigQueryColumnReorderSuggestionMixin",
+    "BigQueryTableConstraintChangeSuggestionMixin",
+    "BigQueryTableIndexChangeSuggestionMixin",
+    "BigQueryPartitionSchemeChangeSuggestionMixin",
     "BigQueryGeneratedValueSuggestionMixin",
     "BigQueryPartitionBuildSuggestionMixin",
     "BigQueryPartitionAddSuggestionMixin",
