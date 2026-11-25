@@ -1,33 +1,34 @@
 # tests/rhosocial/activerecord_bigquery_test/feature/backend/ddl/test_bigquery_table_options.py
-"""BigQuery ``ALTER TABLE`` option DDL: probes, exact SQL and by-name refusals.
+"""BigQuery ``ALTER TABLE SET OPTIONS``: probes, exact SQL and by-name refusals.
 
-Evidence level: 文档（待云验证） for the ``SET OPTIONS`` half. The production and
-its closed ``table_set_options_list`` come from Google's official DDL reference
+Evidence level: 文档（待云验证）. The production and its closed
+``table_set_options_list`` come from Google's official DDL reference
 (fetched 2026-11-25):
 
 https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#alter_table_set_options_statement
 
-The ``UNSET OPTIONS`` spelling is the one supplied with the migration task. The
-reference above has no ``UNSET OPTIONS`` production and documents clearing as
-``SET OPTIONS(option_name = NULL)``, so its probe row records that evidence
-gap instead of claiming a verified server contract. Every assertion here is
-construction and reflection: no BigQuery instance is contacted.
+That reference has **no** ``UNSET OPTIONS`` production: clearing an option is
+``SET OPTIONS(option_name = NULL)``. No UNSET node, formatter or probe exists,
+and a test below refuses to let one reappear from a task brief or a
+third-party summary. Every assertion here is construction and reflection: no
+BigQuery instance is contacted.
 """
+import importlib
 import inspect
+import pkgutil
 import re
 
 import pytest
 
+from rhosocial.activerecord.backend.expression.core import BaseExpression
 from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.expression.serialization import core_registry
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryAlterTableSetOptionsStatement,
-    BigQueryAlterTableUnsetOptionsStatement,
 )
 from rhosocial.activerecord.backend.impl.bigquery.mixins import BigQueryTableOptionsMixin
 from rhosocial.activerecord.backend.impl.bigquery.protocols import BigQueryTableOptionsSupport
-
 
 #: name, expected answer, evidence. Registered in the capability test table
 #: below so a core default cannot answer for this dialect.
@@ -37,12 +38,6 @@ TABLE_OPTION_PROBES = (
         True,
         "official DDL reference documents ALTER TABLE ... SET OPTIONS and a closed "
         "table_set_options_list",
-    ),
-    (
-        "supports_alter_table_unset_options",
-        True,
-        "task-supplied server syntax; NOT in the official DDL reference fetched "
-        "2026-11-25, which clears an option with SET OPTIONS(name = NULL)",
     ),
 )
 
@@ -71,13 +66,68 @@ def test_the_protocol_is_advertised(dialect):
     assert isinstance(dialect, BigQueryTableOptionsSupport)
 
 
-def test_the_evidence_levels_are_written_on_the_probes():
-    """The unverified UNSET answer may not quietly pass as a documented one."""
-    set_doc = inspect.getdoc(BigQueryTableOptionsMixin.supports_alter_table_options) or ""
-    unset_doc = inspect.getdoc(BigQueryTableOptionsMixin.supports_alter_table_unset_options) or ""
-    assert "#alter_table_set_options_statement" in set_doc
-    assert "unverified" in unset_doc
-    assert "SET OPTIONS(option_name = NULL)" in unset_doc
+def test_the_evidence_is_written_on_the_probe():
+    """The documented answer names the reference it rests on."""
+    doc = inspect.getdoc(BigQueryTableOptionsMixin.supports_alter_table_options) or ""
+    assert "#alter_table_set_options_statement" in doc
+
+
+def test_no_unset_options_node_probe_formatter_or_kind_exists(dialect):
+    """The official reference has no UNSET OPTIONS; this backend must not invent one."""
+    package = importlib.import_module(
+        "rhosocial.activerecord.backend.impl.bigquery.expression"
+    )
+    expression_names = []
+    for module_info in pkgutil.walk_packages(
+        package.__path__, package.__name__ + ".", onerror=lambda _error: None
+    ):
+        module = importlib.import_module(module_info.name)
+        for name, obj in vars(module).items():
+            if (
+                isinstance(obj, type)
+                and obj.__module__ == module_info.name
+                and issubclass(obj, BaseExpression)
+            ):
+                expression_names.append(name)
+                assert "unsetoptions" not in name.lower(), name
+                assert "unset_options" not in obj.kind().lower(), obj.kind()
+
+    member_names = list(vars(BigQueryTableOptionsMixin)) + list(
+        vars(BigQueryTableOptionsSupport)
+    )
+    for name in member_names:
+        assert "unset_options" not in name.lower(), name
+    for name in dir(dialect):
+        assert "unset_options" not in name.lower(), name
+    for kind in dialect.artifact_registry().node_kinds():
+        assert "unset_options" not in kind.lower(), kind
+
+
+def test_clearing_an_option_uses_set_options_with_null(dialect):
+    """The only documented clearing spelling: SET OPTIONS(option_name = NULL)."""
+    expr = BigQueryAlterTableSetOptionsStatement(
+        dialect, Table(dialect, "orders"), (("description", None),)
+    )
+    assert expr.to_sql() == (
+        "ALTER TABLE `orders` SET OPTIONS(description = NULL)",
+        (),
+    )
+
+
+def test_the_modules_warn_against_adding_unset_options():
+    """The prohibition is written where a future contributor will read it."""
+    for module in (
+        importlib.import_module(
+            "rhosocial.activerecord.backend.impl.bigquery.expression.table_options"
+        ),
+        importlib.import_module(
+            "rhosocial.activerecord.backend.impl.bigquery.mixins.table_options"
+        ),
+    ):
+        doc = inspect.getdoc(module) or ""
+        flattened = " ".join(doc.split())
+        assert "``ALTER TABLE ... UNSET OPTIONS`` production" in flattened
+        assert "task briefs or third-party summaries" in flattened
 
 
 def test_set_options_description(dialect):
@@ -160,30 +210,6 @@ def test_set_options_interval_and_enum_values(dialect):
     )
 
 
-def test_unset_options_exact_sql(dialect):
-    expr = BigQueryAlterTableUnsetOptionsStatement(
-        dialect, Table(dialect, "orders"), ("description", "labels")
-    )
-    assert expr.to_sql() == (
-        "ALTER TABLE `orders` UNSET OPTIONS(description, labels)",
-        (),
-    )
-
-
-def test_unset_options_owner_qualified_and_if_exists(dialect):
-    expr = BigQueryAlterTableUnsetOptionsStatement(
-        dialect,
-        Table(dialect, "orders", schema_name="analytics", catalog_name="my-project"),
-        ("expiration_timestamp",),
-        if_exists=True,
-    )
-    assert expr.to_sql() == (
-        "ALTER TABLE IF EXISTS `my-project`.`analytics`.`orders` "
-        "UNSET OPTIONS(expiration_timestamp)",
-        (),
-    )
-
-
 @pytest.mark.parametrize(
     "options,message",
     [
@@ -230,45 +256,22 @@ def test_set_options_refuses_unsupported_shapes_and_values(dialect, options, mes
         expr.to_sql()
 
 
-@pytest.mark.parametrize(
-    "names,message",
-    [
-        ((), "at least one option name"),
-        (("enable_refresh",), "enable_refresh"),
-        (("description", "description"), "repeats"),
-        ("description", "sequence of documented option names"),
-    ],
-    ids=["empty", "unknown-name", "duplicate", "bare-string"],
-)
-def test_unset_options_refuses_unsupported_names(dialect, names, message):
-    expr = BigQueryAlterTableUnsetOptionsStatement(dialect, Table(dialect, "orders"), names)
-    with pytest.raises(ValueError, match=re.escape(message)):
-        expr.to_sql()
-
-
 def test_a_wrong_object_kind_is_refused_by_name(dialect):
     """A View renders valid SQL too, so the node must refuse it by kind."""
     from rhosocial.activerecord.backend.expression.objects import View
 
-    for expr in (
-        BigQueryAlterTableSetOptionsStatement(
-            dialect, View(dialect, "v"), (("description", "x"),)
-        ),
-        BigQueryAlterTableUnsetOptionsStatement(dialect, View(dialect, "v"), ("description",)),
-    ):
-        with pytest.raises(TypeError, match=".table must be a Table, got View"):
-            expr.to_sql()
+    expr = BigQueryAlterTableSetOptionsStatement(
+        dialect, View(dialect, "v"), (("description", "x"),)
+    )
+    with pytest.raises(TypeError, match=".table must be a Table, got View"):
+        expr.to_sql()
 
 
-def test_the_kinds_are_bigquery_proprietary(dialect):
-    """These nodes are this backend's, never re-exported through core's registry."""
-    core = core_registry()
-    for expr in (
-        BigQueryAlterTableSetOptionsStatement(
-            dialect, Table(dialect, "t"), (("description", "x"),)
-        ),
-        BigQueryAlterTableUnsetOptionsStatement(dialect, Table(dialect, "t"), ("description",)),
-    ):
-        assert expr.kind().startswith("bigquery_")
-        assert expr.kind() not in core.node_kinds()
-        assert dialect.artifact_registry().resolve_node(expr.kind()) is type(expr)
+def test_the_kind_is_bigquery_proprietary(dialect):
+    """The node is this backend's, never re-exported through core's registry."""
+    expr = BigQueryAlterTableSetOptionsStatement(
+        dialect, Table(dialect, "t"), (("description", "x"),)
+    )
+    assert expr.kind().startswith("bigquery_")
+    assert expr.kind() not in core_registry().node_kinds()
+    assert dialect.artifact_registry().resolve_node(expr.kind()) is type(expr)

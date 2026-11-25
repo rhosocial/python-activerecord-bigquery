@@ -80,7 +80,6 @@ class TestThreeSourcesAgree:
             f"{BIGQUERY_EXPR_PKG}.partition.BigQueryPartitionDecoratedTable",
             f"{BIGQUERY_EXPR_PKG}.partition.BigQueryTablePartitionByClause",
             f"{BIGQUERY_EXPR_PKG}.table_options.BigQueryAlterTableSetOptionsStatement",
-            f"{BIGQUERY_EXPR_PKG}.table_options.BigQueryAlterTableUnsetOptionsStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryDatabaseInfoQueryStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryTableListQueryStatement",
             f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryColumnInfoQueryStatement",
@@ -147,7 +146,6 @@ class TestTheEntryResolvesAheadOfCore:
         "entry",
         [
             "format_bigquery_alter_table_set_options_statement",
-            "format_bigquery_alter_table_unset_options_statement",
         ],
     )
     def test_the_table_options_mixin_owns_the_entry(self, entry):

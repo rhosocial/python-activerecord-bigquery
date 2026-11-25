@@ -4,7 +4,6 @@
 GoogleSQL syntax (BigQuery Standard SQL DDL reference)::
 
     ALTER TABLE [ IF EXISTS ] table_name SET OPTIONS ( table_set_options_list )
-    ALTER TABLE [ IF EXISTS ] table_name UNSET OPTIONS ( option_name, ... )
 
 The ``table_name`` is a core
 :class:`~rhosocial.activerecord.backend.expression.objects.Table`: the dataset
@@ -35,11 +34,14 @@ The ``SET OPTIONS`` production and the ``table_set_options_list`` vocabulary
 are documented in the official DDL reference (fetched 2026-11-25):
 https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#alter_table_set_options_statement
 
-The ``UNSET OPTIONS`` spelling is the one supplied with the migration task; the
-reference page fetched above does not list that statement and documents
-clearing instead as ``SET OPTIONS(option_name = NULL)``. The node is modelled
-because the task specifies the server syntax, and the capability probe records
-that evidence level explicitly rather than presenting it as verified.
+There is no ``UNSET OPTIONS``
+-----------------------------
+The official DDL reference has **no** ``ALTER TABLE ... UNSET OPTIONS``
+production (nor any other ``UNSET OPTIONS`` statement). Clearing an option is
+documented as ``SET OPTIONS(option_name = NULL)``, which the SET node supports
+by passing ``None`` as a value. An ``UNSET OPTIONS`` node or probe must **not**
+be added from task briefs or third-party summaries: SQL the server may reject
+is never rendered and an unverified capability is never advertised.
 """
 from typing import Any, TYPE_CHECKING
 
@@ -52,7 +54,6 @@ if TYPE_CHECKING:  # pragma: no cover
 
 __all__ = [
     "BigQueryAlterTableSetOptionsStatement",
-    "BigQueryAlterTableUnsetOptionsStatement",
 ]
 
 
@@ -83,32 +84,3 @@ class BigQueryAlterTableSetOptionsStatement(BaseExpression):
     def format_method(self) -> str:
         """The dialect formatting method that renders this expression."""
         return "format_bigquery_alter_table_set_options_statement"
-
-
-class BigQueryAlterTableUnsetOptionsStatement(BaseExpression):
-    """``ALTER TABLE [IF EXISTS] table_name UNSET OPTIONS(option_names)``.
-
-    Args:
-        dialect: the BigQuery dialect instance.
-        table: the table being reconfigured, carrying dataset and project.
-        option_names: a sequence of documented option names; validated by the
-            formatter, never here.
-        if_exists: emit ``IF EXISTS``.
-    """
-
-    def __init__(
-        self,
-        dialect: "BigQueryDialect",
-        table: Table,
-        option_names: Any,
-        if_exists: bool = False,
-    ):
-        super().__init__(dialect)
-        self.table = table
-        self.option_names = option_names
-        self.if_exists = if_exists
-
-    @property
-    def format_method(self) -> str:
-        """The dialect formatting method that renders this expression."""
-        return "format_bigquery_alter_table_unset_options_statement"

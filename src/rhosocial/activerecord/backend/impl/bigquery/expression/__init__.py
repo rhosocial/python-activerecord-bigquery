@@ -26,13 +26,11 @@ from .partition import (
 )
 from .table_options import (
     BigQueryAlterTableSetOptionsStatement,
-    BigQueryAlterTableUnsetOptionsStatement,
 )
 
 __all__ = [
     "BigQueryAlterMaterializedViewSetOptionsStatement",
     "BigQueryAlterTableSetOptionsStatement",
-    "BigQueryAlterTableUnsetOptionsStatement",
     "BigQueryCreateMaterializedViewStatement",
     "BigQueryCreateMaterializedViewReplicaStatement",
     "BigQueryDropMaterializedViewStatement",

@@ -226,7 +226,6 @@ from rhosocial.activerecord.backend.expression.xml import (
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryAlterMaterializedViewSetOptionsStatement,
     BigQueryAlterTableSetOptionsStatement,
-    BigQueryAlterTableUnsetOptionsStatement,
     BigQueryCreateTableStatement,
     BigQueryPartitionDecoratedTable,
     BigQueryTablePartitionByClause,
@@ -951,12 +950,6 @@ def register_specials():
             d,
             _table(d, "orders"),
             (("description", "orders"), ("labels", (("env", "prod"),))),
-        ),
-    )
-    register_special_constructor(
-        "table_options.BigQueryAlterTableUnsetOptionsStatement",
-        lambda d: BigQueryAlterTableUnsetOptionsStatement(
-            d, _table(d, "orders"), ("description", "labels")
         ),
     )
     # The proprietary partition clause collects parameters only; the

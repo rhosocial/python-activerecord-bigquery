@@ -1,11 +1,17 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/table_options.py
 """BigQuery ``ALTER TABLE`` option formatters.
 
-This mixin owns every decision the two option statements make: which option
-names exist, which value shapes each accepts, which capability answers reach a
-caller, and which requests are refused. The nodes in ``..expression.table_options``
-only collect parameters, so nothing here has to discover a half-built SQL
+This mixin owns every decision the option statement makes: which option names
+exist, which value shapes each accepts, which capability answer reaches a
+caller, and which requests are refused. The node in ``..expression.table_options``
+only collects parameters, so nothing here has to discover a half-built SQL
 fragment or a value that was silently quoted somewhere else.
+
+The official reference has no ``ALTER TABLE ... UNSET OPTIONS`` production;
+clearing is ``SET OPTIONS(option_name = NULL)``. No UNSET node, formatter or
+probe is modelled, and none may be added from task briefs or third-party
+summaries: SQL the server may reject is never rendered and an unverified
+capability is never advertised.
 
 Reference (fetched 2026-11-25):
 https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#alter_table_set_options_statement
@@ -27,10 +33,7 @@ from ..table_option_catalog import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ..expression.table_options import (
-        BigQueryAlterTableSetOptionsStatement,
-        BigQueryAlterTableUnsetOptionsStatement,
-    )
+    from ..expression.table_options import BigQueryAlterTableSetOptionsStatement
 
 
 class BigQueryTableOptionsMixin:
@@ -47,19 +50,6 @@ class BigQueryTableOptionsMixin:
 
         Evidence (fetched 2026-11-25):
         https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#alter_table_set_options_statement
-        """
-        return True
-
-    def supports_alter_table_unset_options(self) -> bool:
-        """Whether ``ALTER TABLE ... UNSET OPTIONS(...)`` is available.
-
-        ``True`` records the server syntax supplied with the migration task.
-        Evidence level: **unverified**. The official DDL reference fetched
-        2026-11-25 has no ``UNSET OPTIONS`` production for a table (or for any
-        other object) and documents clearing an option as
-        ``SET OPTIONS(option_name = NULL)``. The answer is kept here so the
-        capability surface says the same thing as the node the task asked for;
-        the gap is written out rather than presented as verified support.
         """
         return True
 
@@ -88,32 +78,6 @@ class BigQueryTableOptionsMixin:
             parts.append("IF EXISTS")
         parts.append(name_sql)
         parts.append(f"SET OPTIONS({', '.join(assignments)})")
-        return " ".join(parts), ()
-
-    # ------------------------------------------------------------------
-    # ALTER TABLE ... UNSET OPTIONS
-    # ------------------------------------------------------------------
-
-    def format_bigquery_alter_table_unset_options_statement(
-        self, expr: "BigQueryAlterTableUnsetOptionsStatement"
-    ) -> Tuple[str, tuple]:
-        """Format ``ALTER TABLE [IF EXISTS] table_name UNSET OPTIONS(...)``.
-
-        Raises:
-            TypeError: ``expr.table`` is not a Table.
-            UnsupportedFeatureError: the dialect declines the statement.
-            ValueError: a name is not a documented table option, the list is
-                empty, or it is not a sequence of names.
-        """
-        if not self.supports_alter_table_unset_options():
-            raise UnsupportedFeatureError(self.name, "ALTER TABLE UNSET OPTIONS")
-        name_sql = self._table_option_name_sql(expr)
-        names = self._table_option_names(expr.option_names)
-        parts = ["ALTER TABLE"]
-        if expr.if_exists:
-            parts.append("IF EXISTS")
-        parts.append(name_sql)
-        parts.append(f"UNSET OPTIONS({', '.join(names)})")
         return " ".join(parts), ()
 
     # ------------------------------------------------------------------
@@ -268,29 +232,6 @@ class BigQueryTableOptionsMixin:
                 f"{label} has interval qualifier {qualifier!r}; BigQuery documents "
                 f"date/time parts from {', '.join(sorted(INTERVAL_PARTS))}"
             )
-
-    @staticmethod
-    def _table_option_names(names: Any) -> List[str]:
-        """Validate the ``UNSET OPTIONS`` name list and return its spellings."""
-        if isinstance(names, (str, bytes)) or not isinstance(names, (list, tuple)):
-            raise ValueError("option_names must be a sequence of documented option names")
-        if not names:
-            raise ValueError("UNSET OPTIONS requires at least one option name")
-        result = []
-        seen = set()
-        for position, name in enumerate(names):
-            option = resolve_table_option(name)
-            if option is None:
-                valid = ", ".join(item.value for item in BigQueryTableOption)
-                raise ValueError(
-                    f"option_names[{position}] names a table option BigQuery does "
-                    f"not document: {name!r}. Valid options: {valid}"
-                )
-            if option in seen:
-                raise ValueError(f"option_names repeats the table option {option.value!r}")
-            seen.add(option)
-            result.append(option.value)
-        return result
 
 
 __all__ = ["BigQueryTableOptionsMixin"]
