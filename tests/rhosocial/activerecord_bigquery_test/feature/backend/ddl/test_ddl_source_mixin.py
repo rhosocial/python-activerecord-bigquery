@@ -27,7 +27,6 @@ from rhosocial.activerecord.backend.expression.statements import (
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_partition import (
     PartitionByRangeClause,
-    PartitionClause,
 )
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.expression.types import JsonType, VarCharType
