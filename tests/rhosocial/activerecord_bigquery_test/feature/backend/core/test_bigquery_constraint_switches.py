@@ -165,6 +165,11 @@ GRAMMAR_SWITCHES = (
     # only nameable constraint, so that is the only kind it reaches.
     ("supports_drop_constraint", True),
     ("supports_drop_constraint_if_exists", True),
+    # The statement's only address is a name (``DROP CONSTRAINT [IF EXISTS]
+    # constraint_name``); there is no ``DROP <kind>`` production. Core's
+    # name-only formatter consults this probe before refusing a
+    # declaration-only action, so the False is load-bearing, not decorative.
+    ("supports_drop_constraint_by_kind", False),
     ("supports_table_drop_foreign_key_constraint", True),
     # Everything else in the lifecycle vocabulary has no production.
     ("supports_constraint_novalidate", False),

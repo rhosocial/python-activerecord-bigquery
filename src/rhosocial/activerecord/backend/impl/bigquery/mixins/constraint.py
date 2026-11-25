@@ -93,7 +93,11 @@ foreign key constraint to an existing table."*  ``CHECK``, ``UNIQUE`` and
 ``PRIMARY KEY`` cannot be added to an existing BigQuery table by any statement.
 ``DROP CONSTRAINT`` is the mirror image: *"You can use this statement to drop
 foreign key constraints from a table."*  ``IF EXISTS`` is optional on ``DROP``
-and ``IF NOT EXISTS`` is optional on ``ADD``.
+and ``IF NOT EXISTS`` is optional on ``ADD``.  Both statements address a
+constraint by **name**, and the ``DROP`` production has no per-kind spelling --
+no ``DROP PRIMARY KEY`` or ``DROP FOREIGN KEY (<cols>)`` -- which is why a
+declaration-only drop is refused here rather than rendered
+(:meth:`BigQueryConstraintMixin.supports_drop_constraint_by_kind`).
 
 So BigQuery's whole constraint capability is one notch: **CREATE** admits only
 primary keys and foreign keys, **ALTER** admits only foreign keys, and all of
@@ -1218,6 +1222,31 @@ class BigQueryConstraintMixin:
         文档（待云验）: grammar-only, not server-verified.
         """
         return True
+
+    def supports_drop_constraint_by_kind(self) -> bool:
+        """False: every drop is addressed by name; there is no ``DROP <kind>``.
+
+        Official grammar, verbatim::
+
+            ALTER TABLE table_name DROP CONSTRAINT [IF EXISTS] constraint_name;
+
+        That is the page's only constraint-removal statement, and its address
+        is a name.  The per-kind spellings other engines use -- ``DROP PRIMARY
+        KEY``, ``DROP FOREIGN KEY (<cols>)``, ``DROP UNIQUE (<cols>)`` -- are
+        not in the production.  Nor could they reach much on BigQuery: a
+        primary key is unnameable
+        (:meth:`supports_table_naming_primary_key_constraint`) and the page's
+        own description limits the statement to foreign keys
+        (:meth:`supports_table_drop_foreign_key_constraint`).
+
+        Declared locally rather than left to core's ``ConstraintMixin``
+        default, because the name-only formatter consults this probe to decide
+        whether a declaration-only ``DropTableConstraintAction`` is refused: a
+        moved core default must not be able to turn that refusal into a render.
+
+        文档（待云验）: grammar-only, not server-verified.
+        """
+        return False
 
     def supports_table_drop_foreign_key_constraint(self) -> bool:
         """True: ``DROP CONSTRAINT`` reaches the foreign key and nothing else.

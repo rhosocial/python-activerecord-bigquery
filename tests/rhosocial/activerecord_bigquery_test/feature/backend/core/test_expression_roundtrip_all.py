@@ -482,6 +482,15 @@ def register_specials():
             ),
         ),
     )
+    # The drop action's address is optional now. The generic introspective
+    # constructor fills neither the defaulted ``constraint_name`` positional nor
+    # the keyword-only ``constraint`` declaration, so it builds an action with
+    # no address at all -- which the formatter refuses. BigQuery can only drop
+    # by name, so the constructor supplies the name.
+    register_special_constructor(
+        "statements.ddl_alter.DropTableConstraintAction",
+        lambda d: ddl_alter.DropTableConstraintAction(d, "c"),
+    )
     # Both constraint modifiers hide their required arguments behind defaulted
     # positionals, so the introspective constructor skips them and the action
     # arrives incomplete. The enforcement keyword is mandatory in
