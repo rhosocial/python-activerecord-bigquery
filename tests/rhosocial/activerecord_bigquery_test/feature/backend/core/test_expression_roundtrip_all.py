@@ -115,7 +115,7 @@ from rhosocial.activerecord.backend.expression.advanced_functions import (
     WindowDefinition,
     WindowSpecification,
 )
-from rhosocial.activerecord.backend.expression.core import Column, Literal
+from rhosocial.activerecord.backend.expression.core import BaseExpression, Column, Literal
 from rhosocial.activerecord.backend.expression.operators import ArithmeticOperation
 from rhosocial.activerecord.backend.expression.operators import RawSQL
 from rhosocial.activerecord.backend.expression.query_sources import SetOperation
@@ -154,8 +154,8 @@ from rhosocial.activerecord.backend.expression.predicates import (
     LikePredicate,
 )
 from rhosocial.activerecord.backend.expression.query_parts import JoinClause
+from rhosocial.activerecord.backend.expression.registry import RegistryError
 from rhosocial.activerecord.backend.expression.serialization import (
-    default_registry,
     deserialize,
     deserialize_json,
     deserialize_xml,
@@ -232,8 +232,8 @@ from rhosocial.activerecord.backend.impl.bigquery.expression import (
 from rhosocial.activerecord_bigquery_test.feature.backend.expression_roundtrip_harness import (
     collect_expression_classes,
     make_instance,
-    register_all,
     register_special_constructor,
+    trusted_registry,
 )
 
 #: The two packages this backend renders. Core first: the four classes this
@@ -1398,12 +1398,18 @@ def _roundtrip_pin(fqn, channel):
 
 
 def _replay_channel(channel, instance, dialect):
-    """Encode *instance*, decode it back, and hand the result over."""
+    """Encode *instance*, decode it back, and hand the result over.
+
+    Decoding goes through the matrix's trusted table: the artifacts here are
+    the test's own, so the opt-in nodes (``RawSQL``) are vouched for. The
+    table is a frozen twin of ``backend_registry()``; the dialect's published
+    table is never widened (see ``trusted_registry``).
+    """
     if channel == "dict":
-        return deserialize(serialize(instance), dialect)
+        return deserialize(serialize(instance), dialect, registry=trusted_registry())
     if channel == "json":
-        return deserialize_json(serialize_json(instance), dialect)
-    return deserialize_xml(serialize_xml(instance), dialect)
+        return deserialize_json(serialize_json(instance), dialect, registry=trusted_registry())
+    return deserialize_xml(serialize_xml(instance), dialect, registry=trusted_registry())
 
 
 def _assert_pinned_channel(fqn, channel, instance, dialect, pin):
@@ -1567,6 +1573,19 @@ def _unmodelled_methods():
 # The local assertion: classify the outcome instead of swallowing it
 # ---------------------------------------------------------------------------
 
+def _declares_a_formatter(cls):
+    """Whether *cls* resolves to a concrete ``format_method``.
+
+    The same rule core's assembly walk applies: a class that resolves to
+    ``BaseExpression``'s sentinel names no formatter, so it is a category base
+    rather than a node and its kind is not part of the artifact vocabulary.
+    """
+    for klass in cls.__mro__:
+        if "format_method" in vars(klass):
+            return klass is not BaseExpression
+    return False
+
+
 def _bind_params_equal(a, b) -> bool:
     """Bind-parameter sequences compared as sequences.
 
@@ -1658,9 +1677,22 @@ def classify_sql_roundtrip(fqn, instance, dialect):
         ) from exc
 
     for channel, build in (
-        ("dict", lambda: deserialize(serialize(instance), dialect)),
-        ("json", lambda: deserialize_json(serialize_json(instance), dialect)),
-        ("xml", lambda: deserialize_xml(serialize_xml(instance), dialect)),
+        (
+            "dict",
+            lambda: deserialize(serialize(instance), dialect, registry=trusted_registry()),
+        ),
+        (
+            "json",
+            lambda: deserialize_json(
+                serialize_json(instance), dialect, registry=trusted_registry()
+            ),
+        ),
+        (
+            "xml",
+            lambda: deserialize_xml(
+                serialize_xml(instance), dialect, registry=trusted_registry()
+            ),
+        ),
     ):
         pin = _roundtrip_pin(fqn, channel)
         if pin is not None:
@@ -1699,11 +1731,11 @@ def expr_case(request, dialect):
             + "rescue it, so there is nothing for the matrix to assert on."
         )
     cls = REGISTERED[fqn]
-    # Backend classes are not core's built-ins, so the registry cannot find
-    # them by name when a statement decodes a nested one (a CREATE TABLE with
-    # a BigQuery partition clause). Register the whole matrix, not just the
-    # class under test.
-    register_all(REGISTERED)
+    # The backend's own classes, and core's, are in the table this backend's
+    # dialect publishes, so a statement that decodes a nested one (a CREATE
+    # TABLE with a BigQuery partition clause) resolves without any per-test
+    # registration. Decoding in the matrix goes through ``trusted_registry()``
+    # only to admit the two caller-vouched raw-SQL nodes.
     instance, source = make_instance(cls, dialect)
     assert instance is not None, (
         f"{fqn} cannot be built by the constructors this module registers "
@@ -1798,7 +1830,6 @@ class TestMatrixIntegrity:
                 f"{fqn} is pinned as a non-roundtrip but could not be "
                 f"constructed ({source})"
             )
-            register_all({fqn: REGISTERED[fqn]})
             for channel, pin in entry["channels"].items():
                 _assert_pinned_channel(fqn, channel, instance, dialect, pin)
 
@@ -1841,7 +1872,6 @@ class TestMatrixIntegrity:
         what would have said so loudly if a fifth node of that family had
         arrived without a BigQuery formatter.
         """
-        register_all(REGISTERED)
         observed = set()
         for fqn in sorted(REGISTERED):
             instance, source = make_instance(REGISTERED[fqn], dialect)
@@ -1913,25 +1943,53 @@ class TestMatrixIntegrity:
         assert bigquery, "the bigquery package walk found nothing"
         assert set(REGISTERED) == core | bigquery
 
-    def test_every_covered_class_is_registered_for_deserialization(self):
+    def test_every_covered_class_is_registered_for_deserialization(self, dialect):
         """A class in the matrix can be found again when deserializing.
 
-        Deserialization resolves a node's kind to its class through the
-        framework's default registry, so a class the matrix renders but the
-        registry cannot resolve would round-trip into the wrong thing or
-        nothing at all. Core and the built-in backends populate that registry
-        on first use; this backend's own classes are what ``register_all``
-        adds, which is why the registration happens here before the check.
+        Reading is by ownership: core's kinds and this backend's own are what
+        ``dialect.artifact_registry()`` publishes, so every class the matrix
+        covers that did not opt out resolves through it. The two nodes whose
+        rendered SQL is caller-authored text opt out of the default table
+        (``REGISTER_BY_DEFAULT = False``); they are absent from the dialect's
+        table and admitted only by the matrix's trusted twin, which is exactly
+        the split the matrix's artifacts are read through.
         """
-        register_all(REGISTERED)
-        registry = default_registry()
-        unresolved = sorted(
-            fqn
-            for fqn, cls in REGISTERED.items()
-            if registry.resolve_node(cls.kind()) is not cls
+        published = dialect.artifact_registry()
+        trusted = trusted_registry()
+        opted_out = sorted(fqn for fqn, cls in REGISTERED.items() if not cls.REGISTER_BY_DEFAULT)
+        assert opted_out == [
+            "rhosocial.activerecord.backend.expression.operators.RawSQL",
+            "rhosocial.activerecord.backend.expression.operators.RawSQLPredicate",
+        ], (
+            "the set of classes that opt out of the default table changed: "
+            f"{opted_out}. A new opt-out needs a decision here -- the trusted "
+            "twin admits it only because the matrix's own artifacts are trusted."
         )
-        assert not unresolved, (
-            f"the matrix covers classes the registry cannot resolve: {unresolved}"
+        unresolved = []
+        for fqn, cls in REGISTERED.items():
+            registry = trusted if not cls.REGISTER_BY_DEFAULT else published
+            if not cls.REGISTER_BY_DEFAULT:
+                assert cls.kind() not in published.node_kinds(), (
+                    f"{fqn} opted out of the default table but the dialect's "
+                    f"published registry admits {cls.kind()!r}"
+                )
+            try:
+                resolved = registry.resolve_node(cls.kind()) is cls
+            except RegistryError:
+                resolved = False
+            if resolved:
+                continue
+            # The assembly walk admits only a class that names a formatter
+            # (§4.8), so a category base such as ``SQLPredicate`` is not a
+            # node kind and no artifact can name it. Anything that declares a
+            # formatter and still cannot resolve is a real gap.
+            assert not _declares_a_formatter(cls), (
+                f"{fqn} declares a formatter but the matrix registry cannot "
+                f"resolve its kind {cls.kind()!r}"
+            )
+            unresolved.append(fqn)
+        assert len(unresolved) < len(REGISTERED), (
+            "no class in the matrix resolves; the registry is the wrong table"
         )
 
     def test_coverage_report(self, dialect):
@@ -1944,7 +2002,6 @@ class TestMatrixIntegrity:
         after checking that it is named in :data:`UNCONSTRUCTIBLE`, so the
         bucket is never a silent dumping ground.
         """
-        register_all(REGISTERED)
         counts = {}
         for fqn, cls in REGISTERED.items():
             instance, source = make_instance(cls, dialect)

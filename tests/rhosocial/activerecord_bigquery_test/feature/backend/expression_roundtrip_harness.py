@@ -800,7 +800,7 @@ def _join_expr(dialect):
 def _partition_clause(dialect):
     from rhosocial.activerecord.backend.expression.core import Column
     from rhosocial.activerecord.backend.expression.statements.ddl_partition import (
-        PartitionClause,
+        PartitionByRangeClause,
     )
 
     return PartitionByRangeClause(dialect, [Column(dialect, "created_at")])
@@ -971,73 +971,37 @@ def collect_expression_classes(package_path: str) -> Dict[str, Type[BaseExpressi
     return classes
 
 
-def register_all(classes: Dict[str, Type[BaseExpression]]) -> None:
-    """Hand the collected classes to the deserialization kind whitelist.
+_trusted_registry = None
 
-    Core split the class index out of the serialization module into a
-    registry: deserialization resolves a node to its class through the
-    framework's default registry, not through the ``(dialect, kind)`` render
-    registry -- the two are separate mechanisms and only the former names
-    expression classes. Core and the built-in backends populate that registry
-    on first use; registering one of those classes again is a no-op, and the
-    backend classes collected by the matrix are what this call adds.
+
+def trusted_registry():
+    """The table the matrix reads its own artifacts through.
+
+    The backend publishes one frozen table -- ``backend_registry()``, core's
+    kinds plus this backend's -- and every reader of an artifact it did not
+    produce is expected to use that table, reached as
+    ``dialect.artifact_registry()``. The matrix's artifacts are its own, so it
+    may also vouch for the nodes that opt out of the default table because
+    their rendered SQL is caller-authored text (``RawSQL`` /
+    ``RawSQLPredicate``, ``REGISTER_BY_DEFAULT = False``). Vouching is done on
+    a *twin*: a caller that trusts raw SQL gets its own table rather than
+    widening the published one for everyone else.
     """
-    from rhosocial.activerecord.backend.expression.serialization import default_registry
+    global _trusted_registry
+    if _trusted_registry is None:
+        from rhosocial.activerecord.backend.expression.operators import (
+            RawSQL,
+            RawSQLPredicate,
+        )
+        from rhosocial.activerecord.backend.impl.bigquery.registry import (
+            backend_registry,
+        )
 
-    registry = default_registry()
-    for cls in classes.values():
-        registry.register_node(cls)
-
-
-def register_enums_and_dataclasses(package_path: str) -> None:
-    """Register a package's enums and dataclasses into the same whitelist.
-
-    An artifact encodes an enum member as ``[short class name, member]`` and
-    the reader resolves that name through the registry's enum table -- no
-    ``importlib`` by name (untrusted input, §4.11.4), so a backend enum that
-    was never registered refuses to read back. Core populates its own enums
-    and dataclasses; a backend package's are exactly as privileged as a
-    third-party plugin's, which is to say they are registered, not discovered.
-    Same ownership filters as core's own populator: the class must be defined
-    in the module being walked.
-    """
-    import dataclasses
-    import enum as _enum
-    import importlib
-    import pkgutil
-
-    from rhosocial.activerecord.backend.expression.registry import RegistryError
-    from rhosocial.activerecord.backend.expression.serialization import default_registry
-
-    registry = default_registry()
-    pkg = importlib.import_module(package_path)
-    if hasattr(pkg, "__path__"):
-        modnames = [
-            m for _, m, _ in pkgutil.walk_packages(
-                path=pkg.__path__, prefix=package_path + ".", onerror=lambda x: None
-            )
-        ]
-    else:
-        modnames = [package_path]
-    for modname in modnames:
-        try:
-            mod = importlib.import_module(modname)
-        except Exception:
-            continue
-        for name in dir(mod):
-            obj = getattr(mod, name, None)
-            if not isinstance(obj, type) or obj.__module__ != modname:
-                continue
-            if issubclass(obj, _enum.Enum):
-                try:
-                    registry.register_enum(obj)
-                except RegistryError:
-                    pass
-            elif dataclasses.is_dataclass(obj):
-                try:
-                    registry.register_dataclass(obj)
-                except RegistryError:
-                    pass
+        registry = backend_registry().twin()
+        for cls in (RawSQL, RawSQLPredicate):
+            registry.register_node(cls)
+        _trusted_registry = registry.freeze()
+    return _trusted_registry
 
 
 def assert_params_equal(a: Any, b: Any, path: str = "params") -> None:
@@ -1089,19 +1053,19 @@ def roundtrip_expression(fqn: str, instance: BaseExpression, dialect: Any) -> No
 def _rt_dict(instance, dialect):
     from rhosocial.activerecord.backend.expression.serialization import deserialize, serialize
 
-    return deserialize(serialize(instance), dialect)
+    return deserialize(serialize(instance), dialect, registry=trusted_registry())
 
 
 def _rt_json(instance, dialect):
     from rhosocial.activerecord.backend.expression.serialization import deserialize_json, serialize_json
 
-    return deserialize_json(serialize_json(instance), dialect)
+    return deserialize_json(serialize_json(instance), dialect, registry=trusted_registry())
 
 
 def _rt_xml(instance, dialect):
     from rhosocial.activerecord.backend.expression.serialization import deserialize_xml, serialize_xml
 
-    return deserialize_xml(serialize_xml(instance), dialect)
+    return deserialize_xml(serialize_xml(instance), dialect, registry=trusted_registry())
 
 
 def sql_consistent(fqn: str, instance: BaseExpression, dialect: Any) -> None:
@@ -1118,9 +1082,8 @@ __all__ = [
     "assert_params_equal",
     "collect_expression_classes",
     "make_instance",
-    "register_all",
-    "register_enums_and_dataclasses",
     "register_special_constructor",
     "roundtrip_expression",
     "sql_consistent",
+    "trusted_registry",
 ]
