@@ -1972,3 +1972,90 @@ def test_the_parser_refuses_an_empty_string(dialect):
         _parse(dialect,"")
     with pytest.raises(ValueError, match="empty"):
         _parse(dialect,"   ")
+
+
+# ---------------------------------------------------------------------------
+# Spelling shapes: the scans that replaced the expressions
+
+
+def test_parse_array_counts_brackets_and_ignores_whitespace(dialect):
+    """``ARRAY < ... >`` is one shape, however the brackets are spaced.
+
+    The element is a type string in its own right, so the whitespace inside
+    the brackets belongs to that string, not to the array: it is trimmed on
+    the way back in, exactly as when the element was a captured group.
+    """
+    parsed = _parse(dialect," ARRAY < STRING(30) > ")
+    assert type(parsed) is ArrayType
+    assert type(parsed.element_type) is VarCharType
+    assert parsed.element_type.length == 30
+
+
+def test_parse_array_nests_by_counting_brackets(dialect):
+    """The inner ``>`` of ``ARRAY<ARRAY<INT64>>`` closes the inner array.
+
+    A scan that took the last ``>`` as the outer close would still answer
+    here; one that took the first would cut the element at ``ARRAY<INT64``
+    and refuse the whole spelling. Counting is what keeps both brackets with
+    the array they belong to.
+    """
+    parsed = _parse(dialect,"ARRAY<ARRAY<INT64>>")
+    assert type(parsed) is ArrayType
+    assert type(parsed.element_type) is ArrayType
+    assert type(parsed.element_type.element_type) is BigIntType
+
+
+def test_parse_string_and_numeric_accept_spaces_around_parameters(dialect):
+    """Spaces are allowed where the grammar puts a parenthesis or a comma."""
+    assert _parse(dialect,"STRING ( 30 )") == VarCharType(dialect, length=30)
+    assert _parse(dialect,"NUMERIC ( 10 , 2 )") == DecimalType(
+        dialect, precision=10, scale=2
+    )
+
+
+def test_parse_carries_a_parameterised_word_it_does_not_model(dialect):
+    """``STRING(10, 2)`` is not ``STRING(L)``, so it is carried, not misread.
+
+    The two numbers are not a length, and reading one as a length would
+    invent a column the server did not report.  The spelling is still a
+    usable type name (two parameters are allowed), so ``CustomType`` carries
+    it unchanged.
+    """
+    parsed = _parse(dialect, "STRING(10, 2)")
+    assert type(parsed) is CustomType
+    assert parsed.raw == "STRING(10, 2)"
+
+
+def test_parse_refuses_numeric_with_three_parameters(dialect):
+    """``NUMERIC(10, 2, 3)`` is neither modelled nor a usable type name.
+
+    ``NUMERIC`` takes at most two parameters here, and the fallback name
+    validation allows at most two as well, so the answer is a refusal rather
+    than a carried spelling.  This is the same answer the expressions gave:
+    one parameter too many is not a scale.
+    """
+    with pytest.raises(InvalidTypeNameError, match="NUMERIC"):
+        _parse(dialect, "NUMERIC(10, 2, 3)")
+
+
+@pytest.mark.parametrize("raw", ("ARRAY<INT64", "ARRAY<>", "ARRAY<INT64>>"))
+def test_parse_refuses_an_array_spelling_it_cannot_balance(dialect, raw):
+    """An unbalanced array is not a type name, and the error says so.
+
+    The array branch only answers when the brackets balance and nothing follows
+    the closing one; otherwise the whole spelling falls through to the
+    type-name validation, which refuses it rather than answering a bare
+    ``ARRAY`` that would hide the difference between two columns.
+    """
+    with pytest.raises(InvalidTypeNameError, match="ARRAY"):
+        _parse(dialect, raw)
+
+
+def test_parse_a_whitespace_only_array_element_names_nothing(dialect):
+    """``ARRAY< >`` recurses into an empty type string and names that fault.
+
+    The check is about the *inner* string: the outer brackets are balanced,
+    so the recursion runs and reports that nothing was handed to it.
+    """
+    with pytest.raises(ValueError, match="empty"):
+        _parse(dialect, "ARRAY< >")

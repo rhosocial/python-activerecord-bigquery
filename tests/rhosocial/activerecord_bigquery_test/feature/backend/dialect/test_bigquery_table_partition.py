@@ -321,3 +321,162 @@ class TestGenericPartitionActionsAreRefused:
         expression = PartitionByRangeClause(dialect, [Column(dialect, "id")])
         with pytest.raises(UnsupportedFeatureError, match="RANGE_BUCKET"):
             expression.to_sql()
+
+
+# ---------------------------------------------------------------------------
+# The spellings are scanned character by character, not matched by an
+# expression.  These pin the accept/refuse set that scan has to keep.
+
+
+class TestPartitionExpressionSpellings:
+    """Which ``PARTITION BY`` expressions render, and which are refused."""
+
+    @pytest.mark.parametrize(
+        "spec",
+        (
+            "DATE(ts)",
+            "DATE ( ts )",
+            "timestamp_trunc(TS, day)",
+            "DATETIME_TRUNC( ts , WEEK )",
+            "TIMESTAMP(ts)",
+            "DATE(`ts`)",
+            "RANGE_BUCKET(id, GENERATE_ARRAY(0, 100, 10))",
+            "RANGE_BUCKET( `id` , GENERATE_ARRAY(-10, 1000, 2) )",
+        ),
+        ids=(
+            "date",
+            "date-spaced",
+            "lowercase-granularity",
+            "datetime-trunc-spaced",
+            "bare-timestamp",
+            "quoted-column",
+            "range-bucket",
+            "range-bucket-spaced",
+        ),
+    )
+    def test_documented_spellings_render(self, spec, dialect):
+        """A spelling the scanner accepts is echoed, spacing included."""
+        clause = BigQueryTablePartitionByClause(dialect, spec)
+        assert clause.to_sql() == (f" PARTITION BY {spec}", ())
+
+    @pytest.mark.parametrize(
+        "spec",
+        (
+            "DATE()",
+            "DATE(ts, DAYX)",
+            "DATE(ts, DAY, 2)",
+            "DATE(ts,)",
+            "DATE_(ts)",
+            "DATE_TIME(ts)",
+            "DATE(ts",
+            "DATE(ts) extra",
+            "RANGE_BUCKET(id, GENERATE_ARRAY(0, 100))",
+            "RANGE_BUCKET(id, GENERATE_ARRAY(0, 100, 0))",
+            "RANGE_BUCKET(id, GENERATE_ARRAY(0, 100, 010))",
+            "RANGE_BUCKET(id, GENERATE_ARRAY(0, 100, -10))",
+            "RANGE_BUCKET(id, GENERATE_ARRAY(0, 100, 10), extra)",
+            "RANGE_BUCKET(id, GENERATE_ARRAY(0, 100, 10)",
+            "RANGE_BUCKET(`id`, GENERATE_ARRAY(0, 100, 10) extra",
+        ),
+        ids=(
+            "no-column",
+            "unknown-granularity",
+            "extra-granularity",
+            "comma-without-granularity",
+            "misspelled-word",
+            "underscored-word",
+            "unterminated-truncation",
+            "trailing-text",
+            "range-bucket-two-arguments",
+            "step-zero",
+            "step-leading-zero",
+            "step-negative",
+            "range-bucket-extra-argument",
+            "unterminated-range-bucket",
+            "trailing-text-after-range-bucket",
+        ),
+    )
+    def test_near_misses_are_refused_by_name(self, spec, dialect):
+        """One character off is refused, not silently rendered as SQL."""
+        clause = BigQueryTablePartitionByClause(dialect, spec)
+        with pytest.raises(ValueError, match="PARTITION BY"):
+            clause.to_sql()
+
+
+class TestClusterColumnSpellings:
+    """``CLUSTER BY`` takes bare or backtick-quoted column names, nothing else."""
+
+    @pytest.mark.parametrize(
+        "column,rendered",
+        (
+            ("a", "a"),
+            ("_a1", "_a1"),
+            (" A ", "A"),
+            ("`a`", "`a`"),
+            ("`a1`", "`a1`"),
+        ),
+        ids=("bare", "leading-underscore", "trimmed", "quoted", "quoted-digit"),
+    )
+    def test_identifier_columns_render(self, column, rendered, dialect):
+        clause = BigQueryTablePartitionByClause(dialect, cluster_by=[column])
+        assert clause.to_sql() == (f" CLUSTER BY {rendered}", ())
+
+    @pytest.mark.parametrize(
+        "column",
+        ("1a", "a-b", "a b", "a$b", "`a`b", "`1`", "`a b`", "`a", "$a", ";", " "),
+        ids=(
+            "digit-first",
+            "hyphen",
+            "inner-space",
+            "dollar",
+            "text-after-quote",
+            "quoted-digit-first",
+            "space-in-quotes",
+            "unterminated-quote",
+            "dollar-first",
+            "semicolon",
+            "blank",
+        ),
+    )
+    def test_non_identifier_columns_are_refused(self, column, dialect):
+        clause = BigQueryTablePartitionByClause(dialect, cluster_by=[column])
+        with pytest.raises(ValueError, match="CLUSTER BY"):
+            clause.to_sql()
+
+
+class TestDecoratorDigitScan:
+    """The decorator's digit run is a character scan; its set is the old one."""
+
+    @pytest.mark.parametrize(
+        "decorator",
+        ("0", "40", "2021071205", "010", "\u0661\u0660"),
+        ids=("zero", "range-start", "hourly", "leading-zero", "non-ascii-decimal"),
+    )
+    def test_decimal_runs_render(self, decorator, dialect):
+        """Only the syntax is checked, so a leading zero is still a digit run.
+
+        The last case is the point of the scan: the expression this replaces
+        spelled its digit run ``\\d``, which is a Unicode decimal digit, so the
+        accepted set includes Arabic-Indic digits.  They are echoed unchanged,
+        as before; whether the server accepts them is not this check's claim.
+        """
+        ref = BigQueryPartitionDecoratedTable(dialect, "events", decorator)
+        assert ref.to_sql() == (f"`events`${decorator}", ())
+
+    @pytest.mark.parametrize(
+        "decorator",
+        ("40.0", "40,0", "4 0", "+40", "1_000", "\u0664a", "- 10"),
+        ids=(
+            "float",
+            "comma",
+            "inner-space",
+            "leading-plus",
+            "underscore",
+            "mixed-digit-and-letter",
+            "spaced-negative",
+        ),
+    )
+    def test_non_digit_runs_are_refused(self, decorator, dialect):
+        ref = BigQueryPartitionDecoratedTable(dialect, "events", decorator)
+        with pytest.raises(ValueError, match="partition decorator"):
+            ref.to_sql()

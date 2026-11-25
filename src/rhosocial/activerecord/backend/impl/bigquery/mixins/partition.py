@@ -18,11 +18,12 @@ spellings belong to :class:`BigQueryTablePartitionByClause`, which this mixin
 renders; they are not the generic clause's operator-key grammar.
 """
 
-import re
 from typing import Tuple, TYPE_CHECKING
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.dialect.mixins.partition import PartitionMixin
+
+from .._scan import Scanner
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..expression.partition import (
@@ -32,26 +33,101 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
 
-_BARE_IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
-_QUOTED_IDENTIFIER = r"`[A-Za-z_][A-Za-z0-9_]*`"
-_IDENTIFIER = rf"(?:{_QUOTED_IDENTIFIER}|{_BARE_IDENTIFIER})"
-_TRUNCATION = (
-    r"(?:DATE|TIMESTAMP|DATETIME)(?:_TRUNC)?\s*\(\s*"
-    + _IDENTIFIER
-    + r"(?:\s*,\s*(?:DAY|WEEK|MONTH|QUARTER|YEAR))?\s*\)"
+#: The words that open a time-unit column partition expression: the bare
+#: column functions and their ``_TRUNC`` forms.  A word outside this set is
+#: refused before any parenthesis is read, which is how the expression this
+#: replaces behaved: ``DATE_TIME(ts)`` was a misspelled word, not an
+#: unsupported function.
+_TRUNCATION_WORDS = frozenset(
+    {
+        "DATE",
+        "DATE_TRUNC",
+        "TIMESTAMP",
+        "TIMESTAMP_TRUNC",
+        "DATETIME",
+        "DATETIME_TRUNC",
+    }
 )
-_RANGE_BUCKET = (
-    r"RANGE_BUCKET\s*\(\s*"
-    + _IDENTIFIER
-    + r"\s*,\s*GENERATE_ARRAY\s*\(\s*-?\d+\s*,\s*-?\d+\s*,\s*[1-9]\d*\s*\)\s*\)"
-)
-_PARTITION_EXPRESSION = re.compile(
-    rf"(?:{_TRUNCATION}|{_RANGE_BUCKET})", re.IGNORECASE
-)
-_CLUSTER_COLUMN = re.compile(_IDENTIFIER, re.IGNORECASE)
+#: The optional second argument of a truncation: the time granularity.
+_GRANULARITY_WORDS = frozenset({"DAY", "WEEK", "MONTH", "QUARTER", "YEAR"})
 _MAX_CLUSTER_COLUMNS = 4
 _PARTITION_DECORATOR_SENTINELS = frozenset({"__NULL__", "__UNPARTITIONED__"})
-_PARTITION_NUMERIC_DECORATOR = re.compile(r"\d+")
+
+
+def _scan_truncation(scanner: Scanner) -> bool:
+    """Recognise ``DATE(col)`` / ``TIMESTAMP_TRUNC(col, DAY)`` and siblings."""
+    word = scanner.take_word()
+    if word is None or word.upper() not in _TRUNCATION_WORDS:
+        return False
+    if not scanner.take_char("("):
+        return False
+    if scanner.take_identifier() is None:
+        return False
+    if scanner.take_char(","):
+        granularity = scanner.take_word()
+        if granularity is None or granularity.upper() not in _GRANULARITY_WORDS:
+            return False
+    return scanner.take_char(")")
+
+
+def _scan_range_bucket(scanner: Scanner) -> bool:
+    """Recognise ``RANGE_BUCKET(col, GENERATE_ARRAY(start, end, step))``.
+
+    The step is ``[1-9]<digits>``: positive and without a leading zero, so
+    ``GENERATE_ARRAY(0, 100, 0)`` and ``... , 010)`` are refused.  Whether
+    *start* and *end* are ordered is arithmetic, not syntax, and the server
+    checks it.
+    """
+    word = scanner.take_word()
+    if word is None or word.upper() != "RANGE_BUCKET":
+        return False
+    if not scanner.take_char("("):
+        return False
+    if scanner.take_identifier() is None:
+        return False
+    if not scanner.take_char(","):
+        return False
+    word = scanner.take_word()
+    if word is None or word.upper() != "GENERATE_ARRAY":
+        return False
+    if not scanner.take_char("("):
+        return False
+    if scanner.take_signed_digits() is None:
+        return False
+    if not scanner.take_char(","):
+        return False
+    if scanner.take_signed_digits() is None:
+        return False
+    if not scanner.take_char(","):
+        return False
+    if scanner.take_digits(first_digits="123456789") is None:
+        return False
+    if not scanner.take_char(")"):
+        return False
+    return scanner.take_char(")")
+
+
+def _is_partition_expression(spec: str) -> bool:
+    """Whether *spec* is one of the two documented partition expressions."""
+    scanner = Scanner(spec)
+    if _scan_truncation(scanner) and scanner.at_end():
+        return True
+    scanner = Scanner(spec)
+    if _scan_range_bucket(scanner) and scanner.at_end():
+        return True
+    return False
+
+
+def _is_cluster_column(spec: str) -> bool:
+    """Whether *spec* is one bare or backtick-quoted column name."""
+    scanner = Scanner(spec)
+    return scanner.take_identifier() is not None and scanner.at_end()
+
+
+def _is_numeric_decorator(spec: str) -> bool:
+    """Whether *spec* is a run of decimal digits, as ``\\d+`` asked."""
+    scanner = Scanner(spec)
+    return scanner.take_digits() is not None and scanner.at_end()
 
 
 def _partition_decorator_spec(value) -> str:
@@ -116,7 +192,7 @@ def _partition_decorator_spec(value) -> str:
             "BigQuery partition decorator range_start must be non-negative, "
             f"got {spec!r}"
         )
-    if _PARTITION_NUMERIC_DECORATOR.fullmatch(spec):
+    if _is_numeric_decorator(spec):
         return spec
     raise ValueError(
         f"unsupported BigQuery partition decorator {spec!r}; expected an "
@@ -287,7 +363,7 @@ class BigQueryPartitionMixin(PartitionMixin):
                     f"got {expression!r}"
                 )
             spec = expression.strip()
-            if not _PARTITION_EXPRESSION.fullmatch(spec):
+            if not _is_partition_expression(spec):
                 raise ValueError(
                     f"unsupported BigQuery PARTITION BY expression {spec!r}; "
                     "expected DATE/TIMESTAMP/DATETIME truncation or "
@@ -304,7 +380,7 @@ class BigQueryPartitionMixin(PartitionMixin):
             rendered = []
             seen = set()
             for column in cluster_by:
-                if not isinstance(column, str) or not _CLUSTER_COLUMN.fullmatch(
+                if not isinstance(column, str) or not _is_cluster_column(
                     column.strip()
                 ):
                     raise ValueError(
