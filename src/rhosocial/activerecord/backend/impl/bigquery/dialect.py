@@ -69,6 +69,7 @@ from .protocols import (
     BigQueryMaterializedViewSupport,
     BigQuerySchemaSupport,
     BigQueryStructSupport,
+    BigQueryTableOptionsSupport,
 )
 from .mixins import (
     BigQueryStructMixin, BigQueryArrayMixin,
@@ -113,6 +114,7 @@ from .mixins import (
     BigQueryIdentifierMixin,
     BigQueryIndexMixin,  # Before SQLDialectBase: overrides core's plain-index answers
     BigQueryMaterializedViewMixin,
+    BigQueryTableOptionsMixin,
     # Introspection: the capability probes and the format_* entries that
     # render the BigQuery introspection statements. It subclasses core's
     # IntrospectionMixin, so C3 requires it ahead of it in the base list.
@@ -200,6 +202,10 @@ class BigQueryDialect(
     # SQLDialectBase so core's IndexMixin answers cannot win.
     BigQueryIndexMixin,
     BigQueryMaterializedViewMixin,  # Before ViewMixin to override materialized view DDL
+    # Table options: ALTER TABLE SET OPTIONS / UNSET OPTIONS. The mixin owns
+    # the option catalogue and every value/capability refusal; it declares no
+    # formatter name core also declares, so it only has to precede the base.
+    BigQueryTableOptionsMixin,
     # Proprietary table-level PARTITION BY / CLUSTER BY.  It also inherits
     # core's PartitionMixin, so the PartitionSupport probes and the generic
     # partition-clause refusals travel with it.  Ahead of core's TableMixin so
@@ -291,6 +297,7 @@ class BigQueryDialect(
     BigQuerySchemaSupport,
     BigQueryColumnQualificationSupport,
     BigQueryMaterializedViewSupport,
+    BigQueryTableOptionsSupport,
     CreateTypeSupport, AlterTypeSupport, DropTypeSupport,
     CreateDomainSupport, AlterDomainSupport, DropDomainSupport,
     NamespaceSupport,

@@ -38,6 +38,7 @@ from .data_type import (
 from .materialized_view import BigQueryMaterializedViewSupport
 from .partition import BigQueryPartitionSupport
 from .schema import BigQuerySchemaSupport
+from .table_options import BigQueryTableOptionsSupport
 
 __all__ = [
     "BigQueryArraySupport",
@@ -47,5 +48,6 @@ __all__ = [
     "BigQueryMaterializedViewSupport",
     "BigQueryPartitionSupport",
     "BigQuerySchemaSupport",
+    "BigQueryTableOptionsSupport",
     "BigQueryStructSupport",
 ]

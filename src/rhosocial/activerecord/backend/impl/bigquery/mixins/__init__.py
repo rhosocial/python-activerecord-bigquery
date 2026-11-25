@@ -34,6 +34,7 @@ from .materialized_view import BigQueryMaterializedViewMixin
 from .namespace import BigQueryNamespaceMixin
 from .partition import BigQueryPartitionMixin
 from .schema import BigQuerySchemaMixin
+from .table_options import BigQueryTableOptionsMixin
 from .transaction import BigQueryTransactionMixin
 from .trim import BigQueryTrimMixin
 from .types import BigQueryTypeSupportMixin
@@ -88,6 +89,7 @@ __all__ = [
     "BigQueryIdentifierMixin",
     "BigQueryIndexMixin",
     "BigQueryMaterializedViewMixin",
+    "BigQueryTableOptionsMixin",
     "BigQueryTransactionMixin",
     "BigQueryTrimMixin",
     "BigQueryLiteralValueMixin",

@@ -24,9 +24,15 @@ from .partition import (
     BigQueryPartitionDecoratedTable,
     BigQueryTablePartitionByClause,
 )
+from .table_options import (
+    BigQueryAlterTableSetOptionsStatement,
+    BigQueryAlterTableUnsetOptionsStatement,
+)
 
 __all__ = [
     "BigQueryAlterMaterializedViewSetOptionsStatement",
+    "BigQueryAlterTableSetOptionsStatement",
+    "BigQueryAlterTableUnsetOptionsStatement",
     "BigQueryCreateMaterializedViewStatement",
     "BigQueryCreateMaterializedViewReplicaStatement",
     "BigQueryDropMaterializedViewStatement",

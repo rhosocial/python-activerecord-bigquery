@@ -225,6 +225,8 @@ from rhosocial.activerecord.backend.expression.xml import (
 )
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryAlterMaterializedViewSetOptionsStatement,
+    BigQueryAlterTableSetOptionsStatement,
+    BigQueryAlterTableUnsetOptionsStatement,
     BigQueryCreateTableStatement,
     BigQueryPartitionDecoratedTable,
     BigQueryTablePartitionByClause,
@@ -938,6 +940,23 @@ def register_specials():
         "materialized_view.BigQueryAlterMaterializedViewSetOptionsStatement",
         lambda d: BigQueryAlterMaterializedViewSetOptionsStatement(
             d, MaterializedView(d, "mv"), {"enable_refresh": True}
+        ),
+    )
+    # The table-option nodes collect a frozen tuple of pairs: a real table
+    # object and real option names/values, so the matrix asserts a renderable
+    # statement rather than a shape the formatter would refuse.
+    register_special_constructor(
+        "table_options.BigQueryAlterTableSetOptionsStatement",
+        lambda d: BigQueryAlterTableSetOptionsStatement(
+            d,
+            _table(d, "orders"),
+            (("description", "orders"), ("labels", (("env", "prod"),))),
+        ),
+    )
+    register_special_constructor(
+        "table_options.BigQueryAlterTableUnsetOptionsStatement",
+        lambda d: BigQueryAlterTableUnsetOptionsStatement(
+            d, _table(d, "orders"), ("description", "labels")
         ),
     )
     # The proprietary partition clause collects parameters only; the
