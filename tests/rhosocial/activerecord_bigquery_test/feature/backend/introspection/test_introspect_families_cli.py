@@ -35,6 +35,13 @@ import json
 from typing import Optional
 
 import pytest
+from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.dialect.protocols import (
+    DataProfileIntrospectionSupport,
+    DdlExtractionIntrospectionSupport,
+    OperationalStatsIntrospectionSupport,
+    StructureIntrospectionSupport,
+)
 from rhosocial.activerecord.backend.introspection.types import (
     ColumnDataProfile,
     ColumnValueFrequency,
@@ -88,6 +95,66 @@ ROW_FAMILIES = (
 #: listings: the project-level database question, the routines family and
 #: this engine's own partitions view. None is declined, so none is a refusal.
 CATALOGUE_FAMILIES = ("database", "routines", "partitions")
+
+#: The introspection probes this CLI gates on, classified by the core
+#: protocol family that now owns each. Core split the single
+#: ``IntrospectionSupport`` into four families, so a switch's family is what
+#: decides which CLI families ask the same question and which are declined
+#: for the same reason. The three backend-specific switches --
+#: ``supports_dataset_introspection``, ``supports_routine_introspection`` and
+#: ``supports_partition_metadata_introspection`` -- belong to no core family
+#: and are deliberately absent here.
+GATED_PROBE_FAMILIES = {
+    "supports_table_introspection": StructureIntrospectionSupport,
+    "supports_view_introspection": StructureIntrospectionSupport,
+    "supports_column_introspection": StructureIntrospectionSupport,
+    "supports_database_info": StructureIntrospectionSupport,
+    "supports_unused_indexes_detection": OperationalStatsIntrospectionSupport,
+    "supports_table_stats": OperationalStatsIntrospectionSupport,
+    "supports_runtime_stats": OperationalStatsIntrospectionSupport,
+    "supports_index_stats": OperationalStatsIntrospectionSupport,
+    "supports_object_dependencies": OperationalStatsIntrospectionSupport,
+    "supports_column_data_profile": DataProfileIntrospectionSupport,
+    "supports_column_value_sample": DataProfileIntrospectionSupport,
+    "supports_join_coverage": DataProfileIntrospectionSupport,
+}
+
+#: Each family's answers on this dialect, member by member. The positive set
+#: is implemented and answers True; the negative set is declined and answers
+#: False. Operational statistics and DDL extraction are declined as whole
+#: families -- INFORMATION_SCHEMA has no counters and BigQuery keeps no
+#: retrieval text -- so their negative entries carry the refusal the
+#: formatters raise, asserted by ``TestTheIntrospectionProtocolFamilies``.
+FAMILY_ANSWERS = {
+    StructureIntrospectionSupport: {
+        "supports_introspection": True,
+        "supports_database_info": True,
+        "supports_table_introspection": True,
+        "supports_column_introspection": True,
+        "supports_view_introspection": True,
+        "supports_table_storage_introspection": True,
+        "supports_index_introspection": False,
+        "supports_foreign_key_introspection": False,
+        "supports_trigger_introspection": False,
+        "supports_extensions": False,
+    },
+    OperationalStatsIntrospectionSupport: {
+        "supports_runtime_stats": False,
+        "supports_index_stats": False,
+        "supports_table_stats": False,
+        "supports_unused_indexes_detection": False,
+        "supports_object_dependencies": False,
+    },
+    DataProfileIntrospectionSupport: {
+        "supports_column_data_profile": True,
+        "supports_column_value_sample": True,
+        "supports_join_coverage": True,
+    },
+    DdlExtractionIntrospectionSupport: {
+        "supports_ddl_extraction": False,
+        "supports_ddl_extraction_native": False,
+    },
+}
 
 
 class _RecordingIntrospector:
@@ -808,6 +875,83 @@ class TestTheCapabilityGate:
                 )
             assert excinfo.value.code == 2
             assert "not supported by this server" in capsys.readouterr().err
+
+
+class TestTheIntrospectionProtocolFamilies:
+    """The capability gates, read per family rather than per one protocol.
+
+    The single ``IntrospectionSupport`` is gone, so a list of switches is no
+    longer "the protocol's members" -- it is a sample drawn from four families.
+    These assertions pin the classification: each gated switch is owned by
+    exactly one family, each family's implemented and declined members answer
+    as declared, and a family this dialect lacks refuses its formatters instead
+    of returning an empty answer.
+    """
+
+    def test_each_gated_switch_is_owned_by_exactly_one_family(self):
+        for switch, family in GATED_PROBE_FAMILIES.items():
+            owners = [
+                candidate.__name__ for candidate in FAMILY_ANSWERS if switch in candidate.__dict__
+            ]
+            assert owners == [family.__name__], switch
+
+    def test_every_family_member_that_is_gated_is_classified(self):
+        """A gated switch drawn from a family must name that family.
+
+        ``supports_ddl_extraction`` is absent from ``_TYPE_CAPABILITIES``
+        because ``ddl`` is not offered; it is classified all the same, so the
+        negative side of the split is complete.
+        """
+        gated = set(introspect_cli._TYPE_CAPABILITIES.values())
+        for family, answers in FAMILY_ANSWERS.items():
+            for switch in answers:
+                if switch in gated:
+                    assert GATED_PROBE_FAMILIES[switch] is family, switch
+
+    @pytest.mark.parametrize(
+        "family,answers",
+        list(FAMILY_ANSWERS.items()),
+        ids=[family.__name__ for family in FAMILY_ANSWERS],
+    )
+    def test_the_dialect_answers_every_member_of_the_family(self, family, answers):
+        dialect = BigQueryDialect()
+        for switch, expected in answers.items():
+            assert switch in family.__dict__, (family.__name__, switch)
+            assert callable(getattr(dialect, switch)), switch
+            assert getattr(dialect, switch)() is expected, (
+                family.__name__,
+                switch,
+            )
+
+    def test_a_family_this_dialect_lacks_refuses_its_formatters(self):
+        """A declined family is an explicit refusal, never an empty answer."""
+        dialect = BigQueryDialect()
+        refused = {
+            "format_runtime_metrics_query_statement": "runtime stats",
+            "format_unused_indexes_query_statement": "unused indexes",
+            "format_ddl_statement_query_statement": "ddl extraction",
+        }
+        for formatter, reason in refused.items():
+            with pytest.raises(UnsupportedFeatureError) as excinfo:
+                getattr(dialect, formatter)(None)
+            assert excinfo.value.feature_name == formatter, reason
+
+    def test_the_two_families_with_no_gated_switch_are_declined(self):
+        """The families absent from ``_TYPE_CAPABILITIES`` are still answered.
+
+        ``ddl`` is not advertised, and no operational-statistics family has a
+        true switch here; the classification above is what records why rather
+        than letting the absence look like an oversight.
+        """
+        assert "ddl" not in introspect_cli.INTROSPECT_TYPES
+        assert all(
+            answer is False
+            for answer in FAMILY_ANSWERS[OperationalStatsIntrospectionSupport].values()
+        )
+        assert FAMILY_ANSWERS[DdlExtractionIntrospectionSupport] == {
+            "supports_ddl_extraction": False,
+            "supports_ddl_extraction_native": False,
+        }
 
 
 class TestTheAsyncPath:

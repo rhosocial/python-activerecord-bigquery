@@ -18,6 +18,10 @@ import inspect
 import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
+from rhosocial.activerecord.backend.dialect.protocols import (
+    OperationalStatsIntrospectionSupport,
+    StructureIntrospectionSupport,
+)
 from rhosocial.activerecord.backend.expression import (
     AlterTableStatement,
     CreateTableStatement,
@@ -85,6 +89,18 @@ INDEX_PROBES = (
     ("supports_unused_indexes_detection", False, "no unused-index statistics family"),
 )
 
+#: The three entries at the end of ``INDEX_PROBES`` are core introspection
+#: members rather than index DDL probes, grouped here by the family that owns
+#: each after core split the single ``IntrospectionSupport``. The index
+#: *declaration* question belongs to structure; the two counter questions
+#: belong to operational statistics. All three are on the declined side, and
+#: the classification is asserted so they cannot drift into the wrong family.
+INTROSPECTION_INDEX_PROBES = {
+    "supports_index_introspection": StructureIntrospectionSupport,
+    "supports_index_stats": OperationalStatsIntrospectionSupport,
+    "supports_unused_indexes_detection": OperationalStatsIntrospectionSupport,
+}
+
 
 @pytest.fixture
 def dialect():
@@ -99,6 +115,25 @@ def dialect():
 def test_every_index_probe_is_honest(switch_name, expected, reason, dialect):
     """Each probe answers what the grammar supports, not a core default."""
     assert getattr(dialect, switch_name)() is expected, reason
+
+
+@pytest.mark.parametrize(
+    "switch_name,family",
+    list(INTROSPECTION_INDEX_PROBES.items()),
+    ids=list(INTROSPECTION_INDEX_PROBES),
+)
+def test_the_introspection_entries_are_classified_per_family(switch_name, family, dialect):
+    """The introspection probes name the family that owns them.
+
+    Reclassified after core split ``IntrospectionSupport`` into four families:
+    the index-declaration switch is structure, the two counter switches are
+    operational statistics. The dialect declines all three, so each stays on
+    the negative side of its family rather than being read as an index probe.
+    """
+    assert switch_name in family.__dict__, switch_name
+    expected = next(answer for name, answer, _reason in INDEX_PROBES if name == switch_name)
+    assert expected is False
+    assert getattr(dialect, switch_name)() is expected
 
 
 @pytest.mark.parametrize(

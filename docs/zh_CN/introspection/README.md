@@ -45,7 +45,7 @@ BigQuery 后端回答三个层次的问题：项目与其 dataset **声明**了�
 | `supports_column_data_profile()` | `True` | 一张表每列装了什么 |
 | `supports_column_value_sample()` | `True` | 出现了哪些值，各出现多少次 |
 | `supports_join_coverage()` | `True` | 两列的值域重叠多少 |
-| `supports_partition_info()` | `True` | 一张表的分区 |
+| `supports_partition_metadata_introspection()` | `True` | 一张表的分区 |
 | `supports_extensions()` | `False`（继承） | 已安装的附加组件 |
 | `supports_dataset_introspection()` | `True` | BigQuery 自己的 dataset 族 |
 | `supports_routine_introspection()` | `True` | BigQuery 自己的例程族 |
@@ -56,7 +56,7 @@ BigQuery 后端回答三个层次的问题：项目与其 dataset **声明**了�
 - **外键。** `TABLE_CONSTRAINTS` 报告存在某个外键，`KEY_COLUMN_USAGE` 报告它的列，但两者都不给出被引用表及其列，BigQuery 也没有 `REFERENTIAL_CONSTRAINTS` 视图。返回一个 `referenced_table` 为空的外键比不返回更糟，因此 `list_foreign_keys()` 返回空列表，构造器直接拒绝，而不是编造另一侧。
 - **触发器。** BigQuery 没有触发器，因此没有触发器目录视图，`list_triggers()` 返回空列表。
 
-`supports_extensions()` 按核心的原因继承 `False`：这里没有映射任何附加组件目录。`supports_partition_info()` 为 `True`，因为 `INFORMATION_SCHEMA.PARTITIONS` 能回答它；`supports_dataset_introspection()` 是本后端在核心探针集合之外自己的开关。
+`supports_extensions()` 按核心的原因继承 `False`：这里没有映射任何附加组件目录。`supports_partition_metadata_introspection()` 为 `True`，因为 `INFORMATION_SCHEMA.PARTITIONS` 能回答它；`supports_dataset_introspection()` 是本后端在核心探针集合之外自己的开关。
 
 `True` 只承诺语句能渲染、项目会接受它。它不说明答案的形状，也不说明价格；每个族的价格都在描述该族的地方写明。
 

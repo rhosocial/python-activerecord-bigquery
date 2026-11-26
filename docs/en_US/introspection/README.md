@@ -45,7 +45,7 @@ Read the `False` rows first: a probe that answers `False` says the question cann
 | `supports_column_data_profile()` | `True` | What each column of a table holds |
 | `supports_column_value_sample()` | `True` | Which values occur, and how often |
 | `supports_join_coverage()` | `True` | How much two columns' domains overlap |
-| `supports_partition_info()` | `True` | One table's partitions |
+| `supports_partition_metadata_introspection()` | `True` | One table's partitions |
 | `supports_extensions()` | `False` (inherited) | Installed add-on components |
 | `supports_dataset_introspection()` | `True` | BigQuery's own dataset family |
 | `supports_routine_introspection()` | `True` | BigQuery's own routines family |
@@ -56,7 +56,7 @@ Three of the `False` rows are not "the engine cannot": they are "the catalogue d
 - **Foreign keys.** `TABLE_CONSTRAINTS` reports that a foreign key exists and `KEY_COLUMN_USAGE` reports its columns, but neither view names the referenced table or its columns, and BigQuery has no `REFERENTIAL_CONSTRAINTS` view. Reporting a foreign key whose `referenced_table` is empty would be a worse answer than none, so `list_foreign_keys()` returns an empty list and the builder refuses rather than fabricating the other side.
 - **Triggers.** BigQuery has no triggers, so there is no trigger catalog view and `list_triggers()` returns an empty list.
 
-`supports_extensions()` is inherited `False` for core's reason: no catalogue of add-on components is mapped here. `supports_partition_info()` is `True` because `INFORMATION_SCHEMA.PARTITIONS` answers it, and `supports_dataset_introspection()` is this backend's own switch beside core's set.
+`supports_extensions()` is inherited `False` for core's reason: no catalogue of add-on components is mapped here. `supports_partition_metadata_introspection()` is `True` because `INFORMATION_SCHEMA.PARTITIONS` answers it, and `supports_dataset_introspection()` is this backend's own switch beside core's set.
 
 A `True` promises only that the statement renders and the project accepts it. It says nothing about the shape of the answer or its price; the price of each family is stated where the family is described.
 

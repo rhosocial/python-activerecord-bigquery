@@ -220,10 +220,6 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         """BigQuery has no triggers, so there is no trigger catalog view."""
         return False
 
-    def supports_partition_info(self) -> bool:
-        """``INFORMATION_SCHEMA.PARTITIONS`` and ``TABLE_OPTIONS`` answer."""
-        return True
-
     def supports_table_storage_introspection(self) -> bool:
         """``PARTITIONS`` answers a table's stored bytes.
 

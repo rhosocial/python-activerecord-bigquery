@@ -20,22 +20,25 @@ from rhosocial.activerecord.backend.dialect.protocols import (
     CreateSchemaSupport,
     CreateTableSupport,
     CTESupport,
+    DataProfileIntrospectionSupport,
     DataTypeSupport,
+    DdlExtractionIntrospectionSupport,
     DqlOrderSupport,
     ExplainSupport,
     FilterClauseSupport,
     IndexObjectSupport,
-    IntrospectionSupport,
     JoinSupport,
     JSONSupport,
     LateralJoinSupport,
     MergeSupport,
     NamespaceSupport,
+    OperationalStatsIntrospectionSupport,
     OrderedSetAggregationSupport,
     QualifyClauseSupport,
     ReturningSupport,
     SchemaNameSupport,
     SetOperationSupport,
+    StructureIntrospectionSupport,
     TableObjectSupport,
     TimestampSupport,
     TransactionControlSupport,
@@ -69,6 +72,12 @@ DIALECT_SPECIFIC_GROUPS = {"BigQuery-specific"}
 # ``rhosocial.activerecord.backend.dialect.protocols`` plus the BigQuery-only
 # protocols. Supported protocols keep their true origin (reuse/override);
 # BigQuery-specific ones are forced to "proprietary" by the shared helper.
+#
+# Introspection is four separate families in core -- structure, operational
+# statistics, data profiling and DDL extraction -- so each gets its own group.
+# One aggregate "Introspection" row would average a fully answered family with
+# a declined one and report a percentage that describes neither; per family, a
+# 0% row is visibly a family this dialect declines.
 PROTOCOL_FAMILY_GROUPS: Dict[str, list] = {
     "Query Features": [
         WindowFunctionSupport,
@@ -102,7 +111,10 @@ PROTOCOL_FAMILY_GROUPS: Dict[str, list] = {
         ConstraintSupport,
         TruncateSupport,
     ],
-    "Introspection": [IntrospectionSupport],
+    "Introspection: Structure": [StructureIntrospectionSupport],
+    "Introspection: Operational stats": [OperationalStatsIntrospectionSupport],
+    "Introspection: Data profile": [DataProfileIntrospectionSupport],
+    "Introspection: DDL extraction": [DdlExtractionIntrospectionSupport],
     "BigQuery-specific": [
         BigQueryStructSupport,
         BigQueryArraySupport,

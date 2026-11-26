@@ -95,7 +95,7 @@ _TYPE_CAPABILITIES = {
     "columns": "supports_column_introspection",
     "datasets": "supports_dataset_introspection",
     "database": "supports_database_info",
-    "partitions": "supports_partition_info",
+    "partitions": "supports_partition_metadata_introspection",
     "unused-indexes": "supports_unused_indexes_detection",
     "table-stats": "supports_table_stats",
     "runtime": "supports_runtime_stats",
