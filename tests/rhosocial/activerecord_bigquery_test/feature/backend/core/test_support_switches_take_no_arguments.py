@@ -14,6 +14,14 @@ that never fires is indistinguishable from one that cannot.
 The scan is over this backend's own modules, not core's, because a backend can
 declare a violation core's guard never sees -- ``supports_json_function(name)``
 lived here until the parameterless-switch round deleted it.
+
+The second guard here answers the adjacent question: may a ``*Dialect`` class
+*inherit* a ``*Support`` protocol?  It must not.  ``runtime_checkable`` makes
+``isinstance`` structural, so inheriting a protocol adds nothing but ellipsis
+stub members in the MRO, and it makes the nominal check short-circuit before
+the structural one -- ``isinstance(dialect, P)`` then says True for a dialect
+that does not implement ``P`` at all.  The dialect advertises its capabilities
+by implementing the switches, never by listing the protocol as a base.
 """
 
 import ast
@@ -133,3 +141,105 @@ def test_the_scan_ignores_functions_outside_a_class(tmp_path: Path):
     )
     tree = ast.parse(probe.read_text(encoding="utf-8"), filename=str(probe))
     assert not _offenders(tree, probe.name)
+
+
+# -- a ``*Dialect`` may not inherit a ``*Support`` protocol ------------------
+
+
+def _base_name(node: ast.expr) -> str:
+    """The last component of a base expression: ``P`` in ``protocols.P``."""
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return getattr(node, "id", "")
+
+
+def _protocol_base_offenders(tree, label: str):
+    """``*Dialect`` classes in *tree* that inherit a ``*Support`` base.
+
+    Returns the offenders and the number of dialect classes seen, so a caller
+    can prove the scan was not vacuous.  Non-protocol bases are out of scope:
+    only a name ending in ``Support`` advertises a capability contract, and
+    only a class ending in ``Dialect`` is the dialect itself (a backend mixin
+    may still compose a protocol internally).
+    """
+    found = []
+    dialects = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef) or not node.name.endswith("Dialect"):
+            continue
+        dialects += 1
+        for base in node.bases:
+            name = _base_name(base)
+            if name.endswith("Support"):
+                found.append(f"{label}:{node.lineno} {node.name}({name})")
+    return found, dialects
+
+
+def test_the_protocol_base_guard_has_dialects_to_check():
+    """A guard over no dialect class passes for the wrong reason."""
+    assert _MODULES, f"no Python modules found under {_SRC}"
+    seen = 0
+    for module in _MODULES:
+        tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+        _, dialects = _protocol_base_offenders(tree, str(module.relative_to(_SRC)))
+        seen += dialects
+    assert seen, f"no class ending in Dialect under {_SRC}"
+
+
+@pytest.mark.parametrize(
+    "module", _MODULES, ids=lambda path: str(path.relative_to(_SRC))
+)
+def test_no_dialect_inherits_a_support_protocol(module):
+    """A dialect declares capabilities by implementing switches, not by base."""
+    tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+    offenders, _dialects = _protocol_base_offenders(tree, str(module.relative_to(_SRC)))
+    assert not offenders, (
+        "a *Dialect inherits a *Support protocol, which only adds ellipsis "
+        "stubs and makes isinstance nominal: " + "; ".join(offenders)
+    )
+
+
+@pytest.mark.parametrize(
+    "base", ("ThingSupport", "protocols.ThingSupport"), ids=("plain", "qualified")
+)
+def test_the_protocol_base_scan_flags_a_planted_violation(tmp_path: Path, base: str):
+    """A fabricated dialect inheriting a support protocol must be reported."""
+    probe = tmp_path / "_probe.py"
+    probe.write_text(
+        f"class FauxDialect({base}):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    tree = ast.parse(probe.read_text(encoding="utf-8"), filename=str(probe))
+    offenders, dialects = _protocol_base_offenders(tree, probe.name)
+    assert dialects == 1
+    assert offenders, f"the scan did not flag: class FauxDialect({base})"
+    assert "ThingSupport" in offenders[0]
+
+
+def test_the_scan_accepts_a_dialect_without_a_support_base(tmp_path: Path):
+    """A dialect with no support base is the clean control."""
+    probe = tmp_path / "_probe.py"
+    probe.write_text(
+        "class FauxDialect(ThingMixin):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    tree = ast.parse(probe.read_text(encoding="utf-8"), filename=str(probe))
+    offenders, dialects = _protocol_base_offenders(tree, probe.name)
+    assert dialects == 1
+    assert not offenders
+
+
+def test_the_scan_ignores_a_support_base_outside_a_dialect(tmp_path: Path):
+    """A mixin composing a protocol is not the dialect; the guard scopes it out."""
+    probe = tmp_path / "_probe.py"
+    probe.write_text(
+        "class ThingMixin(ThingSupport):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    tree = ast.parse(probe.read_text(encoding="utf-8"), filename=str(probe))
+    offenders, dialects = _protocol_base_offenders(tree, probe.name)
+    assert dialects == 0
+    assert not offenders

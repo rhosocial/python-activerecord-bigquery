@@ -183,20 +183,19 @@ def test_type_and_domain_protocols_and_mixins_are_composed(
     assert isinstance(dialect, DomainMixin)
 
     mro = BigQueryDialect.__mro__
-    for mixin, protocol in (
-        (UserDefinedTypeMixin, CreateTypeSupport),
-        (DomainMixin, CreateDomainSupport),
-    ):
+    assert not any(getattr(base, "_is_protocol", False) for base in mro), (
+        "a *Support protocol is a runtime-checkable contract satisfied "
+        "structurally; inheriting it adds ellipsis stubs, shadows __init__, "
+        "and makes isinstance nominal"
+    )
+    for mixin in (UserDefinedTypeMixin, DomainMixin):
         assert mixin in mro
-        assert protocol in mro
-        assert mro.index(mixin) < mro.index(protocol)
 
     for protocol in (
         BigQueryStructSupport,
         BigQueryArraySupport,
         BigQueryJSONSupport,
     ):
-        assert protocol in mro
         assert not issubclass(protocol, CreateTypeSupport)
         assert not issubclass(protocol, CreateDomainSupport)
 

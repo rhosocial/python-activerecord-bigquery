@@ -2,24 +2,6 @@
 from typing import Any, Dict, Optional, Tuple
 
 from rhosocial.activerecord.backend.dialect.base import SQLDialectBase
-from rhosocial.activerecord.backend.dialect.protocols import (
-    CTESupport, FilterClauseSupport, WindowFunctionSupport, MergeSupport,
-    AdvancedGroupingSupport, ArraySupport, ExplainSupport,
-    QualifyClauseSupport, UpsertSupport, LateralJoinSupport,
-    JoinSupport,
-    # The object protocols derive from NamespaceSupport, so a subclass has to
-    # precede its base: C3 will not accept NamespaceSupport ahead of them.
-    ViewObjectSupport, IndexObjectSupport,
-    PartitionSupport,
-    ConstraintSupport, IntrospectionSupport, TransactionControlSupport,
-    JSONSupport, TruncateSupport,
-    # One protocol per TYPE / DOMAIN statement, in place of the two umbrella
-    # protocols this backend used to inherit. BigQuery supports none of them,
-    # and each switch answers False through the core mixins above.
-    CreateTypeSupport, AlterTypeSupport, DropTypeSupport,
-    CreateDomainSupport, AlterDomainSupport, DropDomainSupport,
-    NamespaceSupport,
-)
 from rhosocial.activerecord.backend.dialect.mixins import (
     CTEMixin, WindowFunctionMixin, JSONMixin,
     ArrayMixin, ExplainMixin, MergeMixin,
@@ -53,23 +35,6 @@ from rhosocial.activerecord.backend.dialect.mixins import (
     # override is needed. ``TRIM`` differs and is overridden by
     # BigQueryTrimMixin (below) for the reason documented there.
     LpadMixin, RepeatMixin, RpadMixin,
-)
-from rhosocial.activerecord.backend.suggestion.protocols import (
-    ColumnReorderSuggestionSupport,
-    CreateTableLayoutSuggestionSupport,
-    PartitionSchemeChangeSuggestionSupport,
-    TableConstraintChangeSuggestionSupport,
-    TableIndexChangeSuggestionSupport,
-)
-from .protocols import (
-    BigQueryArraySupport,
-    BigQueryColumnQualificationSupport,
-    BigQueryGeographySupport,
-    BigQueryJSONSupport,
-    BigQueryMaterializedViewSupport,
-    BigQuerySchemaSupport,
-    BigQueryStructSupport,
-    BigQueryTableOptionsSupport,
 )
 from .mixins import (
     BigQueryStructMixin, BigQueryArrayMixin,
@@ -230,10 +195,9 @@ class BigQueryDialect(
     # The backend's one naming-side mixin: both levels rendered, and
     # validate_catalog_name narrowed, because a BigQuery path is
     # project.dataset.object and a project with no dataset is not a name.
-    # Before core's NamespaceMixin and before the object protocols, which derive
-    # from NamespaceSupport -- C3 linearisation gives the first name priority,
-    # and moving this after NamespaceMixin would render every BigQuery name
-    # unqualified and still produce well-formed SQL.
+    # Before core's NamespaceMixin: C3 linearisation gives the first name
+    # priority, and moving this after NamespaceMixin would render every
+    # BigQuery name unqualified and still produce well-formed SQL.
     BigQueryNamespaceMixin,
     SQLDialectBase,
     # Generic mixins
@@ -285,30 +249,6 @@ class BigQueryDialect(
     NamespaceMixin,
     BigQueryStructMixin, BigQueryArrayMixin,
     BigQueryJSONMixin, BigQueryGeographyMixin,
-    CTESupport, FilterClauseSupport, WindowFunctionSupport, MergeSupport,
-    AdvancedGroupingSupport, ArraySupport, ExplainSupport,
-    QualifyClauseSupport, UpsertSupport, LateralJoinSupport,
-    JoinSupport, ViewObjectSupport, IndexObjectSupport,
-    PartitionSupport,
-    ConstraintSupport, IntrospectionSupport, TransactionControlSupport,
-    JSONSupport, TruncateSupport,
-    BigQueryStructSupport, BigQueryArraySupport,
-    BigQueryJSONSupport, BigQueryGeographySupport,
-    BigQuerySchemaSupport,
-    BigQueryColumnQualificationSupport,
-    BigQueryMaterializedViewSupport,
-    BigQueryTableOptionsSupport,
-    CreateTypeSupport, AlterTypeSupport, DropTypeSupport,
-    CreateDomainSupport, AlterDomainSupport, DropDomainSupport,
-    NamespaceSupport,
-    # Suggestion protocols: the mixins above already implement them; the
-    # protocols are listed here as the explicit contracts the dialect
-    # advertises, so isinstance checks do not depend on a structural accident.
-    CreateTableLayoutSuggestionSupport,
-    ColumnReorderSuggestionSupport,
-    TableConstraintChangeSuggestionSupport,
-    TableIndexChangeSuggestionSupport,
-    PartitionSchemeChangeSuggestionSupport,
 ):
     def __init__(
         self,

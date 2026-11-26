@@ -3,12 +3,9 @@
 from rhosocial.activerecord.backend.suggestion.definitions import (
     CreateTableLayoutSuggestion,
 )
-from rhosocial.activerecord.backend.suggestion.protocols import (
-    CreateTableLayoutSuggestionSupport,
-)
 
 
-class BigQueryCreateTableLayoutSuggestionMixin(CreateTableLayoutSuggestionSupport):
+class BigQueryCreateTableLayoutSuggestionMixin:
     def suggest_create_table_layout(self) -> CreateTableLayoutSuggestion:
         # Assembled from the dialect's own probes: BigQuery has no inline index
         # clause (the core default answers False) but does carry a table comment
