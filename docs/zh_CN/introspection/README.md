@@ -72,7 +72,10 @@ BigQuery 后端回答三个层次的问题：项目与其 dataset **声明**了�
 | 视图 | `list_views()`、`get_view_info()` | `INFORMATION_SCHEMA.VIEWS` |
 | 例程 | `list_routines()`、`get_routine_info()` | `INFORMATION_SCHEMA.ROUTINES` |
 | 表选项 | `list_table_options()` | `INFORMATION_SCHEMA.TABLE_OPTIONS` |
-| 分区 | `list_partitions()` | `INFORMATION_SCHEMA.PARTITIONS` |
+| 表状态 | `get_table_state()` | 组合 `TABLES`、`TABLE_OPTIONS`、`PARTITIONS` 与 `COLUMNS` |
+| 分区状态 | `get_partition_state()` | `PARTITIONS`、`COLUMNS` 与 `TABLE_OPTIONS` |
+| 约束 | `list_constraint_states()` | `TABLE_CONSTRAINTS` ⋈ `KEY_COLUMN_USAGE` |
+| Schema | `list_schemas()`、`list_datasets()` | `INFORMATION_SCHEMA.SCHEMATA` |
 | 存储 | `get_table_storage_info()`、`list_tables()` | 组合 `TABLE_OPTIONS`、`PARTITIONS` 与 `COLUMNS` |
 
 以下后果按读者遇到的顺序列出：
@@ -83,7 +86,8 @@ BigQuery 后端回答三个层次的问题：项目与其 dataset **声明**了�
 - **视图。** `check_option` 在 BigQuery 上被文档规定永远为 `NULL`；仍然查询它，是为了让解析出的对象能这样说，而不是假定如此。`use_standard_sql` 放在 `extra`。
 - **例程。** `routine_type` 是目录自己的词——`FUNCTION`、`AGGREGATE FUNCTION`、`TABLE FUNCTION` 或 `PROCEDURE`。`data_type` 是声明的返回类型，存储过程为 `NULL`；`routine_body` 为 `SQL` 或 `EXTERNAL`，外部情形下 `external_language` 指出 JavaScript；`is_deterministic` 从目录的 `YES`/`NO` 读成布尔值，目录未知时保持 `None`。记录还保留目录的 `created` / `last_altered` 时间、远程函数的 `connection`，以及服务报告时的 `ddl` 文本。
 - **表选项。** 选项以每行一个选项返回——`description`、`expiration_timestamp`、`labels`、`partition_expiration_days`、`require_partition_filter`、`refresh_interval_minutes`，以及外部表的那几个——因此同一选项名可能以不同的 `option_type` 出现多次。正因为如此，它们保持为行，而不折叠成一个字典。
-- **分区。** 未分区表的 `partition_id` 为 `NULL`；分区键为 `NULL` 的那一行所在分区的 `partition_id` 为 `__NULL__`。每行带行数、逻辑字节、计费字节、最后修改时间与存储层级。省略表名时，同一个问题会问整个 dataset——每张表每个分区一行。
+- **分区。** `PARTITIONS` 每个分区返回一行，未分区表返回一行且 `partition_id` 为 `NULL`。`get_partition_state()` 把它折叠成核心的中性形状：未分区表回答 `None`——那一行 `NULL` 是目录在说"没有分区"，绝不是某个边界——否则回答 `PartitionScheme.RANGE` 状态，每个分区一个边界。列分区、整数范围分区与摄取时间分区都回答 `RANGE`；键是分区列（摄取时间分区则是 `_PARTITIONTIME` / `_PARTITIONDATE`，由 `COLUMNS` 报告的隐藏伪列识别），`require_partition_filter`、`partition_expiration_days` 与聚簇列放在 `raw` 里。`partition_rows()` 是原始回答，由 `parse_partitions()` 与 `get_table_storage_info()` 解析成 BigQuery 自己更细的分区形状（`total_logical_bytes`、`storage_tier`、`last_modified_time`）。
+- **约束。** `TABLE_CONSTRAINTS` 与 `KEY_COLUMN_USAGE` 的连接给出每个声明的键及其列。BigQuery 不强制执行主键与外键约束，因此每个 `ConstraintState` 都回答 `enforced=False` 与 `validated=False`；列保留在 `raw` 里。同一个问题也回答 `get_primary_key()`；不提供 `list_index_states()`，因为 BigQuery 没有索引，该族保持拒绝。
 - **已存字节。** 一张表的 `size_bytes` 是其各分区 `total_billable_bytes` 之和，来自**一次** dataset 级读取的归约，而不是每张表读一次。没有任何分区行的表——视图——保持 `None`，表示"引擎不为这个对象存字节"，这与零是不同的答案。`data_size_bytes` 与 `index_size_bytes` 保持 `None`，因为托管存储没有可拆分出去的索引部分；分区级行本身留在 `PARTITIONS` 族里，比共同最低要求更细。
 
 ## BigQuery 拒绝的六个运维族
@@ -288,7 +292,7 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect unused-indexes
 | `columns` | 一张表的列 | 必填（表） |
 | `datasets` | 项目的 dataset | 不接受 |
 | `database` | 本次运行所连接的项目 | 不接受 |
-| `partitions` | 一张表的分区及其大小 | 必填（表） |
+| `partitions` | 一张表的中性分区状态 | 必填（表） |
 | `column-profiles` | 一张表每列的数据画像 | 必填（表） |
 | `value-samples` | 一列最频繁的取值 | 必填（表） |
 | `join-coverage` | 两列值域的重叠度 | 必填（左表） |
@@ -300,7 +304,7 @@ python -m rhosocial.activerecord.backend.impl.bigquery introspect unused-indexes
 
 十五个类型，公布的清单衍生自同一份把每个类型绑定到其开关的映射，因此不可能出现"CLI 提供了某一族、但探针忘了它"的情况。`ddl` 不在其中：`supports_ddl_extraction()` 为 `False`，且这里没有提取语句，因此该类型不被公布。
 
-`database`、`routines` 与 `partitions` 之所以在这里，是因为方言回答了它们、CLI 却问不到：`database` 是项目级的问题，`routines` 是持久化函数/存储过程族，`partitions` 是引擎自己的族——每分区一行，带行数与所占字节，比表列表归约到的共同最低要求更细。一个问不到方言所声明内容的 CLI，就是"能回答却无法提问"。
+`database`、`routines` 与 `partitions` 之所以在这里，是因为方言回答了它们、CLI 却问不到：`database` 是项目级的问题，`routines` 是持久化函数/存储过程族，`partitions` 是一张表在核心中性形状下的分区状态——方案、键与每个分区一个边界，未分区表回答 `null`。一个问不到方言所声明内容的 CLI，就是"能回答却无法提问"。
 
 该命令**没有 `info` 子命令**，因此没有第二份输出格式清单：每个 `introspect` 类型都支持 `-o table`（默认）、`json`、`csv` 或 `tsv`，`--rich-ascii` 把表格边框换成 ASCII。也没有 `--limit`：`value-samples` 由内省器自己的默认值（`VALUE_SAMPLE_LIMIT`，100）界定，因此这个数字不会被写两遍。
 

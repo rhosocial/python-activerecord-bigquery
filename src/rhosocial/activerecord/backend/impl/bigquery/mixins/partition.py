@@ -248,7 +248,8 @@ class BigQueryPartitionMixin(PartitionMixin):
 
         ``True``: ``INFORMATION_SCHEMA.PARTITIONS`` contains one row per
         partition, and this backend's introspector already reads it
-        (``list_partitions`` / ``parse_partitions``).
+        (``get_partition_state`` / ``parse_partition_state``, with
+        ``parse_partitions`` keeping the finer per-partition shape).
 
         Reference (fetched 2026-11-25):
         https://cloud.google.com/bigquery/docs/information-schema-partitions

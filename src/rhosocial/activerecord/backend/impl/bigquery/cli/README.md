@@ -25,7 +25,7 @@ different answers, and only one of them is what happened.
 | `columns` | `INFORMATION_SCHEMA.COLUMNS` | One table's columns: name, type, nullability, ordinal position, default, and the generation and identity facts a real server answers. |
 | `datasets` | `INFORMATION_SCHEMA.SCHEMATA` | The project's datasets. A dataset is BigQuery's namespace level above a table, so it stands where a schema would elsewhere. |
 | `database` | `SELECT @@project_id` | The project this run connected to. The project-level question, so it takes no dataset and no name. |
-| `partitions` | `INFORMATION_SCHEMA.PARTITIONS` | One table's partitions: rows, logical bytes and billable bytes each. This engine's own family — the per-table storage minimum reduces its sums onto one slot, and these rows are finer than that. |
+| `partitions` | `PARTITIONS` + `COLUMNS` + `TABLE_OPTIONS` | One table's partition state in core's neutral shape: `scheme` (`null` when the table is not partitioned), the partitioning key and one bound per partition, with `require_partition_filter` and the clustering columns in `raw`. |
 | `column-profiles` | the table's rows | Every column's null count, distinct count, bounds and the table's row count. **A full scan, billed.** |
 | `value-samples` | the table's rows | One column's most frequent values. |
 | `join-coverage` | two columns' rows | How two columns' value domains overlap, both directions. |

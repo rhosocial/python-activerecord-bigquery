@@ -1,7 +1,7 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/cli/introspect.py
-"""The introspection subcommands: the catalogue questions, the engine's own
-``partitions`` family, the routines family, and the nine families the
-dialect answers or declines.
+"""The introspection subcommands: the catalogue questions, one table's
+partition state, the routines family, and the nine families the dialect
+answers or declines.
 
 Each one wires ``backend.introspector`` to an output format:
 
@@ -13,7 +13,7 @@ Command                   Introspector question
 ``columns NAME``          ``list_columns()``
 ``datasets``              ``list_datasets()`` (the SCHEMATA view)
 ``database``              ``get_database_info()`` (@@project_id)
-``partitions NAME``       ``list_partitions()`` (PARTITIONS view)
+``partitions NAME``       ``get_partition_state()`` (neutral state)
 ``column-profiles NAME``  ``list_column_data_profiles()``
 ``value-samples NAME``    ``sample_column_values()``
 ``join-coverage NAME``    ``estimate_join_coverage()``
@@ -51,6 +51,7 @@ from enum import Enum
 from typing import Any, Callable, Dict
 
 from rhosocial.activerecord.backend.errors import ConnectionError, QueryError
+from rhosocial.activerecord.backend.introspection.types import PartitionState
 
 from .connection import (
     add_connection_args,
@@ -71,10 +72,11 @@ from .output import OUTPUT_CHOICES, create_provider
 #: Two questions sit beside them that this backend answers on its own.
 #: ``database`` is the project-level question -- the documented
 #: ``@@project_id`` system variable, which names no dataset -- and
-#: ``partitions`` is the engine's own: ``INFORMATION_SCHEMA.PARTITIONS``
-#: answers one row per partition of one table, which no core family covers.
-#: Both are declared by the dialect, so a CLI that could not ask them would
-#: be "answerable but unaskable", the defect §6 exists to prevent.
+#: ``partitions`` is this backend's one-table partition question, answered
+#: in core's neutral ``PartitionState`` shape from ``PARTITIONS``, the raw
+#: ``COLUMNS`` answer and ``TABLE_OPTIONS``. Both are declared by the
+#: dialect, so a CLI that could not ask them would be "answerable but
+#: unaskable", the defect §6 exists to prevent.
 #:
 #: BigQuery declares three of the families beyond its catalogue and its
 #: partitions view: the three that read the *rows* (a profile, a value
@@ -151,9 +153,7 @@ _NAME_RULE = {
 #: The subcommands that act on a named object, so they carry the positional
 #: name the others do not. Derived from the rule table rather than written a
 #: second time: one decision, read by the parser and by the validator alike.
-_NAME_COMMANDS = tuple(
-    name for name, rule in _NAME_RULE.items() if rule == "required"
-)
+_NAME_COMMANDS = tuple(name for name, rule in _NAME_RULE.items() if rule == "required")
 
 #: The subcommands that can also answer for one named object but answer the
 #: whole family without it. ``routines`` narrows to one routine when a name
@@ -161,9 +161,7 @@ _NAME_COMMANDS = tuple(
 #: declines the dependency family, so both of its spellings reach the same
 #: refusal -- but the name still has to parse, or the refusal would be
 #: argparse's instead of the capability answer.
-_OPTIONAL_NAME_COMMANDS = tuple(
-    name for name, rule in _NAME_RULE.items() if rule == "optional"
-)
+_OPTIONAL_NAME_COMMANDS = tuple(name for name, rule in _NAME_RULE.items() if rule == "optional")
 
 _EPILOG = """Examples:
   # Every dataset in the project, and the project itself
@@ -290,11 +288,12 @@ _HELP = {
     # refusal -- the connection already names the project, and the CLI can
     # report it.
     "database": "Report the project this run is connected to",
-    # The engine's own family: one row per partition, with the rows and the
-    # bytes each holds. Core's per-table storage minimum is one slot this
-    # reduces its sums onto; the partition rows are finer than that and stay
-    # here where the dialect declares them.
-    "partitions": "List one table's partitions, with their sizes",
+    # The engine's own family, answered in core's neutral shape: the partition
+    # scheme, the key and one bound per partition. Core's per-table storage
+    # minimum is a different reduction of the same view; the neutral state is
+    # where "not partitioned" is one answer (``scheme=None``) instead of a
+    # placeholder row.
+    "partitions": "Report one table's partition scheme and its partitions",
     # The four operational families: declined here, so the help says what
     # the subcommand is for and the gate says it cannot be answered.
     "unused-indexes": "Indexes with no recorded use (not supported by BigQuery)",
@@ -585,16 +584,14 @@ def _questions(args) -> Dict[str, Callable[[Any], Any]]:
         ),
         "views": lambda introspector: introspector.list_views(schema=schema),
         "routines": _routines,
-        "columns": lambda introspector: introspector.list_columns(
-            args.name, schema=schema
-        ),
+        "columns": lambda introspector: introspector.list_columns(args.name, schema=schema),
         "datasets": lambda introspector: introspector.list_datasets(),
         "database": _database_info,
-        # One table, one partition row each: the name is required because the
-        # question filters partitions by it, and a name-less ``PARTITIONS``
-        # read is the dataset-wide one the storage reducer asks rather than
+        # One table, one neutral partition record: the name is required because
+        # the question is about one table, and a name-less ``PARTITIONS`` read
+        # is the dataset-wide question the storage reducer asks rather than
         # this family.
-        "partitions": lambda introspector: introspector.list_partitions(
+        "partitions": lambda introspector: introspector.get_partition_state(
             args.name, schema=schema
         ),
         "unused-indexes": _unused_indexes,
@@ -713,6 +710,21 @@ def _report(result: Any, args, provider) -> None:
             _serialize_for_output([result]),
             title=_TITLES.get(args.command, args.command.title()),
         )
+        return
+
+    if args.command == "partitions":
+        # The neutral answer, printed as one record: the scheme, the key and
+        # the bounds are core's shape, whatever backend answered. ``None`` is
+        # the single neutral answer for "not partitioned", so it prints as a
+        # record whose ``scheme`` is null rather than a blank listing, which
+        # would read as "partitioned, with no partitions".
+        state = result if result is not None else PartitionState()
+        record = {
+            "table_name": args.name,
+            "schema": _schema_arg(args),
+            **_serialize_for_output(state),
+        }
+        provider.display_results([record], title=_TITLES.get(args.command, args.command.title()))
         return
 
     title = _TITLES.get(args.command, args.command.title())

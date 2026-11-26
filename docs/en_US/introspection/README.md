@@ -72,7 +72,10 @@ A `True` promises only that the statement renders and the project accepts it. It
 | Views | `list_views()`, `get_view_info()` | `INFORMATION_SCHEMA.VIEWS` |
 | Routines | `list_routines()`, `get_routine_info()` | `INFORMATION_SCHEMA.ROUTINES` |
 | Table options | `list_table_options()` | `INFORMATION_SCHEMA.TABLE_OPTIONS` |
-| Partitions | `list_partitions()` | `INFORMATION_SCHEMA.PARTITIONS` |
+| Table state | `get_table_state()` | `TABLES`, `TABLE_OPTIONS`, `PARTITIONS` and `COLUMNS`, composed |
+| Partition state | `get_partition_state()` | `PARTITIONS`, `COLUMNS` and `TABLE_OPTIONS` |
+| Constraints | `list_constraint_states()` | `TABLE_CONSTRAINTS` ? `KEY_COLUMN_USAGE` |
+| Schemas | `list_schemas()`, `list_datasets()` | `INFORMATION_SCHEMA.SCHEMATA` |
 | Storage | `get_table_storage_info()`, `list_tables()` | `TABLE_OPTIONS`, `PARTITIONS` and `COLUMNS`, composed |
 
 A few consequences of each statement, in the order a reader will meet them:
@@ -83,7 +86,8 @@ A few consequences of each statement, in the order a reader will meet them:
 - **Views.** `check_option` is documented as always `NULL` for BigQuery; it is selected so the parsed object can say so rather than assume it. `use_standard_sql` rides in `extra`.
 - **Routines.** `routine_type` is the catalog's own word — `FUNCTION`, `AGGREGATE FUNCTION`, `TABLE FUNCTION` or `PROCEDURE`. `data_type` is the declared return type and is `NULL` for a procedure; `routine_body` says `SQL` or `EXTERNAL`, with `external_language` naming JavaScript for the external case; `is_deterministic` is read from the catalog's `YES`/`NO` into a boolean and stays `None` when the catalog does not know. The record also keeps the catalog's `created` / `last_altered` times, the remote-function `connection`, and the `ddl` text when the service reports one.
 - **Table options.** Options arrive one row per option — `description`, `expiration_timestamp`, `labels`, `partition_expiration_days`, `require_partition_filter`, `refresh_interval_minutes`, and the external-table ones — so the same option name can appear more than once with a different `option_type`. They are kept as rows rather than folded into a dict for that reason.
-- **Partitions.** `partition_id` is `NULL` for an unpartitioned table and `__NULL__` for the partition holding rows whose partitioning key is `NULL`. Each row carries rows, logical bytes, billable bytes, last-modified time and storage tier. With the table name omitted the same question is asked of the whole dataset — one row per partition of every table.
+- **Partitions.** `PARTITIONS` answers one row per partition, and one row with a `NULL` `partition_id` for an unpartitioned table. `get_partition_state()` folds that into core's neutral shape: `None` for an unpartitioned table — the `NULL` row is the catalog saying "no partitions", never a bound — and a `PartitionScheme.RANGE` state with one bound per partition otherwise. Column, integer-range and ingestion-time partitioning all answer `RANGE`; the partitioning column (or `_PARTITIONTIME` / `_PARTITIONDATE` for ingestion-time, recognised from the hidden pseudo columns `COLUMNS` reports) is the key, and `require_partition_filter`, `partition_expiration_days` and the clustering columns ride in `raw`. `partition_rows()` is the raw answer, parsed into BigQuery's own finer per-partition shape (`total_logical_bytes`, `storage_tier`, `last_modified_time`) by `parse_partitions()` and `get_table_storage_info()`.
+- **Constraints.** `TABLE_CONSTRAINTS` joined to `KEY_COLUMN_USAGE` names every declared key and its columns. BigQuery does not enforce primary or foreign key constraints, so every `ConstraintState` answers `enforced=False` and `validated=False`; the columns stay in `raw`. The same question answers `get_primary_key()`; `list_index_states()` is not asked for, because BigQuery has no indexes and that family stays a refusal.
 - **Stored bytes.** A table's `size_bytes` is the sum of its partitions' `total_billable_bytes`, reduced from **one** dataset-scoped read rather than one read per table. A table with no partition rows — a view — keeps `None`, which is "not an object this engine stores bytes for", a different answer from zero. `data_size_bytes` and `index_size_bytes` stay `None` because managed storage has no index side to split off; the partition rows themselves stay on the `PARTITIONS` family, which is finer than the common minimum.
 
 ## The Six Operational Families BigQuery Declines
@@ -288,7 +292,7 @@ No command fabricates an answer: without a dataset the introspector raises with 
 | `columns` | One table's columns | required (table) |
 | `datasets` | The project's datasets | not accepted |
 | `database` | The project this run is connected to | not accepted |
-| `partitions` | One table's partitions, with their sizes | required (table) |
+| `partitions` | One table's neutral partition state | required (table) |
 | `column-profiles` | Every column of a table, profiled from its data | required (table) |
 | `value-samples` | One column's most frequent values | required (table) |
 | `join-coverage` | How two columns' value domains overlap | required (left table) |
@@ -300,7 +304,7 @@ No command fabricates an answer: without a dataset the introspector raises with 
 
 Fifteen types, and the advertised list is derived from the same mapping that gates each type on its switch, so a family cannot be offered by the CLI and forgotten by the probe. `ddl` is not among them: `supports_ddl_extraction()` is `False` and no extraction statement exists, so the type is not advertised.
 
-`database`, `routines` and `partitions` are here because the dialect answers them and the CLI could not ask: `database` is the project-level question, `routines` is the persistent-function/procedure family, and `partitions` is the engine's own family — one row per partition with the rows and the bytes each holds, finer than the common minimum the table listing reduces onto. A CLI that could not ask what the dialect declares would be "answerable but unaskable".
+`database`, `routines` and `partitions` are here because the dialect answers them and the CLI could not ask: `database` is the project-level question, `routines` is the persistent-function/procedure family, and `partitions` is one table's partition state in core's neutral shape — the scheme, the key and one bound per partition, with `null` for a table that is not partitioned. A CLI that could not ask what the dialect declares would be "answerable but unaskable".
 
 This command has **no `info` subcommand**, so there is no second output-format list: every `introspect` type takes `-o table` (the default), `json`, `csv` or `tsv`, and `--rich-ascii` switches the table borders to ASCII. There is also no `--limit`: `value-samples` is bounded by the introspector's own default (`VALUE_SAMPLE_LIMIT`, 100), so the number is not written in two places.
 

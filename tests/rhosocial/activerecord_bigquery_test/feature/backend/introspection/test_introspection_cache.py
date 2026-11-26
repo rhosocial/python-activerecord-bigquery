@@ -7,12 +7,15 @@ under the key that question answered. Nothing here touches a server: the
 executor is a fake that answers canned rows and counts.
 
 The BigQuery-only questions are covered too, because they are the ones with
-the most interesting keys -- ``list_table_options`` and
-``list_partitions`` share the table scope but answer different things, so
-they must not answer each other.
+the most interesting keys -- ``list_table_options``, the partition answer
+and the neutral partition state share the table scope but answer different
+things, so they must not answer each other, and the raw ``COLUMNS``
+answer is cached once for the column listing and the partition question
+alike.
 """
 
 import pytest
+from rhosocial.activerecord.backend.introspection.types import PartitionScheme
 
 from rhosocial.activerecord.backend.impl.bigquery.config import (
     BigQueryConnectionConfig,
@@ -137,8 +140,20 @@ def _walk_sync(introspector):
     primary_key = introspector.get_primary_key("orders", "my_dataset")
     table_info = introspector.get_table_info("orders", "my_dataset")
     storage = introspector.get_table_storage_info("orders", "my_dataset")
+    table_state = introspector.get_table_state("orders", "my_dataset")
+    with_stats = introspector.get_partition_state("orders", "my_dataset", include_stats=True)
     database_info = introspector.get_database_info()
-    return datasets, tables, columns, primary_key, table_info, storage, database_info
+    return (
+        datasets,
+        tables,
+        columns,
+        primary_key,
+        table_info,
+        storage,
+        table_state,
+        with_stats,
+        database_info,
+    )
 
 
 async def _walk_async(introspector):
@@ -148,8 +163,20 @@ async def _walk_async(introspector):
     primary_key = await introspector.get_primary_key("orders", "my_dataset")
     table_info = await introspector.get_table_info("orders", "my_dataset")
     storage = await introspector.get_table_storage_info("orders", "my_dataset")
+    table_state = await introspector.get_table_state("orders", "my_dataset")
+    with_stats = await introspector.get_partition_state("orders", "my_dataset", include_stats=True)
     database_info = await introspector.get_database_info()
-    return datasets, tables, columns, primary_key, table_info, storage, database_info
+    return (
+        datasets,
+        tables,
+        columns,
+        primary_key,
+        table_info,
+        storage,
+        table_state,
+        with_stats,
+        database_info,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -159,19 +186,35 @@ async def _walk_async(introspector):
 
 def test_cold_pass_asks_each_question_once(sync_case):
     introspector, executor = sync_case
-    datasets, tables, columns, primary_key, table_info, storage, info = _walk_sync(introspector)
+    (
+        datasets,
+        tables,
+        columns,
+        primary_key,
+        table_info,
+        storage,
+        table_state,
+        with_stats,
+        info,
+    ) = _walk_sync(introspector)
     assert [d.schema_name for d in datasets] == ["my_dataset"]
     assert [t.name for t in tables] == ["orders", "payments"]
     assert [c.name for c in columns] == ["id", "amount"]
     assert primary_key.name == "pk_orders"
     assert table_info.name == "orders"
     assert storage.partitions[0].partition_id == "20260101"
+    assert table_state.kind == "regular"
+    assert table_state.partitioning.scheme == PartitionScheme.RANGE
+    assert with_stats.bounds[0].name == "20260101"
+    assert with_stats.bounds[0].row_count == 5
     assert info.name == "my-project"
     # datasets + tables + columns + primary key + table info (one table
     # question: list_tables is cached, list_columns/list_indexes/
     # list_foreign_keys each add one) + storage's three + database info.
     # The exact number is less load-bearing than the shape: every question
-    # appears once and none twice.
+    # appears once and none twice -- which is also why the state answers
+    # (which read the same COLUMNS/PARTITIONS/OPTIONS answers) add no SQL
+    # of their own.
     assert len(executor.questions) == len(
         set(executor.questions)
     ), "the same SQL was issued twice on the cold pass"
@@ -199,18 +242,20 @@ def test_the_answers_are_the_same_objects_not_new_ones(sync_case):
 def test_options_and_partitions_do_not_answer_each_other(sync_case):
     introspector, executor = sync_case
     options = introspector.list_table_options("orders", "my_dataset")
-    partitions = introspector.list_partitions("orders", "my_dataset")
+    state = introspector.get_partition_state("orders", "my_dataset")
     storage = introspector.get_table_storage_info("orders", "my_dataset")
     # Three questions, cached separately under their own keys: the options,
-    # the partitions, and the columns the storage shape reads for the
-    # partitioning and clustering columns.
+    # the partitions and the columns (one raw COLUMNS read shared by the
+    # column listing and the partition question).
     assert len(executor.questions) == 3
     assert [o.option_name for o in options] == ["require_partition_filter"]
-    assert [p.partition_id for p in partitions] == ["20260101"]
-    # The storage shape reuses those two cached answers rather than
-    # re-asking them.
+    assert state.scheme == PartitionScheme.RANGE
+    assert [bound.name for bound in state.bounds] == ["20260101"]
+    # The storage shape reuses the cached answers rather than re-asking
+    # them: same option objects, and the partition rows parsed again into
+    # BigQuery's own finer shape.
     assert storage.options is options
-    assert storage.partitions is partitions
+    assert [p.partition_id for p in storage.partitions] == ["20260101"]
 
 
 def test_a_different_dataset_is_a_different_answer(sync_case):
@@ -258,15 +303,25 @@ def test_clearing_drops_everything(sync_case):
 
 async def test_cold_and_warm_pass_async(async_case):
     introspector, executor = async_case
-    datasets, tables, columns, primary_key, table_info, storage, info = await _walk_async(
-        introspector
-    )
+    (
+        datasets,
+        tables,
+        columns,
+        primary_key,
+        table_info,
+        storage,
+        table_state,
+        with_stats,
+        info,
+    ) = await _walk_async(introspector)
     assert [d.schema_name for d in datasets] == ["my_dataset"]
     assert [t.name for t in tables] == ["orders", "payments"]
     assert [c.name for c in columns] == ["id", "amount"]
     assert primary_key.name == "pk_orders"
     assert table_info.name == "orders"
     assert storage.partitions[0].partition_id == "20260101"
+    assert table_state.partitioning.scheme == PartitionScheme.RANGE
+    assert with_stats.bounds[0].row_count == 5
     assert info.name == "my-project"
     cold = len(executor.questions)
     assert cold > 0
@@ -281,10 +336,11 @@ async def test_cold_and_warm_pass_async(async_case):
 async def test_storage_shape_async_reuses_the_cached_answers(async_case):
     introspector, executor = async_case
     options = await introspector.list_table_options("orders", "my_dataset")
-    partitions = await introspector.list_partitions("orders", "my_dataset")
+    state = await introspector.get_partition_state("orders", "my_dataset")
     storage = await introspector.get_table_storage_info("orders", "my_dataset")
-    # options + partitions, then the columns question inside the shape.
+    # options + partitions + columns: the storage shape reuses every answer.
     assert len(executor.questions) == 3
+    assert state.scheme == PartitionScheme.RANGE
     assert storage.options is options
-    assert storage.partitions is partitions
+    assert [p.partition_id for p in storage.partitions] == ["20260101"]
     assert storage.clustering_columns == []

@@ -26,6 +26,9 @@ from rhosocial.activerecord.backend.introspection.types import (
     IntrospectionDatabaseInfo,
     IntrospectionTableInfo,
     IntrospectionViewInfo,
+    PartitionBound,
+    PartitionScheme,
+    PartitionState,
     TableType,
 )
 
@@ -33,7 +36,6 @@ from rhosocial.activerecord.backend.impl.bigquery import cli as cli_package
 from rhosocial.activerecord.backend.impl.bigquery.__main__ import main
 from rhosocial.activerecord.backend.impl.bigquery.cli import introspect as cli_introspect
 from rhosocial.activerecord.backend.impl.bigquery.introspection.types import (
-    BigQueryPartitionInfo,
     BigQueryRoutineInfo,
 )
 
@@ -170,20 +172,17 @@ class _FakeIntrospector:
             },
         )
 
-    def list_partitions(self, table_name, schema=None):
-        self.calls.append(("list_partitions", table_name, schema))
-        return [
-            BigQueryPartitionInfo(
-                table_name=table_name,
-                partition_id="20260101",
-                table_catalog="my-project",
-                table_schema=schema,
-                total_rows=120,
-                total_logical_bytes=2048,
-                total_billable_bytes=4096,
-                storage_tier="ACTIVE",
-            )
-        ]
+    def get_partition_state(self, table_name, schema=None, include_stats=False):
+        self.calls.append(("get_partition_state", table_name, schema))
+        if table_name != "orders":
+            return None
+        return PartitionState(
+            scheme=PartitionScheme.RANGE,
+            key_expression="created",
+            key_columns=("created",),
+            bounds=(PartitionBound(name="20260101", row_count=120, size_bytes=4096),),
+            raw={"require_partition_filter": True, "clustering_columns": []},
+        )
 
 
 class _FakeBackend:
@@ -474,12 +473,34 @@ def test_database_reports_the_project_as_json(built, capsys):
     assert built[0].introspector.calls == [("get_database_info",)]
 
 
-def test_partitions_lists_one_tables_partitions_as_json(built, capsys):
+def test_partitions_renders_one_neutral_state_record_as_json(built, capsys):
+    """The partitions family prints core's neutral shape, not a backend row.
+
+    One record, not a listing: the scheme, the key and the bounds are the
+    neutral answer, and the table the question named is carried on the
+    record so the output is self-describing.
+    """
     _run(["partitions", "orders", "--dataset", "my_dataset", "-o", "json"])
     payload = json.loads(capsys.readouterr().out)
-    assert payload[0]["partition_id"] == "20260101"
-    assert payload[0]["total_billable_bytes"] == 4096
-    assert built[0].introspector.calls == [("list_partitions", "orders", "my_dataset")]
+    assert len(payload) == 1
+    assert payload[0]["table_name"] == "orders"
+    assert payload[0]["schema"] == "my_dataset"
+    assert payload[0]["scheme"] == "range"
+    assert payload[0]["key_columns"] == ["created"]
+    assert payload[0]["bounds"][0]["name"] == "20260101"
+    assert payload[0]["bounds"][0]["row_count"] == 120
+    assert built[0].introspector.calls == [("get_partition_state", "orders", "my_dataset")]
+
+
+def test_a_table_that_is_not_partitioned_reports_a_null_scheme(built, capsys):
+    """``None`` is the neutral answer for "not partitioned", and it prints as
+    ``scheme: null`` -- a blank listing would read as a partitioned table
+    that happens to have no partitions."""
+    _run(["partitions", "payments", "--dataset", "my_dataset", "-o", "json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload[0]["scheme"] is None
+    assert payload[0]["bounds"] == []
+    assert built[0].introspector.calls == [("get_partition_state", "payments", "my_dataset")]
 
 
 # ---------------------------------------------------------------------------
@@ -487,13 +508,11 @@ def test_partitions_lists_one_tables_partitions_as_json(built, capsys):
 # ---------------------------------------------------------------------------
 
 
-
 def test_columns_without_a_name_exits_non_zero(capsys):
     with pytest.raises(SystemExit) as exc_info:
         _run(["columns", "-o", "json"])
     assert exc_info.value.code == 2
     assert "required" in capsys.readouterr().err
-
 
 
 def test_a_value_error_from_the_introspector_exits_non_zero(built, capsys, monkeypatch):

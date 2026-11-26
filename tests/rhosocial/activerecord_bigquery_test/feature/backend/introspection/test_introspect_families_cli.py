@@ -35,21 +35,24 @@ import json
 from typing import Optional
 
 import pytest
-
-from rhosocial.activerecord.backend.impl.bigquery.cli import introspect as introspect_cli
-from rhosocial.activerecord.backend.impl.bigquery.cli import output as output_mod
-from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
-from rhosocial.activerecord.backend.impl.bigquery.mixins import (
-    introspection as mixins_introspection,
-)
 from rhosocial.activerecord.backend.introspection.types import (
     ColumnDataProfile,
     ColumnValueFrequency,
     JoinCoverage,
+    PartitionBound,
+    PartitionScheme,
+    PartitionState,
     TableType,
 )
+
+from rhosocial.activerecord.backend.impl.bigquery.cli import introspect as introspect_cli
+from rhosocial.activerecord.backend.impl.bigquery.cli import output as output_mod
+from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.introspection.types import (
     BigQueryRoutineInfo,
+)
+from rhosocial.activerecord.backend.impl.bigquery.mixins import (
+    introspection as mixins_introspection,
 )
 
 #: The eight families this change wires, and the switch that gates each.
@@ -268,9 +271,7 @@ class TestTheNameRuleTable:
 
     @pytest.mark.parametrize(
         "command",
-        sorted(
-            k for k, rule in introspect_cli._NAME_RULE.items() if rule == "forbidden"
-        ),
+        sorted(k for k, rule in introspect_cli._NAME_RULE.items() if rule == "forbidden"),
     )
     def test_a_forbidden_name_is_refused_by_the_table(self, command, capsys):
         with pytest.raises(SystemExit) as excinfo:
@@ -281,9 +282,7 @@ class TestTheNameRuleTable:
 
     @pytest.mark.parametrize(
         "command",
-        sorted(
-            k for k, rule in introspect_cli._NAME_RULE.items() if rule == "required"
-        ),
+        sorted(k for k, rule in introspect_cli._NAME_RULE.items() if rule == "required"),
     )
     def test_a_required_name_is_required_by_the_table(self, command, capsys):
         """A missing required NAME is an incomplete invocation, exit 1 -- the
@@ -298,9 +297,7 @@ class TestTheNameRuleTable:
 
     @pytest.mark.parametrize(
         "command",
-        sorted(
-            k for k, rule in introspect_cli._NAME_RULE.items() if rule == "optional"
-        ),
+        sorted(k for k, rule in introspect_cli._NAME_RULE.items() if rule == "optional"),
     )
     def test_an_optional_name_may_be_given_or_not(self, command):
         introspect_cli._validate_name(_args(command))
@@ -320,8 +317,10 @@ class TestTheNameRuleTable:
             if rule in ("required", "optional")
         }
         for command in introspect_cli.INTROSPECT_TYPES:
-            assert (command in named) == (command in introspect_cli._NAME_RULE and
-                                          introspect_cli._NAME_RULE[command] != "forbidden")
+            assert (command in named) == (
+                command in introspect_cli._NAME_RULE
+                and introspect_cli._NAME_RULE[command] != "forbidden"
+            )
 
 
 class TestTheOutputList:
@@ -344,11 +343,7 @@ class TestTheOutputList:
         # ``table`` degrades to the JSON provider when rich is missing, which
         # is the factory's own documented fallback rather than a refusal.
         if output_format == "table":
-            expected = (
-                "RichOutputProvider"
-                if output_mod.RICH_AVAILABLE
-                else "JsonOutputProvider"
-            )
+            expected = "RichOutputProvider" if output_mod.RICH_AVAILABLE else "JsonOutputProvider"
         elif output_format == "json":
             expected = "JsonOutputProvider"
         elif output_format == "csv":
@@ -610,9 +605,7 @@ class TestTheDatabaseBranch:
     """The project-level question, answered by the documented system variable."""
 
     def test_the_project_is_asked_for_without_a_dataset(self, monkeypatch):
-        introspector = _RecordingIntrospector(
-            {"get_database_info": _IntrospectionDatabaseInfo()}
-        )
+        introspector = _RecordingIntrospector({"get_database_info": _IntrospectionDatabaseInfo()})
 
         _run_sync(monkeypatch, introspector, _args("database", dataset=None))
 
@@ -655,9 +648,7 @@ class TestTheRoutinesBranch:
 
         _run_sync(monkeypatch, introspector, _args("routines", "add_one"))
 
-        assert introspector.calls == [
-            ("get_routine_info", ("add_one",), {"schema": "my_dataset"})
-        ]
+        assert introspector.calls == [("get_routine_info", ("add_one",), {"schema": "my_dataset"})]
 
     def test_a_missing_routine_is_an_error_not_a_blank_listing(self, monkeypatch, capsys):
         introspector = _RecordingIntrospector({"get_routine_info": None})
@@ -679,30 +670,52 @@ class TestTheRoutinesBranch:
         assert payload[0]["is_deterministic"] is True
 
     def test_the_family_is_gated_by_its_own_probe(self):
-        assert (
-            introspect_cli._TYPE_CAPABILITIES["routines"]
-            == "supports_routine_introspection"
-        )
-        assert BigQueryDialect.supports_routine_introspection(
-            BigQueryDialect()
-        ) is True
+        assert introspect_cli._TYPE_CAPABILITIES["routines"] == "supports_routine_introspection"
+        assert BigQueryDialect.supports_routine_introspection(BigQueryDialect()) is True
 
 
 class TestThePartitionsBranch:
-    """One table, and one row per partition it holds."""
+    """One table, answered in core's neutral partition shape."""
+
+    def _state(self):
+        return PartitionState(
+            scheme=PartitionScheme.RANGE,
+            key_expression="created",
+            key_columns=("created",),
+            bounds=(PartitionBound(name="20260101", row_count=5),),
+        )
 
     def test_the_table_is_asked_for_by_name(self, monkeypatch):
-        introspector = _RecordingIntrospector({"list_partitions": []})
+        introspector = _RecordingIntrospector({"get_partition_state": self._state()})
 
         _run_sync(monkeypatch, introspector, _args("partitions", "orders"))
 
         assert introspector.calls == [
-            ("list_partitions", ("orders",), {"schema": "my_dataset"})
+            ("get_partition_state", ("orders",), {"schema": "my_dataset"})
         ]
 
+    def test_the_answer_is_one_neutral_record(self, monkeypatch, capsys):
+        introspector = _RecordingIntrospector({"get_partition_state": self._state()})
+
+        _run_sync(monkeypatch, introspector, _args("partitions", "orders"))
+
+        payload = json.loads(capsys.readouterr().out)
+        assert len(payload) == 1
+        assert payload[0]["scheme"] == "range"
+        assert payload[0]["key_columns"] == ["created"]
+        assert payload[0]["bounds"][0]["name"] == "20260101"
+
+    def test_an_unpartitioned_table_is_not_a_blank_listing(self, monkeypatch, capsys):
+        introspector = _RecordingIntrospector({"get_partition_state": None})
+
+        _run_sync(monkeypatch, introspector, _args("partitions", "plain"))
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload[0]["scheme"] is None
+        assert payload[0]["bounds"] == []
+
     def test_a_missing_name_is_an_incomplete_invocation(self, monkeypatch, capsys):
-        """The question filters partitions by table, so a name-less one is a
-        different question -- and the CLI does not ask it."""
+        """The question is about one table, so a name-less run is not asked."""
         with pytest.raises(SystemExit) as excinfo:
             _run_sync(monkeypatch, _RecordingIntrospector({}), _args("partitions"))
 
@@ -775,9 +788,7 @@ class TestTheCapabilityGate:
         ask a question the dialect advertises -- the same defect the gate
         exists to prevent for the other direction.
         """
-        introspect_cli._require_capability(
-            _BackendStub(_RecordingIntrospector()), _args(command)
-        )
+        introspect_cli._require_capability(_BackendStub(_RecordingIntrospector()), _args(command))
 
     def test_a_stub_without_a_dialect_is_not_refused(self):
         introspect_cli._require_capability(object(), _args("tables"))
@@ -858,9 +869,12 @@ class TestTheAsyncPath:
             ),
             (
                 "partitions",
-                "list_partitions",
+                "get_partition_state",
                 {"name": "orders"},
-                [],
+                PartitionState(
+                    scheme=PartitionScheme.RANGE,
+                    bounds=(PartitionBound(name="20260101"),),
+                ),
                 (("orders",), {"schema": "my_dataset"}),
             ),
             (
@@ -944,9 +958,7 @@ class TestTheTypeSurfaceExtension:
         assert mapped == set(mixins_introspection._VIEW_TYPES)
 
     def test_the_type_list_is_the_capability_table(self):
-        assert list(introspect_cli._TYPE_CAPABILITIES) == list(
-            introspect_cli.INTROSPECT_TYPES
-        )
+        assert list(introspect_cli._TYPE_CAPABILITIES) == list(introspect_cli.INTROSPECT_TYPES)
 
     def test_each_new_family_has_an_entry_naming_a_probe(self):
         for command, switch in NEW_FAMILIES.items():

@@ -67,7 +67,29 @@ empty list and the builder refuses instead of inventing a catalog view.
 index view, so :meth:`supports_index_introspection` answers ``False`` and
 no CLI type offers the family. Primary-key constraints are still reported
 as :class:`IndexInfo` values so ``get_primary_key()`` works; ``IndexType``
-is ``UNKNOWN`` because there is no index structure behind it.
+is ``UNKNOWN`` because there is no index structure behind it. The neutral
+:meth:`list_index_states` is left to core's refusal for the same reason --
+a primary key is a constraint question, answered by
+:meth:`list_constraint_states`.
+
+*Sequences and derived objects.* BigQuery has neither sequences nor
+engine-created, independently nameable objects (an identity column is a
+declared column, not a sequence), and ``INFORMATION_SCHEMA`` has no view
+for either family, so :meth:`list_sequence_states` and
+:meth:`list_derived_objects` stay refusals.
+
+**Partition state.** :meth:`get_partition_state` is the neutral answer to
+"is this table partitioned": ``None`` when it is not. ``PARTITIONS``
+answers one row with a ``NULL`` ``partition_id`` for an unpartitioned
+table; that row is the catalog saying "no partitions", not a partition
+named ``NULL``, so it becomes ``scheme=None`` rather than a bound.
+Column-, integer-range- and ingestion-time-partitioned tables all answer
+:class:`PartitionScheme` ``RANGE`` -- the engine divides rows into
+intervals of a column's value or of the ingestion time. Ingestion-time
+partitioning is recognised from the ``_PARTITIONTIME`` / ``_PARTITIONDATE``
+pseudo columns ``COLUMNS`` reports with ``is_hidden = 'YES'``; they are
+dropped from the declared schema, so the partition question reads the raw
+``COLUMNS`` answer rather than the parsed column list.
 
 Documentation:
 
@@ -103,11 +125,12 @@ from typing import Any, Dict, List, NoReturn, Optional, Sequence, Tuple
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.errors import DatabaseError
 from rhosocial.activerecord.backend.introspection.base import (
+    AbstractIntrospector,
     AsyncAbstractIntrospector,
     IntrospectorMixin,
-    AbstractIntrospector,
 )
 from rhosocial.activerecord.backend.introspection.cache import IntrospectionCache
+from rhosocial.activerecord.backend.introspection.errors import ObjectNotFoundError
 from rhosocial.activerecord.backend.introspection.executor import (
     AsyncIntrospectorExecutor,
     IntrospectorExecutor,
@@ -115,6 +138,7 @@ from rhosocial.activerecord.backend.introspection.executor import (
 from rhosocial.activerecord.backend.introspection.types import (
     ColumnDataProfile,
     ColumnNullable,
+    ConstraintState,
     IndexColumnInfo,
     IndexInfo,
     IndexType,
@@ -125,12 +149,18 @@ from rhosocial.activerecord.backend.introspection.types import (
     IntrospectionTableInfo,
     IntrospectionTriggerInfo,
     IntrospectionViewInfo,
+    ItemKind,
+    PartitionBound,
+    PartitionScheme,
+    PartitionState,
+    StorageOptionsState,
+    TableState,
     TableType,
 )
 
 from ..expression.introspection import (
-    COLUMNS_PROJECTION_FULL,
     _EMULATOR_COLUMNS_PROJECTION,
+    COLUMNS_PROJECTION_FULL,
     BigQueryColumnInfoQueryStatement,
     BigQueryDatabaseInfoQueryStatement,
     BigQueryDatasetListQueryStatement,
@@ -174,6 +204,44 @@ _VIEW_TYPES = ("VIEW", "MATERIALIZED VIEW")
 #: as an answer of *no* is how a consumer ends up told a column is not
 #: generated when the truth is that the endpoint never carried the fact.
 COLUMNS_ASKED_KEY = "columns_asked"
+
+#: The pseudo columns BigQuery reports for an ingestion-time partitioned
+#: table. ``COLUMNS`` answers them with ``is_hidden = 'YES'``, and
+#: :meth:`~...BigQueryIntrospectorMixin.parse_columns` drops them because
+#: they are not part of the declared schema -- which is why the partition
+#: question reads the raw ``COLUMNS`` answer instead: their presence is the
+#: only catalog signal that an ingestion-time table is partitioned at all
+#: when it holds no partition rows yet.
+_INGESTION_TIME_PSEUDO_COLUMNS = ("_PARTITIONTIME", "_PARTITIONDATE")
+
+#: The ``TableState.kind`` and compound ``traits`` each documented
+#: ``TABLES.table_type`` maps onto. ``CLONE`` and ``SNAPSHOT`` are ordinary
+#: tables that remember what they were copied from, so the spelling rides in
+#: ``traits`` beside ``kind="regular"`` rather than widening ``kind``.
+#: A spelling this map does not know keeps the catalog's own word (lowercased)
+#: in ``kind`` -- a backend may add its spelling, and folding an unknown one
+#: onto "regular" would be the one place the catalog's distinction was seen
+#: and thrown away.
+#: https://cloud.google.com/bigquery/docs/information-schema-tables
+_TABLE_STATE_KINDS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
+    "BASE TABLE": ("regular", ()),
+    "CLONE": ("regular", ("clone",)),
+    "SNAPSHOT": ("regular", ("snapshot",)),
+    "EXTERNAL": ("external", ()),
+    "VIEW": ("view", ()),
+    "MATERIALIZED VIEW": ("materialized_view", ()),
+}
+
+#: The ``TABLE_OPTIONS`` only a partitioned table carries. Their presence is
+#: how an empty partitioned table is still recognised as partitioned: its
+#: ``PARTITIONS`` answer holds no rows and its ``COLUMNS`` answer names no
+#: partitioning column.
+_PARTITION_OPTIONS = ("partition_expiration_days", "require_partition_filter")
+
+#: The ``routine_type`` spellings that are functions rather than procedures.
+#: ``list_routines`` answers both, because they share one name namespace;
+#: only these are asked about by ``item_exists(ItemKind.FUNCTION, ...)``.
+_FUNCTION_ROUTINE_TYPES = ("FUNCTION", "AGGREGATE FUNCTION", "TABLE FUNCTION")
 
 
 def _row_get(row: Dict[str, Any], key: str, default: Any = None) -> Any:
@@ -246,6 +314,48 @@ def _as_bool(value: Any) -> Optional[bool]:
     if text == "NO":
         return False
     return None
+
+
+def _as_option_bool(value: Any) -> Optional[bool]:
+    """Read a ``TABLE_OPTIONS`` boolean option value as a bool, or ``None``.
+
+    Option values are the catalog's rendering of the option's declared type;
+    a ``BOOL`` option arrives as ``true``/``false`` (the two spellings
+    ``TABLE_OPTIONS`` documents), and an absent option stays ``None`` -- not
+    ``False``, which would claim the option was set to off.
+    """
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in ("true", "yes"):
+        return True
+    if text in ("false", "no"):
+        return False
+    return None
+
+
+def _option_values(options: List["BigQueryTableOptionInfo"]) -> Dict[str, Any]:
+    """The option rows as ``name -> value``, lowercased for the lookup.
+
+    ``TABLE_OPTIONS`` answers one row per option; the name is the key a
+    caller asks about, and the catalog's spelling is normalised only in the
+    dict's keys -- the original rows keep their own spelling.
+    """
+    return {option.option_name.lower(): option.option_value for option in options}
+
+
+def _pseudo_partition_columns(rows: List[Dict[str, Any]]) -> Tuple[str, ...]:
+    """The ingestion-time pseudo columns a raw ``COLUMNS`` answer carries.
+
+    ``COLUMNS`` reports ``_PARTITIONTIME`` and ``_PARTITIONDATE`` with
+    ``is_hidden = 'YES'`` and a ``NULL`` ordinal position; they are pseudo
+    columns, not declared ones, so the parsed column list drops them. Their
+    presence is the catalog's own statement that the table is partitioned by
+    ingestion time, which column-based partitioning never carries and which
+    an empty table's ``PARTITIONS``/``TABLE_OPTIONS`` answer cannot tell.
+    """
+    names = {str(_row_get(row, "column_name") or "").strip().upper() for row in rows}
+    return tuple(name for name in _INGESTION_TIME_PSEUDO_COLUMNS if name in names)
 
 
 class BigQueryIntrospectorMixin(IntrospectorMixin):
@@ -962,6 +1072,247 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         ]
 
     # ------------------------------------------------------------------ #
+    # Neutral object state: partitions, tables, constraints
+    # ------------------------------------------------------------------ #
+
+    def parse_partition_state(
+        self,
+        rows: List[Dict[str, Any]],
+        table_name: str,
+        schema: Optional[str],
+        columns: List[IntrospectionColumnInfo],
+        options: List[BigQueryTableOptionInfo],
+        pseudo_columns: Tuple[str, ...] = (),
+        include_stats: bool = False,
+    ) -> Optional[PartitionState]:
+        """Turn the three catalog answers into the neutral partition state.
+
+        ``PARTITIONS`` alone cannot answer "is this table partitioned":
+        an unpartitioned table answers exactly one row whose
+        ``partition_id`` is ``NULL``, which is the catalog saying *no
+        partitions*, not a partition named NULL. That row is therefore
+        dropped and contributes no bound -- a table with nothing else
+        indicating partitioning answers ``None``, core's single neutral
+        answer for "not partitioned".
+
+        The other two answers are what recognise a partitioned table that
+        answers no partition rows yet: ``COLUMNS`` names the partitioning
+        column (or, for ingestion-time partitioning, the pseudo columns the
+        raw answer carries), and ``TABLE_OPTIONS`` carries
+        ``partition_expiration_days`` / ``require_partition_filter``, which
+        only a partitioned table can set.
+
+        BigQuery partitions by intervals of a column's value or of ingestion
+        time, so every partitioned table answers
+        :attr:`PartitionScheme.RANGE`; ``key_columns`` names the partitioning
+        column and ``key_expression`` the pseudo column for ingestion-time
+        partitioning. ``PARTITIONS`` reports no explicit range end, so a
+        bound's identity -- the partition's start -- is carried in ``name``
+        and ``upper``/``values`` stay empty.
+
+        ``include_stats`` fills ``row_count`` and ``size_bytes`` from
+        ``total_rows``/``total_billable_bytes``; when it is false those
+        slots stay ``None`` because nobody asked, even though the view's
+        row already carried the figures. The finer per-partition facts
+        (logical bytes, storage tier, last modified) stay on
+        :meth:`parse_partitions`, BigQuery's own shape.
+
+        Args:
+            rows: The ``PARTITIONS`` rows for one table.
+            table_name: The table the rows were asked about.
+            schema: The dataset, or a ``project.dataset`` pair.
+            columns: The parsed ``COLUMNS`` answer (pseudo columns excluded).
+            options: The parsed ``TABLE_OPTIONS`` answer.
+            pseudo_columns: The ingestion-time pseudo columns the raw
+                ``COLUMNS`` answer carried, if any.
+            include_stats: Whether to fill the per-partition figures.
+
+        Returns:
+            The partition state, or ``None`` when the table is not partitioned.
+        """
+        label = self._schema_label(schema)
+        partitioning = self._partitioning_columns(columns)
+        clustering = self._clustering_columns(columns)
+        values = _option_values(options)
+
+        ingestion_time = bool(pseudo_columns) and not partitioning
+        has_bounds = any(_row_get(row, "partition_id") is not None for row in rows)
+        has_options = any(name in values for name in _PARTITION_OPTIONS)
+        if not (has_bounds or has_options or partitioning or ingestion_time):
+            return None
+
+        bounds: List[PartitionBound] = []
+        seen = set()
+        for row in rows:
+            partition_id = _row_get(row, "partition_id")
+            if partition_id is None:
+                # An unpartitioned table's single row: "no partitions", not
+                # a partition whose identity is NULL.
+                continue
+            name = str(partition_id)
+            if name in seen:
+                continue
+            seen.add(name)
+            bounds.append(
+                PartitionBound(
+                    name=name,
+                    row_count=_as_int(_row_get(row, "total_rows")) if include_stats else None,
+                    size_bytes=(
+                        _as_int(_row_get(row, "total_billable_bytes")) if include_stats else None
+                    ),
+                )
+            )
+
+        if partitioning:
+            key_expression = ", ".join(partitioning)
+        elif ingestion_time:
+            key_expression = pseudo_columns[0]
+        else:
+            key_expression = ""
+
+        return PartitionState(
+            scheme=PartitionScheme.RANGE,
+            key_expression=key_expression,
+            key_columns=tuple(partitioning),
+            # BigQuery has no DEFAULT partition. ``__NULL__`` is the partition
+            # holding rows whose key is NULL, which is a bound like any other.
+            has_default=False,
+            auto_extend=False,
+            bounds=tuple(bounds),
+            raw={
+                "require_partition_filter": _as_option_bool(values.get("require_partition_filter")),
+                "partition_expiration_days": _as_int(values.get("partition_expiration_days")),
+                "partitioning_columns": partitioning,
+                "clustering_columns": clustering,
+                "ingestion_time_partitioned": ingestion_time,
+                "pseudo_columns": list(pseudo_columns),
+                "partition_ids": [bound.name for bound in bounds],
+                "table_name": table_name,
+                "table_schema": label,
+            },
+        )
+
+    def parse_table_state(
+        self,
+        table: IntrospectionTableInfo,
+        options: List[BigQueryTableOptionInfo],
+        partitioning: Optional[PartitionState] = None,
+    ) -> TableState:
+        """Turn a parsed table and its options into the neutral table state.
+
+        ``kind`` is ``regular`` / ``view`` / ``materialized_view`` /
+        ``external`` (BigQuery has no temporary, unlogged or transient
+        tables in this view); ``CLONE`` and ``SNAPSHOT`` keep their catalog
+        spelling in ``traits`` because they are ordinary tables that remember
+        their source. A spelling this backend does not know keeps the
+        catalog's own word in ``kind`` rather than being folded away.
+
+        The table's storage options are its ``TABLE_OPTIONS`` rows: there is
+        no engine, charset or tablespace to report (managed storage has no
+        such setting), ``compression`` is the external-table format option
+        when one was set, and the table's default collation comes from
+        ``TABLES.default_collation_name``. ``comment`` is the ``description``
+        option. ``raw`` keeps the option values as the catalog spelled them.
+
+        Args:
+            table: The parsed row this state describes.
+            options: The parsed ``TABLE_OPTIONS`` rows for the same table.
+            partitioning: The neutral partition state, when the caller asked
+                for it; ``None`` means "not partitioned" or "not asked".
+        """
+        raw_type = str(table.extra.get("bigquery_table_type") or "").upper()
+        kind, traits = _TABLE_STATE_KINDS.get(raw_type, (raw_type.lower(), ()))
+        values = _option_values(options)
+        return TableState(
+            name=table.name,
+            schema=table.schema or None,
+            kind=kind,
+            traits=traits,
+            storage=StorageOptionsState(
+                engine=None,
+                charset=None,
+                collation=table.extra.get("default_collation_name"),
+                compression=values.get("compression"),
+                tablespace=None,
+                raw=values,
+            ),
+            comment=values.get("description"),
+            partitioning=partitioning,
+            raw={
+                "bigquery_table_type": raw_type,
+                "create_time": table.create_time,
+                "is_insertable_into": table.extra.get("is_insertable_into"),
+                "is_typed": table.extra.get("is_typed"),
+                "ddl": table.extra.get("ddl"),
+            },
+        )
+
+    def parse_constraint_states(
+        self, rows: List[Dict[str, Any]], table_name: str, schema: str
+    ) -> List[ConstraintState]:
+        """Turn ``TABLE_CONSTRAINTS``/``KEY_COLUMN_USAGE`` rows into states.
+
+        The same catalog question that answers the primary key answers every
+        declared constraint: ``TABLE_CONSTRAINTS`` names them and
+        ``KEY_COLUMN_USAGE`` supplies their columns in order. BigQuery
+        **does not enforce** primary and foreign key constraints -- they
+        are declarations for tools and query optimisers, not checks the
+        engine runs -- so every state answers ``enforced=False`` and
+        ``validated=False``: nothing validated the existing rows and nothing
+        will validate the next ones.
+
+        ``kind`` is ``primary_key`` or ``foreign_key`` for the two documented
+        ``constraint_type`` spellings, and the columns are kept in ``raw``
+        because :class:`ConstraintState` is the common minimum and has no
+        column slot.
+
+        https://cloud.google.com/bigquery/docs/information-schema-table-constraints
+        https://cloud.google.com/bigquery/docs/information-schema-key-column-usage
+        """
+        label = self._schema_label(schema)
+        gathered: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            name = _row_get(row, "constraint_name") or ""
+            if not name:
+                continue
+            constraint_type = str(_row_get(row, "constraint_type") or "").upper()
+            entry = gathered.setdefault(
+                name,
+                {
+                    "kind": {
+                        "PRIMARY KEY": "primary_key",
+                        "FOREIGN KEY": "foreign_key",
+                    }.get(constraint_type, constraint_type.lower().replace(" ", "_")),
+                    "constraint_type": constraint_type,
+                    "columns": [],
+                },
+            )
+            column_name = _row_get(row, "column_name")
+            if column_name:
+                position = _as_int(_row_get(row, "ordinal_position"))
+                entry["columns"].append(
+                    (position if position is not None else len(entry["columns"]) + 1, column_name)
+                )
+        states: List[ConstraintState] = []
+        for name, entry in gathered.items():
+            ordered = [column for _position, column in sorted(entry["columns"])]
+            states.append(
+                ConstraintState(
+                    name=name,
+                    table=table_name,
+                    kind=entry["kind"],
+                    schema=label,
+                    validated=False,
+                    enforced=False,
+                    raw={
+                        "constraint_type": entry["constraint_type"],
+                        "columns": ordered,
+                    },
+                )
+            )
+        return states
+
+    # ------------------------------------------------------------------ #
     # Column extraction shared by the storage-shape question
     # ------------------------------------------------------------------ #
 
@@ -1014,7 +1365,25 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
     def list_columns(
         self, table_name: str, schema: Optional[str] = None
     ) -> List[IntrospectionColumnInfo]:
-        """List a table's columns, asking the projection this endpoint answers.
+        """List a table's columns, parsed from the answer :meth:`column_rows` keeps.
+
+        The cache key is core's, so a caller reaching this method and one
+        reaching it through the base class share an answer. The raw rows
+        behind it are cached separately, which is what lets the partition
+        question read the pseudo columns this parser drops without asking
+        ``COLUMNS`` a second time.
+        """
+        target = schema if schema is not None else self.default_schema
+        key = self._cache.key(IntrospectionScope.COLUMN, table_name, schema=schema)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        result = self.parse_columns(self.column_rows(table_name, schema), table_name, target)
+        self._cache.set(key, result)
+        return result
+
+    def column_rows(self, table_name: str, schema: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The raw ``INFORMATION_SCHEMA.COLUMNS`` answer, asked once per table.
 
         The whole documented column list is asked first, because that is what
         BigQuery answers and it is the only way to read the families the
@@ -1031,11 +1400,14 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
         per table, and a real server never pays for the fallback at all
         because the first question succeeds.
 
-        The cache key is core's, so a caller reaching this method and one
-        reaching it through the base class share an answer.
+        The rows are cached rather than re-parsed: two families read this
+        one answer -- the column listing, which parses it into columns, and
+        the partition question, which reads the hidden pseudo columns the
+        parser drops -- and each of them must not ask it again. The cache key
+        carries the table scope, so invalidating a table drops both this
+        answer and the parsed columns built from it.
         """
-        target = schema if schema is not None else self.default_schema
-        key = self._cache.key(IntrospectionScope.COLUMN, table_name, schema=schema)
+        key = self._cache.key(IntrospectionScope.COLUMN, table_name, schema=schema, extra="rows")
         cached = self._cache.get(key)
         if cached is not None:
             return cached
@@ -1061,9 +1433,8 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
                 # table, the dataset or the connection, and the first error is
                 # the one that names it.
                 raise first_error from None
-        result = self.parse_columns(rows, table_name, target)
-        self._cache.set(key, result)
-        return result
+        self._cache.set(key, rows)
+        return rows
 
     def get_table_info(
         self, table_name: str, schema: Optional[str] = None
@@ -1126,9 +1497,7 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
         The cache key is core's, so a caller that reaches this method and one
         that reaches it through the base class share an answer and a bill.
         """
-        key = self._cache.key(
-            IntrospectionScope.COLUMN, table_name, "data_profile", schema=schema
-        )
+        key = self._cache.key(IntrospectionScope.COLUMN, table_name, "data_profile", schema=schema)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
@@ -1160,9 +1529,7 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
         self._cache.set(key, result)
         return result
 
-    def list_routines(
-        self, schema: Optional[str] = None
-    ) -> List[BigQueryRoutineInfo]:
+    def list_routines(self, schema: Optional[str] = None) -> List[BigQueryRoutineInfo]:
         """List a dataset's routines from ``INFORMATION_SCHEMA.ROUTINES``.
 
         One row per persistent user-defined function, aggregate function,
@@ -1200,9 +1567,7 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        sql, params = self.routine_list_statement(
-            schema=schema, routine_name=routine_name
-        ).to_sql()
+        sql, params = self.routine_list_statement(schema=schema, routine_name=routine_name).to_sql()
         rows = self.parse_routines(self._executor.execute(sql, params), schema)
         if not rows:
             return None
@@ -1269,38 +1634,231 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
         self._cache.set(key, tables)
         return tables
 
-    def list_partitions(
-        self, table_name: str, schema: Optional[str] = None
-    ) -> List[BigQueryPartitionInfo]:
-        """List one table's partitions from ``INFORMATION_SCHEMA.PARTITIONS``."""
+    def get_table_state(self, table_name: str, schema: Optional[str] = None) -> TableState:
+        """Return the table's kind, storage options, comment and partitioning.
+
+        Composed from the three catalog answers that each carry part of it --
+        ``TABLES`` for the kind and collation, ``TABLE_OPTIONS`` for the
+        description and storage options, and :meth:`get_partition_state` for
+        the scheme -- all of which are cached on their own, so a second call
+        for the same table asks the database nothing new.
+
+        A table the dataset does not hold raises
+        :class:`~...errors.ObjectNotFoundError` rather than answering a
+        state built from no row: ``TableState`` has no "unknown" member, and
+        an empty one would read as a table that exists and has no facts.
+
+        Args:
+            table_name: The table to describe.
+            schema: The dataset, or a ``project.dataset`` pair; ``None`` for
+                the connection default.
+
+        Raises:
+            ObjectNotFoundError: When the dataset holds no table of that name.
+        """
+        key = self._cache.key(IntrospectionScope.TABLE, table_name, schema=schema, extra="state")
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        table = next((t for t in self.list_tables(schema) if t.name == table_name), None)
+        if table is None:
+            raise ObjectNotFoundError("table", table_name, self._schema_label(schema))
+        state = self.parse_table_state(
+            table,
+            self.list_table_options(table_name, schema),
+            self.get_partition_state(table_name, schema),
+        )
+        self._cache.set(key, state)
+        return state
+
+    def get_partition_state(
+        self,
+        table_name: str,
+        schema: Optional[str] = None,
+        include_stats: bool = False,
+    ) -> Optional[PartitionState]:
+        """Return the table's partition scheme and bounds, or ``None``.
+
+        ``None`` is the single neutral answer for "this table is not
+        partitioned", for every backend. BigQuery answers one
+        ``PARTITIONS`` row whose ``partition_id`` is ``NULL`` for such a
+        table; that row is the catalog saying *no partitions*, so it is
+        dropped rather than turned into a bound named NULL. See
+        :meth:`parse_partition_state` for how column-, range- and
+        ingestion-time partitioning are told apart.
+
+        Three catalog answers are read: the table's ``PARTITIONS`` rows, its
+        raw ``COLUMNS`` answer (the parsed column list drops the hidden
+        pseudo columns that identify ingestion-time partitioning, and the
+        same read names the partitioning and clustering columns), and its
+        ``TABLE_OPTIONS`` (the partition options and
+        ``require_partition_filter``). An answer that carries no partition
+        signal is checked against the table listing, so a table that does
+        not exist raises rather than being reported as unpartitioned.
+
+        ``include_stats`` fills each bound's row count and size from the
+        ``PARTITIONS`` row; leaving it false keeps those slots ``None``
+        rather than presenting optional figures nobody asked for. No extra
+        statistics question is ever run.
+
+        Args:
+            table_name: The table whose partitioning is wanted.
+            schema: The dataset, or a ``project.dataset`` pair.
+            include_stats: Whether to fill each bound's row count and size.
+
+        Raises:
+            ObjectNotFoundError: When the dataset holds no table of that name.
+        """
         key = self._cache.key(
-            IntrospectionScope.TABLE, table_name, schema=schema, extra="partitions"
+            IntrospectionScope.PARTITION,
+            table_name,
+            schema=schema,
+            extra=f"partition_state:{include_stats}",
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        raw_columns = self.column_rows(table_name, schema)
+        columns = self.list_columns(table_name, schema)
+        options = self.list_table_options(table_name, schema)
+        state = self.parse_partition_state(
+            self.partition_rows(table_name, schema),
+            table_name,
+            schema,
+            columns,
+            options,
+            _pseudo_partition_columns(raw_columns),
+            include_stats=include_stats,
+        )
+        if state is None and not any(t.name == table_name for t in self.list_tables(schema)):
+            raise ObjectNotFoundError("table", table_name, self._schema_label(schema))
+        self._cache.set(key, state)
+        return state
+
+    def list_constraint_states(
+        self, table_name: str, schema: Optional[str] = None
+    ) -> List[ConstraintState]:
+        """Return every constraint the table declares, with its enforcement.
+
+        The same ``TABLE_CONSTRAINTS``/``KEY_COLUMN_USAGE`` question that
+        answers the primary key answers the whole constraint family; a
+        constraint is a declaration rather than an index, which is why this
+        is here and ``list_index_states`` stays core's refusal. BigQuery
+        does not enforce primary or foreign keys, so every state answers
+        ``enforced=False`` and ``validated=False`` -- see
+        :meth:`parse_constraint_states`.
+        """
+        key = self._cache.key(
+            IntrospectionScope.TABLE, table_name, schema=schema, extra="constraint_states"
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.index_info_statement(table_name=table_name, schema=schema).to_sql()
+        result = self.parse_constraint_states(
+            self._executor.execute(sql, params), table_name, schema or self.default_schema
+        )
+        self._cache.set(key, result)
+        return result
+
+    def list_schemas(self) -> List[str]:
+        """Return the datasets the configured project exposes, by name.
+
+        BigQuery's namespace level is the dataset, and
+        ``INFORMATION_SCHEMA.SCHEMATA`` is the one view that answers it
+        (project-wide, or for one region when the connection names one).
+        The names are the catalog's own spelling.
+        """
+        return [dataset.schema_name for dataset in self.list_datasets()]
+
+    def item_exists(
+        self,
+        kind: ItemKind,
+        name: str,
+        schema: Optional[str] = None,
+    ) -> bool:
+        """Whether a shared object of this kind exists, where BigQuery has one.
+
+        The catalogue answers three of the kinds:
+
+        * ``SCHEMA`` -- a dataset of the configured project (``SCHEMATA``);
+        * ``TABLE`` -- a table or view in the dataset (``TABLES``);
+        * ``FUNCTION`` -- a routine that is a scalar, aggregate or table
+          function (``ROUTINES``). A stored procedure is a different kind
+          and answers ``False``: BigQuery's routines share one name
+          namespace, but ``ItemKind`` has no procedure member, so a plan
+          that needs to know whether the *name* is taken must read the
+          routine listing itself.
+
+        BigQuery has no types, domains, sequences, extensions, tablespaces,
+        partition functions/schemes or full-text catalogues, and no
+        ``INFORMATION_SCHEMA`` view answers those families, so the remaining
+        kinds stay core's refusal rather than a ``False`` that would claim
+        the engine was asked. A name qualified with a project or dataset
+        (a dot) is refused for the same reason: the listings this manager
+        asks are scoped to one dataset.
+
+        Args:
+            kind: The kind of shared object.
+            name: The object's name.
+            schema: The dataset, for the kinds that are dataset-scoped.
+        """
+        if "." in name:
+            return super().item_exists(kind, name, schema)
+        if kind == ItemKind.SCHEMA:
+            return name in {dataset.schema_name for dataset in self.list_datasets()}
+        if kind == ItemKind.TABLE:
+            return any(table.name == name for table in self.list_tables(schema))
+        if kind == ItemKind.FUNCTION:
+            return any(
+                routine.routine_name == name
+                and str(routine.routine_type).upper() in _FUNCTION_ROUTINE_TYPES
+                for routine in self.list_routines(schema)
+            )
+        return super().item_exists(kind, name, schema)
+
+    def partition_rows(self, table_name: str, schema: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The table's raw ``INFORMATION_SCHEMA.PARTITIONS`` answer.
+
+        One question, two answers built from it: the neutral partition state
+        (:meth:`get_partition_state`) reads the rows for its bounds, and the
+        BigQuery-specific storage shape (:meth:`get_table_storage_info`)
+        parses the same rows into :class:`BigQueryPartitionInfo` values with
+        the per-partition bytes and tiers the common minimum has no slot for.
+        Caching the rows rather than one of the two shapes keeps the second
+        caller from issuing the same SQL again.
+        """
+        key = self._cache.key(
+            IntrospectionScope.PARTITION, table_name, schema=schema, extra="partition_rows"
         )
         cached = self._cache.get(key)
         if cached is not None:
             return cached
         sql, params = self.partition_list_statement(table_name=table_name, schema=schema).to_sql()
-        result = self.parse_partitions(self._executor.execute(sql, params))
-        self._cache.set(key, result)
-        return result
+        rows = self._executor.execute(sql, params)
+        self._cache.set(key, rows)
+        return rows
 
     def get_table_storage_info(
         self, table_name: str, schema: Optional[str] = None
     ) -> BigQueryTableStorageInfo:
         """Return how one table is stored, from the three views that know.
 
-        Composed from :meth:`list_table_options`, :meth:`list_partitions`
-        and :meth:`list_columns`; each of those is cached on its own, so a
-        repeated call for the same table asks the database nothing new.
+        This is BigQuery's own, finer answer: the ``TABLE_OPTIONS`` rows, one
+        :class:`BigQueryPartitionInfo` per ``PARTITIONS`` row (with that
+        partition's logical and billable bytes, storage tier and last
+        modified time), and the partitioning and clustering columns
+        ``COLUMNS`` names. The neutral answers -- "is this partitioned" and
+        "what are the bounds" -- are :meth:`get_partition_state` and
+        :meth:`get_table_state`; this shape exists because those per-partition
+        figures have no slot in the common minimum.
 
-        An unpartitioned table answers one ``PARTITIONS`` row whose
-        ``partition_id`` is ``NULL``, and no partitioning or clustering
-        columns; a partitioned table answers one row per partition and the
-        ``COLUMNS`` view names its partitioning column and any clustering
-        columns.
+        An unpartitioned table still answers the one ``PARTITIONS`` row whose
+        ``partition_id`` is ``NULL`` here: this is the catalog's answer kept
+        whole. The neutral state is where that row becomes ``scheme=None``.
         """
         options = self.list_table_options(table_name, schema)
-        partitions = self.list_partitions(table_name, schema)
+        partitions = self.parse_partitions(self.partition_rows(table_name, schema))
         columns = self.list_columns(table_name, schema)
         return BigQueryTableStorageInfo(
             table_name=table_name,
@@ -1336,16 +1894,35 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
     async def list_columns(
         self, table_name: str, schema: Optional[str] = None
     ) -> List[IntrospectionColumnInfo]:
-        """List a table's columns, asking the projection this endpoint answers.
+        """List a table's columns, parsed from the answer :meth:`column_rows` keeps.
 
-        The async twin of :meth:`BigQueryIntrospector.list_columns`, and kept
-        word-for-word apart from the await so the two cannot drift on which
-        projection runs: the whole documented list first, the narrower one
-        only after the endpoint has failed to answer it, and the choice
-        remembered for the rest of this manager's life.
+        The async twin of :meth:`BigQueryIntrospector.list_columns`, with the
+        same cache keys: the parsed columns under core's key and the raw rows
+        beside them under this manager's ``rows`` namespace, so the column
+        listing and the partition question share one ``COLUMNS`` read.
         """
         target = schema if schema is not None else self.default_schema
         key = self._cache.key(IntrospectionScope.COLUMN, table_name, schema=schema)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        result = self.parse_columns(await self.column_rows(table_name, schema), table_name, target)
+        self._cache.set(key, result)
+        return result
+
+    async def column_rows(
+        self, table_name: str, schema: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """The raw ``INFORMATION_SCHEMA.COLUMNS`` answer (async).
+
+        The async twin of :meth:`BigQueryIntrospector.column_rows`: same
+        projection fallback (the whole documented list first, the narrower
+        one only after the endpoint has failed to answer it, remembered for
+        the rest of this manager's life) and the same cache key, so the two
+        managers cannot disagree about which projection this endpoint
+        answers or ask it twice for one table.
+        """
+        key = self._cache.key(IntrospectionScope.COLUMN, table_name, schema=schema, extra="rows")
         cached = self._cache.get(key)
         if cached is not None:
             return cached
@@ -1367,9 +1944,8 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
                 rows = await self._executor.execute(sql, params)
             except DatabaseError:
                 raise first_error from None
-        result = self.parse_columns(rows, table_name, target)
-        self._cache.set(key, result)
-        return result
+        self._cache.set(key, rows)
+        return rows
 
     async def get_table_info(
         self, table_name: str, schema: Optional[str] = None
@@ -1415,9 +1991,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         cannot disagree about which columns carry figures or about what a billed
         scan buys.
         """
-        key = self._cache.key(
-            IntrospectionScope.COLUMN, table_name, "data_profile", schema=schema
-        )
+        key = self._cache.key(IntrospectionScope.COLUMN, table_name, "data_profile", schema=schema)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
@@ -1449,9 +2023,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         self._cache.set(key, result)
         return result
 
-    async def list_routines(
-        self, schema: Optional[str] = None
-    ) -> List[BigQueryRoutineInfo]:
+    async def list_routines(self, schema: Optional[str] = None) -> List[BigQueryRoutineInfo]:
         """List a dataset's routines (async).
 
         The async twin of :meth:`BigQueryIntrospector.list_routines`: same
@@ -1486,9 +2058,7 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        sql, params = self.routine_list_statement(
-            schema=schema, routine_name=routine_name
-        ).to_sql()
+        sql, params = self.routine_list_statement(schema=schema, routine_name=routine_name).to_sql()
         rows = self.parse_routines(await self._executor.execute(sql, params), schema)
         if not rows:
             return None
@@ -1551,27 +2121,157 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         self._cache.set(key, tables)
         return tables
 
-    async def list_partitions(
-        self, table_name: str, schema: Optional[str] = None
-    ) -> List[BigQueryPartitionInfo]:
-        """List one table's partitions (async)."""
+    async def get_table_state(self, table_name: str, schema: Optional[str] = None) -> TableState:
+        """Return the table's kind, storage options, comment and partitioning.
+        (async)
+
+        The async twin of :meth:`BigQueryIntrospector.get_table_state`: same
+        three catalog answers awaited, same cache keys, and the same refusal
+        -- :class:`~...errors.ObjectNotFoundError` -- for a table the dataset
+        does not hold, rather than a state built from no row.
+        """
+        key = self._cache.key(IntrospectionScope.TABLE, table_name, schema=schema, extra="state")
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        table = next((t for t in await self.list_tables(schema) if t.name == table_name), None)
+        if table is None:
+            raise ObjectNotFoundError("table", table_name, self._schema_label(schema))
+        state = self.parse_table_state(
+            table,
+            await self.list_table_options(table_name, schema),
+            await self.get_partition_state(table_name, schema),
+        )
+        self._cache.set(key, state)
+        return state
+
+    async def get_partition_state(
+        self,
+        table_name: str,
+        schema: Optional[str] = None,
+        include_stats: bool = False,
+    ) -> Optional[PartitionState]:
+        """Return the table's partition scheme and bounds, or ``None`` (async).
+
+        The async twin of :meth:`BigQueryIntrospector.get_partition_state`:
+        same three reads awaited, same neutral answer -- ``None`` for a
+        table that is not partitioned, never a placeholder bound built from
+        the catalog's single ``NULL`` ``partition_id`` row -- and the same
+        cache key, ``include_stats`` in the key included.
+        """
         key = self._cache.key(
-            IntrospectionScope.TABLE, table_name, schema=schema, extra="partitions"
+            IntrospectionScope.PARTITION,
+            table_name,
+            schema=schema,
+            extra=f"partition_state:{include_stats}",
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        raw_columns = await self.column_rows(table_name, schema)
+        columns = await self.list_columns(table_name, schema)
+        options = await self.list_table_options(table_name, schema)
+        state = self.parse_partition_state(
+            await self.partition_rows(table_name, schema),
+            table_name,
+            schema,
+            columns,
+            options,
+            _pseudo_partition_columns(raw_columns),
+            include_stats=include_stats,
+        )
+        if state is None and not any(t.name == table_name for t in await self.list_tables(schema)):
+            raise ObjectNotFoundError("table", table_name, self._schema_label(schema))
+        self._cache.set(key, state)
+        return state
+
+    async def list_constraint_states(
+        self, table_name: str, schema: Optional[str] = None
+    ) -> List[ConstraintState]:
+        """Return every constraint the table declares (async).
+
+        The async twin of :meth:`BigQueryIntrospector.list_constraint_states`:
+        the same constraints question awaited, the same parser and the same
+        cache key, including BigQuery's unenforced declaration
+        (``enforced=False``, ``validated=False``).
+        """
+        key = self._cache.key(
+            IntrospectionScope.TABLE, table_name, schema=schema, extra="constraint_states"
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        sql, params = self.index_info_statement(table_name=table_name, schema=schema).to_sql()
+        result = self.parse_constraint_states(
+            await self._executor.execute(sql, params),
+            table_name,
+            schema or self.default_schema,
+        )
+        self._cache.set(key, result)
+        return result
+
+    async def list_schemas(self) -> List[str]:
+        """Return the datasets the configured project exposes, by name (async)."""
+        return [dataset.schema_name for dataset in await self.list_datasets()]
+
+    async def item_exists(
+        self,
+        kind: ItemKind,
+        name: str,
+        schema: Optional[str] = None,
+    ) -> bool:
+        """Whether a shared object of this kind exists (async).
+
+        The async twin of :meth:`BigQueryIntrospector.item_exists`: the same
+        three kinds answered from the same cached listings, and the same
+        refusal for the kinds and spellings BigQuery cannot be asked about.
+        """
+        if "." in name:
+            return await super().item_exists(kind, name, schema)
+        if kind == ItemKind.SCHEMA:
+            return name in {dataset.schema_name for dataset in await self.list_datasets()}
+        if kind == ItemKind.TABLE:
+            return any(table.name == name for table in await self.list_tables(schema))
+        if kind == ItemKind.FUNCTION:
+            return any(
+                routine.routine_name == name
+                and str(routine.routine_type).upper() in _FUNCTION_ROUTINE_TYPES
+                for routine in await self.list_routines(schema)
+            )
+        return await super().item_exists(kind, name, schema)
+
+    async def partition_rows(
+        self, table_name: str, schema: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """The table's raw ``INFORMATION_SCHEMA.PARTITIONS`` answer (async).
+
+        The async twin of :meth:`BigQueryIntrospector.partition_rows`: same
+        statement, same cache key, awaited -- one question shared by the
+        neutral partition state and this backend's finer storage shape.
+        """
+        key = self._cache.key(
+            IntrospectionScope.PARTITION, table_name, schema=schema, extra="partition_rows"
         )
         cached = self._cache.get(key)
         if cached is not None:
             return cached
         sql, params = self.partition_list_statement(table_name=table_name, schema=schema).to_sql()
-        result = self.parse_partitions(await self._executor.execute(sql, params))
-        self._cache.set(key, result)
-        return result
+        rows = await self._executor.execute(sql, params)
+        self._cache.set(key, rows)
+        return rows
 
     async def get_table_storage_info(
         self, table_name: str, schema: Optional[str] = None
     ) -> BigQueryTableStorageInfo:
-        """Return how one table is stored, from the three views that know (async)."""
+        """Return how one table is stored (async), from the three views that know.
+
+        The async twin of :meth:`BigQueryIntrospector.get_table_storage_info`:
+        same reads awaited, same per-partition bytes and tiers, and the
+        neutral answers are :meth:`get_partition_state` /
+        :meth:`get_table_state`.
+        """
         options = await self.list_table_options(table_name, schema)
-        partitions = await self.list_partitions(table_name, schema)
+        partitions = self.parse_partitions(await self.partition_rows(table_name, schema))
         columns = await self.list_columns(table_name, schema)
         return BigQueryTableStorageInfo(
             table_name=table_name,

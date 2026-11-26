@@ -173,10 +173,18 @@ class BigQueryTableStorageInfo:
       is ordered by it rather than by column name.
 
     All three pieces are the cached answers of the questions
-    :meth:`~...introspection.BigQueryIntrospector.list_table_options`,
-    :meth:`~...introspection.BigQueryIntrospector.list_partitions` and
+    :meth:`~...introspection.BigQueryIntrospector.partition_rows`,
+    :meth:`~...introspection.BigQueryIntrospector.list_table_options` and
     :meth:`~...introspection.BigQueryIntrospector.list_columns` already
     keep, so a second call for the same table issues no new questions.
+    The neutral shape of the same facts is core's ``PartitionState`` /
+    ``TableState``, answered by
+    :meth:`~...introspection.BigQueryIntrospector.get_partition_state` and
+    :meth:`~...introspection.BigQueryIntrospector.get_table_state`; this
+    class exists because the per-partition bytes, storage tier and last
+    modified time have no slot in the common minimum, and because an
+    unpartitioned table keeps the catalog's single ``partition_id = NULL``
+    row here (the neutral state is where that row becomes ``scheme=None``).
     """
 
     table_name: str
