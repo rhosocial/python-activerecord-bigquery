@@ -773,7 +773,7 @@ class TestThePartitionsBranch:
         assert payload[0]["bounds"][0]["name"] == "20260101"
 
     def test_an_unpartitioned_table_is_not_a_blank_listing(self, monkeypatch, capsys):
-        introspector = _RecordingIntrospector({"get_partition_state": None})
+        introspector = _RecordingIntrospector({"get_partition_state": PartitionState()})
 
         _run_sync(monkeypatch, introspector, _args("partitions", "plain"))
 

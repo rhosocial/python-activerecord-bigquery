@@ -6,7 +6,8 @@ keyed by the view a statement names, and the tests read the neutral
 dataclasses the manager returns. What is pinned here is the mapping the
 backend owns:
 
-* an unpartitioned table answers ``None`` -- the catalog's single
+* an unpartitioned table answers an empty ``PartitionState`` -- its
+  ``scheme`` is ``None`` and its ``bounds`` empty; the catalog's single
   ``partition_id = NULL`` row is "no partitions", never a bound;
 * a column-, range- or ingestion-time-partitioned table answers
   ``PartitionScheme.RANGE``, with the partitioning column (or the
@@ -156,9 +157,9 @@ def _partition(partition_id, **extra):
 def test_a_null_partition_row_is_not_a_partition():
     """An unpartitioned table's one row has ``partition_id = NULL``.
 
-    That row is the catalog saying "no partitions". Turning it into
-    ``scheme=None`` -- core's single neutral answer -- is the whole point of
-    folding the old partition listing into the state question.
+    That row is the catalog saying "no partitions". It becomes the empty
+    ``PartitionState`` whose ``scheme`` is ``None`` -- core's single neutral
+    answer -- rather than a bound, and never a ``None`` object.
     """
     introspector = _introspector(
         _Catalog(
@@ -168,7 +169,11 @@ def test_a_null_partition_row_is_not_a_partition():
         )
     )
 
-    assert introspector.get_partition_state("orders", "my_dataset") is None
+    state = introspector.get_partition_state("orders", "my_dataset")
+
+    assert isinstance(state, PartitionState)
+    assert state.scheme is None
+    assert state.bounds == ()
 
 
 def test_a_column_partitioned_table_answers_range_with_its_key():
@@ -340,11 +345,11 @@ def test_table_state_carries_options_comment_and_partitioning():
     assert state.storage.charset is None
     assert state.storage.tablespace is None
     assert state.storage.raw["require_partition_filter"] == "true"
-    assert state.partitioning is not None
+    assert isinstance(state.partitioning, PartitionState)
     assert state.partitioning.scheme == PartitionScheme.RANGE
 
 
-def test_table_state_for_an_unpartitioned_table_answers_none_partitioning():
+def test_table_state_for_an_unpartitioned_table_carries_an_empty_state():
     introspector = _introspector(
         _Catalog(
             tables=[_table("orders")],
@@ -355,7 +360,9 @@ def test_table_state_for_an_unpartitioned_table_answers_none_partitioning():
 
     state = introspector.get_table_state("orders", "my_dataset")
 
-    assert state.partitioning is None
+    assert isinstance(state.partitioning, PartitionState)
+    assert state.partitioning.scheme is None
+    assert state.partitioning.bounds == ()
 
 
 def test_table_state_for_a_missing_table_raises():
@@ -499,6 +506,26 @@ def test_async_state_mirrors_the_sync_answers():
     assert [constraint.kind for constraint in constraints] == ["primary_key"]
     assert schemas == ["my_dataset"]
     assert exists is True
+
+
+def test_async_unpartitioned_table_answers_an_empty_partition_state():
+    introspector = _async_introspector(
+        _Catalog(
+            tables=[_table("orders")],
+            columns=[_column("id", 1)],
+            partitions=[_partition(None)],
+        )
+    )
+
+    state = asyncio.run(introspector.get_partition_state("orders", "my_dataset"))
+    table_state = asyncio.run(introspector.get_table_state("orders", "my_dataset"))
+
+    assert isinstance(state, PartitionState)
+    assert state.scheme is None
+    assert state.bounds == ()
+    assert isinstance(table_state.partitioning, PartitionState)
+    assert table_state.partitioning.scheme is None
+    assert table_state.partitioning.bounds == ()
 
 
 def test_async_item_exists_refuses_a_missing_family():

@@ -175,7 +175,7 @@ class _FakeIntrospector:
     def get_partition_state(self, table_name, schema=None, include_stats=False):
         self.calls.append(("get_partition_state", table_name, schema))
         if table_name != "orders":
-            return None
+            return PartitionState()
         return PartitionState(
             scheme=PartitionScheme.RANGE,
             key_expression="created",
@@ -493,9 +493,9 @@ def test_partitions_renders_one_neutral_state_record_as_json(built, capsys):
 
 
 def test_a_table_that_is_not_partitioned_reports_a_null_scheme(built, capsys):
-    """``None`` is the neutral answer for "not partitioned", and it prints as
-    ``scheme: null`` -- a blank listing would read as a partitioned table
-    that happens to have no partitions."""
+    """An empty ``PartitionState`` is the answer for "not partitioned", and it
+    prints as ``scheme: null`` -- a blank listing would read as a partitioned
+    table that happens to have no partitions."""
     _run(["partitions", "payments", "--dataset", "my_dataset", "-o", "json"])
     payload = json.loads(capsys.readouterr().out)
     assert payload[0]["scheme"] is None

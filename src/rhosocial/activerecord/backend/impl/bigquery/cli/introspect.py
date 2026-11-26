@@ -51,7 +51,6 @@ from enum import Enum
 from typing import Any, Callable, Dict
 
 from rhosocial.activerecord.backend.errors import ConnectionError, QueryError
-from rhosocial.activerecord.backend.introspection.types import PartitionState
 
 from .connection import (
     add_connection_args,
@@ -714,11 +713,12 @@ def _report(result: Any, args, provider) -> None:
 
     if args.command == "partitions":
         # The neutral answer, printed as one record: the scheme, the key and
-        # the bounds are core's shape, whatever backend answered. ``None`` is
-        # the single neutral answer for "not partitioned", so it prints as a
-        # record whose ``scheme`` is null rather than a blank listing, which
-        # would read as "partitioned, with no partitions".
-        state = result if result is not None else PartitionState()
+        # the bounds are core's shape, whatever backend answered.
+        # ``get_partition_state`` always returns a ``PartitionState``; an
+        # unpartitioned table answers the empty one (``scheme`` null), so it
+        # prints as a record rather than a blank listing, which would read as
+        # "partitioned, with no partitions".
+        state = result
         record = {
             "table_name": args.name,
             "schema": _schema_arg(args),

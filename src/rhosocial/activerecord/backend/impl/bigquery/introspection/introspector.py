@@ -79,10 +79,13 @@ for either family, so :meth:`list_sequence_states` and
 :meth:`list_derived_objects` stay refusals.
 
 **Partition state.** :meth:`get_partition_state` is the neutral answer to
-"is this table partitioned": ``None`` when it is not. ``PARTITIONS``
-answers one row with a ``NULL`` ``partition_id`` for an unpartitioned
-table; that row is the catalog saying "no partitions", not a partition
-named ``NULL``, so it becomes ``scheme=None`` rather than a bound.
+"is this table partitioned": a :class:`PartitionState` whose ``scheme`` is
+``None`` when it is not -- never a ``None`` object, because core made
+``TableState.partitioning`` non-optional and ``scheme=None`` is the single
+answer for every backend. ``PARTITIONS`` answers one row with a ``NULL``
+``partition_id`` for an unpartitioned table; that row is the catalog saying
+"no partitions", not a partition named ``NULL``, so it becomes the empty
+state rather than a bound.
 Column-, integer-range- and ingestion-time-partitioned tables all answer
 :class:`PartitionScheme` ``RANGE`` -- the engine divides rows into
 intervals of a column's value or of the ingestion time. Ingestion-time
@@ -237,6 +240,13 @@ _TABLE_STATE_KINDS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
 #: ``PARTITIONS`` answer holds no rows and its ``COLUMNS`` answer names no
 #: partitioning column.
 _PARTITION_OPTIONS = ("partition_expiration_days", "require_partition_filter")
+
+#: Core made ``TableState.partitioning`` non-optional, so the parser needs a
+#: value when a caller has no partition answer to pass. It is the same empty
+#: state ``get_partition_state`` returns for an unpartitioned table:
+#: ``scheme`` is ``None``, not a ``None`` object. ``PartitionState`` is frozen,
+#: and the parser never writes to it, so one shared instance is safe.
+_EMPTY_PARTITION_STATE = PartitionState()
 
 #: The ``routine_type`` spellings that are functions rather than procedures.
 #: ``list_routines`` answers both, because they share one name namespace;
@@ -1084,7 +1094,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         options: List[BigQueryTableOptionInfo],
         pseudo_columns: Tuple[str, ...] = (),
         include_stats: bool = False,
-    ) -> Optional[PartitionState]:
+    ) -> PartitionState:
         """Turn the three catalog answers into the neutral partition state.
 
         ``PARTITIONS`` alone cannot answer "is this table partitioned":
@@ -1092,8 +1102,9 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         ``partition_id`` is ``NULL``, which is the catalog saying *no
         partitions*, not a partition named NULL. That row is therefore
         dropped and contributes no bound -- a table with nothing else
-        indicating partitioning answers ``None``, core's single neutral
-        answer for "not partitioned".
+        indicating partitioning answers an empty :class:`PartitionState`
+        whose ``scheme`` is ``None``, core's single neutral answer for
+        "not partitioned".
 
         The other two answers are what recognise a partitioned table that
         answers no partition rows yet: ``COLUMNS`` names the partitioning
@@ -1128,7 +1139,8 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             include_stats: Whether to fill the per-partition figures.
 
         Returns:
-            The partition state, or ``None`` when the table is not partitioned.
+            The partition state; an empty one (``scheme`` ``None``) when the
+            table is not partitioned.
         """
         label = self._schema_label(schema)
         partitioning = self._partitioning_columns(columns)
@@ -1139,7 +1151,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         has_bounds = any(_row_get(row, "partition_id") is not None for row in rows)
         has_options = any(name in values for name in _PARTITION_OPTIONS)
         if not (has_bounds or has_options or partitioning or ingestion_time):
-            return None
+            return PartitionState()
 
         bounds: List[PartitionBound] = []
         seen = set()
@@ -1196,7 +1208,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         self,
         table: IntrospectionTableInfo,
         options: List[BigQueryTableOptionInfo],
-        partitioning: Optional[PartitionState] = None,
+        partitioning: PartitionState = _EMPTY_PARTITION_STATE,
     ) -> TableState:
         """Turn a parsed table and its options into the neutral table state.
 
@@ -1217,8 +1229,10 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         Args:
             table: The parsed row this state describes.
             options: The parsed ``TABLE_OPTIONS`` rows for the same table.
-            partitioning: The neutral partition state, when the caller asked
-                for it; ``None`` means "not partitioned" or "not asked".
+            partitioning: The neutral partition state. When the caller did not
+                ask, an empty :class:`PartitionState` (``scheme`` ``None``)
+                stands for "not partitioned"; ``None`` is never an answer, and
+                ``TableState.partitioning`` is always a ``PartitionState``.
         """
         raw_type = str(table.extra.get("bigquery_table_type") or "").upper()
         kind, traits = _TABLE_STATE_KINDS.get(raw_type, (raw_type.lower(), ()))
@@ -1676,11 +1690,12 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
         table_name: str,
         schema: Optional[str] = None,
         include_stats: bool = False,
-    ) -> Optional[PartitionState]:
-        """Return the table's partition scheme and bounds, or ``None``.
+    ) -> PartitionState:
+        """Return the table's partition scheme and bounds, never ``None``.
 
-        ``None`` is the single neutral answer for "this table is not
-        partitioned", for every backend. BigQuery answers one
+        An unpartitioned table answers an empty :class:`PartitionState`
+        whose ``scheme`` is ``None`` -- the single neutral answer for "this
+        table is not partitioned", for every backend. BigQuery answers one
         ``PARTITIONS`` row whose ``partition_id`` is ``NULL`` for such a
         table; that row is the catalog saying *no partitions*, so it is
         dropped rather than turned into a bound named NULL. See
@@ -1730,7 +1745,7 @@ class BigQueryIntrospector(BigQueryIntrospectorMixin, AbstractIntrospector):
             _pseudo_partition_columns(raw_columns),
             include_stats=include_stats,
         )
-        if state is None and not any(t.name == table_name for t in self.list_tables(schema)):
+        if state.scheme is None and not any(t.name == table_name for t in self.list_tables(schema)):
             raise ObjectNotFoundError("table", table_name, self._schema_label(schema))
         self._cache.set(key, state)
         return state
@@ -2150,14 +2165,15 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
         table_name: str,
         schema: Optional[str] = None,
         include_stats: bool = False,
-    ) -> Optional[PartitionState]:
-        """Return the table's partition scheme and bounds, or ``None`` (async).
+    ) -> PartitionState:
+        """Return the table's partition scheme and bounds, never ``None`` (async).
 
         The async twin of :meth:`BigQueryIntrospector.get_partition_state`:
-        same three reads awaited, same neutral answer -- ``None`` for a
-        table that is not partitioned, never a placeholder bound built from
-        the catalog's single ``NULL`` ``partition_id`` row -- and the same
-        cache key, ``include_stats`` in the key included.
+        same three reads awaited, same neutral answer -- an empty
+        :class:`PartitionState` with ``scheme`` ``None`` for a table that is
+        not partitioned, never a ``None`` object and never a placeholder
+        bound built from the catalog's single ``NULL`` ``partition_id`` row
+        -- and the same cache key, ``include_stats`` in the key included.
         """
         key = self._cache.key(
             IntrospectionScope.PARTITION,
@@ -2180,7 +2196,9 @@ class AsyncBigQueryIntrospector(BigQueryIntrospectorMixin, AsyncAbstractIntrospe
             _pseudo_partition_columns(raw_columns),
             include_stats=include_stats,
         )
-        if state is None and not any(t.name == table_name for t in await self.list_tables(schema)):
+        if state.scheme is None and not any(
+            t.name == table_name for t in await self.list_tables(schema)
+        ):
             raise ObjectNotFoundError("table", table_name, self._schema_label(schema))
         self._cache.set(key, state)
         return state

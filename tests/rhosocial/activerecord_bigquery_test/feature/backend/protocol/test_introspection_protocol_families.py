@@ -22,6 +22,7 @@ from rhosocial.activerecord.backend.dialect.protocols.introspect import (
     operational_stats,
     structure,
 )
+from rhosocial.activerecord.backend.introspection.types import PartitionState
 
 from rhosocial.activerecord.backend import dialect as dialect_module
 from rhosocial.activerecord.backend.impl.bigquery.cli import introspect as introspect_cli
@@ -124,6 +125,57 @@ class TestTheCliFamilyMapPointsAtTheSurvivingProbe:
 
         _Backend.dialect = dialect
         introspect_cli._require_capability(_Backend(), args)
+
+
+class _UnpartitionedTableExecutor:
+    """Answers the catalog for one existing table with no partition signal."""
+
+    def execute(self, sql, params=()):
+        if "PARTITIONS" in sql:
+            # An unpartitioned table's single catalogue row: "no partitions".
+            return [{"table_name": "orders", "partition_id": None, "total_rows": 3}]
+        if "TABLES" in sql:
+            return [{"table_name": "orders", "table_type": "BASE TABLE"}]
+        return []
+
+
+class TestPartitioningIsAlwaysAPartitionState:
+    """``TableState.partitioning`` is never ``None``; empty state instead.
+
+    Core's ``1f177724`` made the field non-optional and made
+    ``PartitionState.scheme = None`` the single neutral answer for "not
+    partitioned". These guards pin both halves: no source or test may pass or
+    test a ``None`` partitioning, and the runtime answer really is a
+    ``PartitionState`` rather than a ``None`` object.
+    """
+
+    PARTITIONING_NONE_PATTERNS = (
+        re.compile(r"\bpartitioning\s*=\s*None\b"),
+        re.compile(r"\bpartitioning\s+is\s+None\b"),
+    )
+
+    def test_no_source_or_test_passes_or_tests_none_partitioning(self):
+        root = Path(__file__).resolve().parents[6]
+        offenders = []
+        for tree in ("src", "tests"):
+            for path in (root / tree).rglob("*.py"):
+                text = path.read_text(encoding="utf-8", errors="replace")
+                for pattern in self.PARTITIONING_NONE_PATTERNS:
+                    if pattern.search(text):
+                        offenders.append(f"{path.relative_to(root)}: {pattern.pattern}")
+
+        assert not offenders, "None-partitioning spellings remain:\n" + "\n".join(
+            f"  - {offender}" for offender in offenders
+        )
+
+    def test_an_unpartitioned_table_answers_a_partition_state(self):
+        introspector = BigQueryIntrospector(_BackendStandIn(), _UnpartitionedTableExecutor())
+
+        state = introspector.get_partition_state("orders", "my_dataset")
+
+        assert isinstance(state, PartitionState)
+        assert state.scheme is None
+        assert state.bounds == ()
 
 
 class TestTheFourFamiliesAreImportableAndTheOldNamesAreNot:
