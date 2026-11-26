@@ -36,7 +36,6 @@ from rhosocial.activerecord.backend.dialect.protocols import (
     ReturningSupport,
     SchemaNameSupport,
     SetOperationSupport,
-    SQLFunctionSupport,
     TableObjectSupport,
     TimestampSupport,
     TransactionControlSupport,
@@ -104,7 +103,6 @@ PROTOCOL_FAMILY_GROUPS: Dict[str, list] = {
         TruncateSupport,
     ],
     "Introspection": [IntrospectionSupport],
-    "SQL Functions": [SQLFunctionSupport],
     "BigQuery-specific": [
         BigQueryStructSupport,
         BigQueryArraySupport,

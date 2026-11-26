@@ -29,7 +29,6 @@ from rhosocial.activerecord.backend.expression.statements import (
     CreateSchemaStatement,
     CreateTypeStatement,
     DomainCheckConstraint,
-    DomainNullability,
     DomainValueExpression,
     DropDomainDefaultAction,
     DropDomainStatement,
@@ -91,6 +90,8 @@ TYPE_DOMAIN_SUPPORT_FLAGS = (
     "supports_drop_domain",
     "supports_domain_default",
     "supports_domain_checks",
+    "supports_domain_nullable",
+    "supports_domain_not_null",
     "supports_named_domain_checks",
     "supports_multiple_domain_checks",
     "supports_domain_collation",
@@ -230,11 +231,27 @@ def test_schema_level_type_and_domain_support_is_false(
         assert getattr(dialect, method_name)() is False, method_name
 
     assert dialect.supported_type_definitions() == ()
-    assert dialect.supports_type_definition(_NegativeTypeDefinition) is False
-    assert dialect.supports_type_alter_action(_NegativeTypeAlterAction) is False
-    for nullability in DomainNullability:
-        assert dialect.supports_domain_nullability(nullability) is False
-    assert dialect.supports_alter_domain_action(DropDomainDefaultAction) is False
+
+
+def test_the_parameterised_kind_switches_are_gone(
+    dialect: BigQueryDialect,
+) -> None:
+    """A backend-extensible kind vocabulary is not a capability flag.
+
+    ``supports_type_definition(class)``, ``supports_type_alter_action(class)``,
+    ``supports_alter_domain_action(class)`` and
+    ``supports_domain_nullability(enum)`` each took an argument, which a
+    support switch cannot.  The formatters fail fast on the node itself
+    (asserted below), and the nullability question is now the two
+    parameterless switches listed in ``TYPE_DOMAIN_SUPPORT_FLAGS``.
+    """
+    for method_name in (
+        "supports_type_definition",
+        "supports_type_alter_action",
+        "supports_alter_domain_action",
+        "supports_domain_nullability",
+    ):
+        assert not hasattr(dialect, method_name), method_name
 
 
 def test_type_formatters_and_expressions_fail_fast(

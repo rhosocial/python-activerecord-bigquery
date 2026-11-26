@@ -1,10 +1,11 @@
 # src/rhosocial/activerecord/backend/impl/bigquery/mixins/capabilities.py
 """BigQuery capability detection mixin."""
 
-from typing import Dict, Tuple
+from typing import Tuple
 
 from rhosocial.activerecord.backend.suggestion.definitions import (
     ConcatenationFunctionSuggestion,
+    FunctionSuggestion,
 )
 
 
@@ -84,10 +85,56 @@ class BigQueryCapabilityMixin:
     def supports_upsert(self) -> bool:
         return True
 
+    #: BigQuery has no ``EXPLAIN`` statement: a plan is obtained by submitting
+    #: the job with ``dryRun=True``, which returns statistics for the query
+    #: rather than a plan row set.  There is therefore no ``EXPLAIN FORMAT``
+    #: to switch on and none of its option spellings exist, so every probe
+    #: answers ``False`` and the generic formatter refuses each requested
+    #: option by name.  These are declared here rather than inherited so the
+    #: refusal is this dialect's own documented answer.
     def supports_explain(self) -> bool:
         return False
 
     def supports_explain_plan(self) -> bool:
+        return False
+
+    def supports_explain_analyze(self) -> bool:
+        return False
+
+    def supports_explain_verbose(self) -> bool:
+        return False
+
+    def supports_explain_costs(self) -> bool:
+        return False
+
+    def supports_explain_buffers(self) -> bool:
+        return False
+
+    def supports_explain_timing(self) -> bool:
+        return False
+
+    def supports_explain_settings(self) -> bool:
+        return False
+
+    def supports_explain_wal(self) -> bool:
+        return False
+
+    def supports_explain_format_text(self) -> bool:
+        return False
+
+    def supports_explain_format_json(self) -> bool:
+        return False
+
+    def supports_explain_format_xml(self) -> bool:
+        return False
+
+    def supports_explain_format_yaml(self) -> bool:
+        return False
+
+    def supports_explain_format_tree(self) -> bool:
+        return False
+
+    def supports_explain_format_traditional(self) -> bool:
         return False
 
     def supports_advanced_grouping(self) -> bool:
@@ -353,11 +400,14 @@ class BigQueryCapabilityMixin:
 
     #: The JSON path functions BigQuery spells this way. Declared so the
     #: "no foreign syntax" contract can tell a function this dialect has from
-    #: one it inherited, and BigQuery has no supports_json_function otherwise.
+    #: one it inherited; the same tuple feeds :meth:`suggest_functions`.
+    #:
+    #: There is no ``supports_json_function(name)`` probe: a support switch is
+    #: parameterless, and the formatter below does not need a name lookup.
     _JSON_FUNCTION_NAMES = ("JSON_QUERY", "JSON_VALUE")
 
-    def supports_functions(self) -> Dict[str, bool]:
-        """Return supported SQL functions as function_name -> bool mapping.
+    def suggest_functions(self) -> "FunctionSuggestion":
+        """Return the SQL function catalogue this dialect renders.
 
         BigQuery has no functions module of its own: it renders with the core
         factories and spells them its own way. So the honest answer is the core
@@ -382,11 +432,7 @@ class BigQueryCapabilityMixin:
         result = {name: name not in not_available for name in core_functions}
         for name in self._JSON_FUNCTION_NAMES:
             result[name.lower()] = True
-        return result
-
-    def supports_json_function(self, function_name: str) -> bool:
-        """Whether a named JSON function is available on this server."""
-        return function_name.upper() in self._JSON_FUNCTION_NAMES
+        return FunctionSuggestion(result)
 
     def format_json_function_expression(self, expr) -> Tuple[str, tuple]:
         """Render a JSON path with JSON_QUERY / JSON_VALUE.

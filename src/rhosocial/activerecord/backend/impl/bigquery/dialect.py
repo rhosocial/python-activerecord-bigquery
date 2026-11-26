@@ -12,7 +12,7 @@ from rhosocial.activerecord.backend.dialect.protocols import (
     ViewObjectSupport, IndexObjectSupport,
     PartitionSupport,
     ConstraintSupport, IntrospectionSupport, TransactionControlSupport,
-    SQLFunctionSupport, JSONSupport, TruncateSupport,
+    JSONSupport, TruncateSupport,
     # One protocol per TYPE / DOMAIN statement, in place of the two umbrella
     # protocols this backend used to inherit. BigQuery supports none of them,
     # and each switch answers False through the core mixins above.
@@ -291,7 +291,7 @@ class BigQueryDialect(
     JoinSupport, ViewObjectSupport, IndexObjectSupport,
     PartitionSupport,
     ConstraintSupport, IntrospectionSupport, TransactionControlSupport,
-    SQLFunctionSupport, JSONSupport, TruncateSupport,
+    JSONSupport, TruncateSupport,
     BigQueryStructSupport, BigQueryArraySupport,
     BigQueryJSONSupport, BigQueryGeographySupport,
     BigQuerySchemaSupport,

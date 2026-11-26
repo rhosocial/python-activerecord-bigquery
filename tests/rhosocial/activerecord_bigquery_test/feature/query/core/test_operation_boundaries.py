@@ -10,7 +10,7 @@ refused at construction instead of rendered into whatever the dialect happens
 to do. ``is_distinct_from`` is here too: its spelling varies by backend, so it
 is a dialect hook with a gate, and the gate refuses rather than substitutes a
 different question. So are the function version floors SQLite records: they
-used to be answerable through ``supports_functions()`` and ignorable at render
+used to be answerable through ``suggest_functions()`` and ignorable at render
 time, and now rendering a call the dialect's version predates refuses.
 """
 
@@ -241,13 +241,13 @@ def test_the_refusal_names_the_function_the_floor_and_the_version():
 
 
 def test_the_query_surface_and_the_gate_answer_the_same_thing():
-    """``supports_functions`` keeps its shape and stays the query surface; what
+    """``suggest_functions`` keeps its shape and stays the query surface; what
     changed is that a False in it is no longer advisory. Below the floor both
     answer no, at it both answer yes."""
     for version, expected in ((3, 52, 0), False), ((3, 53, 0), True):
         dialect = SQLiteDialect()
         dialect.version = version
-        assert dialect.supports_functions()["json_array_insert"] is expected
+        assert dialect.suggest_functions().functions["json_array_insert"] is expected
         call = _gated_call(dialect, "json_array_insert")
         if expected:
             assert call.to_sql() == ("JSON_ARRAY_INSERT(?)", ("x",))
