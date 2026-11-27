@@ -2,6 +2,15 @@
 """BigQuery identifier formatting mixin."""
 
 
+def _escape_backticks(identifier: str) -> str:
+    """Double every backtick so the name is one quoted BigQuery identifier.
+
+    Atom escaping is a dedicated primitive, not a rewrite performed by the
+    formatter itself: the formatter only quotes the already-escaped atom.
+    """
+    return identifier.replace("`", "``")
+
+
 class BigQueryIdentifierMixin:
     """BigQuery identifier formatting using backtick quoting."""
 
@@ -29,7 +38,7 @@ class BigQueryIdentifierMixin:
                     stacklevel=2,
                 )
             return identifier
-        escaped = identifier.replace("`", "``")
+        escaped = _escape_backticks(identifier)
         return f"`{escaped}`"
 
 

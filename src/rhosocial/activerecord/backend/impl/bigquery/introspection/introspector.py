@@ -401,10 +401,10 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         may name a default dataset; when it does not, callers have to say
         which dataset they mean rather than have one inferred.
         """
-        config = getattr(self._backend, "config", None)
+        config = self._backend.config
         if config is None:
             return ""
-        return getattr(config, "dataset", None) or ""
+        return config.dataset or ""
 
     def _get_version(self) -> Tuple[int, ...]:
         """Return the feature-level version tuple carried by the backend.
@@ -413,14 +413,14 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
         version is the emulated feature level (``3.0.0`` by default) and is
         reported as such rather than passed off as a server release.
         """
-        return getattr(self._backend, "_version", (3, 0, 0))
+        return self._backend._version
 
     def _project(self) -> Optional[str]:
         """The configured project, or ``None`` for the query-executing one."""
-        config = getattr(self._backend, "config", None)
+        config = self._backend.config
         if config is None:
             return None
-        return getattr(config, "project", None) or None
+        return config.project or None
 
     def _resolve_dataset(self, schema: Optional[str]) -> Tuple[Optional[str], str]:
         """Split a schema argument into ``(project, dataset)``.
@@ -645,8 +645,8 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
 
     def dataset_list_statement(self) -> "BigQueryDatasetListQueryStatement":
         """Return the ``INFORMATION_SCHEMA.SCHEMATA`` statement (project/region)."""
-        config = getattr(self._backend, "config", None)
-        location = getattr(config, "location", None) if config is not None else None
+        config = self._backend.config
+        location = config.location if config is not None else None
         return BigQueryDatasetListQueryStatement(
             self.dialect, catalog=self._project(), location=location
         )
@@ -725,7 +725,7 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
     def parse_database_info(self, rows: List[Dict[str, Any]]) -> IntrospectionDatabaseInfo:
         row = rows[0] if rows else {}
         version = self._get_version()
-        config = getattr(self._backend, "config", None)
+        config = self._backend.config
         return IntrospectionDatabaseInfo(
             name=_row_get(row, "catalog_name") or self._project() or "",
             version=".".join(str(part) for part in version),
@@ -734,8 +734,8 @@ class BigQueryIntrospectorMixin(IntrospectorMixin):
             collation=None,
             extra={
                 "project": self._project(),
-                "dataset": getattr(config, "dataset", None) if config else None,
-                "location": getattr(config, "location", None) if config else None,
+                "dataset": config.dataset if config else None,
+                "location": config.location if config else None,
                 "version_source": "backend feature level, not a server version",
             },
         )

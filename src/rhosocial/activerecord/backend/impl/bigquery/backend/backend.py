@@ -83,12 +83,12 @@ def _default_dataset_reference(config: Any) -> Optional[str]:
     ``jobs.query`` endpoint's ``defaultDataset`` takes a reference object, and
     both paths should agree on which namespace is meant.
     """
-    dataset = getattr(config, "dataset", None)
+    dataset = config.dataset
     if not dataset:
         return None
     if "." in dataset:
         return dataset
-    project = getattr(config, "project", None)
+    project = config.project
     return f"{project}.{dataset}" if project else dataset
 
 
@@ -130,11 +130,23 @@ _QUERY_MESSAGE_HINTS = (
 def _driver_status(error: Exception) -> Optional[int]:
     """Read the HTTP status a google.api_core exception carries.
 
-    ``google.api_core.exceptions`` set ``code`` to an ``http.HTTPStatus``;
+    ``google.api_core.exceptions`` declare ``code`` on the exception class;
     ``isinstance(code, int)`` is true because ``HTTPStatus`` is an ``int``
-    subclass. Non-driver exceptions answer ``None``.
+    subclass. Non-driver exceptions answer ``None`` without being probed.
     """
-    code = getattr(error, "code", None)
+    try:
+        from google.api_core.exceptions import GoogleAPIError
+    except ImportError:  # google-cloud-bigquery not installed
+        return None
+    code = None
+    if isinstance(error, GoogleAPIError):
+        # Status-bearing subclasses declare ``code`` on their class; the bare
+        # GoogleAPIError does not. Read the declaration instead of probing the
+        # instance for an attribute that may not exist.
+        for cls in type(error).__mro__:
+            if "code" in vars(cls):
+                code = vars(cls)["code"]
+                break
     if isinstance(code, int) and not isinstance(code, bool):
         return int(code)
     return None
@@ -301,7 +313,9 @@ def _translate_connect_error(error: Exception) -> ConnectionError:
     and the phase label.
     """
     translated = _translate_bigquery_error(error)
-    transient = bool(getattr(translated, "transient", False))
+    # DatabaseError declares ``transient`` as a class attribute, so the read is
+    # always defined and does not need a probing lookup.
+    transient = bool(translated.transient)
     return attach_diagnostics(
         ConnectionError(f"Failed to connect to BigQuery: {error}"),
         operation="connect",
@@ -354,6 +368,9 @@ class BigQueryBackend(
             kwargs['connection_config'] = BigQueryConnectionConfig(**config_params)
         super().__init__(**kwargs)
         self._version = version
+        # Declared up front: connection state is read without reflection.
+        self._client = None
+        self._connected = False
         self._register_bigquery_adapters()
         # Monotonic per-column client-side PK counters (see insert()).
         self._pk_counters: Dict[Tuple, int] = {}
@@ -364,8 +381,8 @@ class BigQueryBackend(
             from google.auth.credentials import AnonymousCredentials
             from google.api_core.client_options import ClientOptions
             config = self.config
-            endpoint = getattr(config, 'api_endpoint', None) or None
-            use_anonymous = getattr(config, 'use_anonymous_credentials', False)
+            endpoint = config.api_endpoint or None
+            use_anonymous = config.use_anonymous_credentials
             client_options = ClientOptions(api_endpoint=endpoint) if endpoint else None
             default_dataset = _default_dataset_reference(config)
             # ``Client`` no longer takes a ``default_dataset`` argument; the
@@ -378,25 +395,25 @@ class BigQueryBackend(
             )
             if use_anonymous:
                 self._client = bigquery.Client(
-                    project=getattr(config, 'project', None) or 'test',
+                    project=config.project or 'test',
                     credentials=AnonymousCredentials(),
                     client_options=client_options,
                     default_query_job_config=default_job_config,
                 )
-            elif getattr(config, 'credentials_path', None):
+            elif config.credentials_path:
                 self._client = bigquery.Client.from_service_account_json(
                     config.credentials_path,
                     client_options=client_options,
                     default_query_job_config=default_job_config,
                 )
-            elif getattr(config, 'credentials_json', None):
+            elif config.credentials_json:
                 self._client = bigquery.Client.from_service_account_info(
                     config.credentials_json,
                     client_options=client_options,
                     default_query_job_config=default_job_config,
                 )
             else:
-                project = getattr(config, 'project', None)
+                project = config.project
                 self._client = bigquery.Client(
                     project=project,
                     client_options=client_options,
@@ -410,7 +427,7 @@ class BigQueryBackend(
             raise _translate_connect_error(e) from e
 
     def disconnect(self) -> None:
-        if hasattr(self, '_client') and self._client:
+        if self._client:
             try:
                 # BigQuery client doesn't require explicit close
                 pass
@@ -421,13 +438,13 @@ class BigQueryBackend(
                 self._connected = False
 
     def ping(self, reconnect: bool = True) -> bool:
-        if not hasattr(self, '_client') or self._client is None:
+        if self._client is None:
             if reconnect:
                 self.connect()
                 return True
             return False
         try:
-            dataset_ref = self._client.dataset(getattr(self.config, 'dataset', None) or 'default')
+            dataset_ref = self._client.dataset(self.config.dataset or 'default')
             list(self._client.list_dataset_refs(dataset_ref))
             return True
         except Exception:
@@ -498,10 +515,10 @@ class BigQueryBackend(
         stable standard SQL feature set, so no dialect adjustments are made.
         Failures are logged but do not prevent usage.
         """
-        if not getattr(self, '_client', None):
+        if not self._client:
             return
         try:
-            dataset_name = getattr(self.config, 'dataset', None)
+            dataset_name = self.config.dataset
             if dataset_name:
                 self._client.get_dataset(dataset_name)
             else:
@@ -634,16 +651,16 @@ class BigQueryBackend(
                 framework errors pass through unchanged.
         """
         if options is not None:
-            column_adapters = column_adapters or getattr(options, 'column_adapters', None)
-            column_mapping = getattr(options, 'column_mapping', None)
-            if getattr(options, 'process_result_set', None) is not None:
+            column_adapters = column_adapters or options.column_adapters
+            column_mapping = options.column_mapping
+            if options.process_result_set is not None:
                 is_select = options.process_result_set
             else:
-                is_select = getattr(options, 'stmt_type', None) == StatementType.DQL
+                is_select = options.stmt_type == StatementType.DQL
         else:
             column_mapping = None
             is_select = sql.strip().upper().startswith(("SELECT", "WITH"))
-        stmt_type = getattr(options, 'stmt_type', None) if options is not None else None
+        stmt_type = options.stmt_type if options is not None else None
         if stmt_type is None:
             stmt_type = StatementType.DQL if is_select else StatementType.OTHER
         log_execution_start(self, sql, params, options)
@@ -658,7 +675,7 @@ class BigQueryBackend(
                 )
                 log_result_summary(self, stmt_type, sql, result, options)
                 return result
-            if not getattr(self, '_connected', False) or getattr(self, '_client', None) is None:
+            if not self._connected or self._client is None:
                 self.connect()
             job_config = self._build_job_config(params)
             job = self._client.query(sql, job_config=job_config)
@@ -712,7 +729,7 @@ class BigQueryBackend(
         # rendered dataset-qualified (see BigQueryNamespaceMixin).
         return BigQueryDialect(
             version=self._version,
-            default_dataset=getattr(self.config, "dataset", None),
+            default_dataset=self.config.dataset,
         )
 
     def _create_introspector(self) -> Any:
@@ -823,15 +840,15 @@ class BigQueryBackend(
         # with an AsyncBigQueryBackend instance (see async fast path).
         session = BigQueryBackend._rest_session()
         endpoint = str(self.config.api_endpoint).rstrip("/")
-        project = getattr(self.config, "project", None) or "test"
+        project = self.config.project or "test"
         url = f"{endpoint}/bigquery/v2/projects/{project}/queries"
         request = {"query": sql, "useLegacySql": False, "timeoutMs": 30000, "maxResults": 10000}
         # Unqualified relation names (``users``, not ``test_query_basic.users``)
         # resolve through the request's default dataset, matching what the
         # client-side default job configuration does on the real endpoint.
-        dataset_name = getattr(self.config, "dataset", None)
+        dataset_name = self.config.dataset
         if dataset_name:
-            project_id = getattr(self.config, "project", None) or project
+            project_id = self.config.project or project
             request["defaultDataset"] = {
                 "projectId": project_id,
                 "datasetId": dataset_name,
@@ -958,7 +975,7 @@ class BigQueryBackend(
     def insert(self, options) -> QueryResult:
         from dataclasses import replace
 
-        pk = getattr(options, 'primary_key', None)
+        pk = options.primary_key
         data = options.data
         if pk and isinstance(pk, str) and data.get(pk) is None:
             new_id = self._next_pk_value(options.table, options.schema_name, pk)
@@ -979,7 +996,7 @@ class BigQueryBackend(
     def bulk_insert(self, options) -> QueryResult:
         from dataclasses import replace
 
-        pk = getattr(options, 'primary_key', None)
+        pk = options.primary_key
         if pk and isinstance(pk, str) and options.rows:
             columns = list(options.columns or [])
             if pk not in columns:
@@ -1068,7 +1085,7 @@ class BigQueryBackend(
         if result.affected_rows == 0 and self._is_emulator_mode():
             # The emulator reports no DML row count; the statement touched
             # exactly the rows whose pk was in the batch.
-            result.affected_rows = len(getattr(options, "pk_values", None) or [])
+            result.affected_rows = len(options.pk_values or [])
         return result
 
     # -- Emulator DML row-count fallback -----------------------------------------
@@ -1078,7 +1095,7 @@ class BigQueryBackend(
     # as a ``SELECT COUNT(*)`` probe before the mutation.
 
     def _is_emulator_mode(self) -> bool:
-        return bool(getattr(self.config, 'api_endpoint', None))
+        return bool(self.config.api_endpoint)
 
     def _count_matching(self, table: str, schema_name: Optional[str], where) -> Optional[int]:
         if where is None:

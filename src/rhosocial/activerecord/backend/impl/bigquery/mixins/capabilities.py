@@ -176,7 +176,7 @@ class BigQueryCapabilityMixin:
         Raises:
             ValueError: when both ``replace`` and ``if_not_exists`` are set.
         """
-        if getattr(expr, "replace", False) and getattr(expr, "if_not_exists", False):
+        if expr.replace and expr.if_not_exists:
             raise ValueError(
                 "BigQuery rejects OR REPLACE together with IF NOT EXISTS"
             )
@@ -316,10 +316,8 @@ class BigQueryCapabilityMixin:
         Raises:
             ValueError: when both ``or_replace`` and ``if_not_exists`` are set.
         """
-        table_options = getattr(expr, "table_options", None)
-        if getattr(expr, "if_not_exists", False) and getattr(
-            table_options, "or_replace", False
-        ):
+        table_options = expr.table_options
+        if expr.if_not_exists and table_options is not None and table_options.or_replace:
             raise ValueError(
                 "BigQuery rejects OR REPLACE together with IF NOT EXISTS"
             )

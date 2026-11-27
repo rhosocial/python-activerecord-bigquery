@@ -51,7 +51,9 @@ def _get(plan: Any, name: str, default: Any = None) -> Any:
         return default
     if isinstance(plan, Mapping):
         return plan.get(name, default)
-    return getattr(plan, name, default)
+    # An attribute-shaped plan is a plain object with declared fields; read
+    # its storage directly rather than probing it by a computed name.
+    return vars(plan).get(name, default)
 
 
 class BigQueryPartitionBuildSuggestionMixin:

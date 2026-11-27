@@ -53,6 +53,9 @@ class AsyncBigQueryBackend(
             kwargs['connection_config'] = BigQueryConnectionConfig(**config_params)
         super().__init__(**kwargs)
         self._version = version
+        # Declared up front: connection state is read without reflection.
+        self._client = None
+        self._connected = False
         # Monotonic per-column client-side PK counters (see insert()).
         self._pk_counters = {}
         # Keep the async backend's adapter registry in step with the sync one.
@@ -83,8 +86,8 @@ class AsyncBigQueryBackend(
             from google.auth.credentials import AnonymousCredentials
             from google.api_core.client_options import ClientOptions
             config = self.config
-            endpoint = getattr(config, 'api_endpoint', None) or None
-            use_anonymous = getattr(config, 'use_anonymous_credentials', False)
+            endpoint = config.api_endpoint or None
+            use_anonymous = config.use_anonymous_credentials
             client_options = ClientOptions(api_endpoint=endpoint) if endpoint else None
             default_dataset = _default_dataset_reference(config)
             # See BigQueryBackend.connect: the dataset is bound through the
@@ -96,25 +99,25 @@ class AsyncBigQueryBackend(
             )
             if use_anonymous:
                 self._client = bigquery.Client(
-                    project=getattr(config, 'project', None) or 'test',
+                    project=config.project or 'test',
                     credentials=AnonymousCredentials(),
                     client_options=client_options,
                     default_query_job_config=default_job_config,
                 )
-            elif getattr(config, 'credentials_path', None):
+            elif config.credentials_path:
                 self._client = bigquery.Client.from_service_account_json(
                     config.credentials_path,
                     client_options=client_options,
                     default_query_job_config=default_job_config,
                 )
-            elif getattr(config, 'credentials_json', None):
+            elif config.credentials_json:
                 self._client = bigquery.Client.from_service_account_info(
                     config.credentials_json,
                     client_options=client_options,
                     default_query_job_config=default_job_config,
                 )
             else:
-                project = getattr(config, 'project', None)
+                project = config.project
                 self._client = bigquery.Client(
                     project=project,
                     client_options=client_options,
@@ -128,18 +131,18 @@ class AsyncBigQueryBackend(
             raise _translate_connect_error(e) from e
 
     async def disconnect(self) -> None:
-        if hasattr(self, '_client') and self._client:
+        if self._client:
             self._client = None
             self._connected = False
 
     async def ping(self, reconnect: bool = True) -> bool:
-        if not hasattr(self, '_client') or self._client is None:
+        if self._client is None:
             if reconnect:
                 await self.connect()
                 return True
             return False
         try:
-            dataset_ref = self._client.dataset(getattr(self.config, 'dataset', None) or 'default')
+            dataset_ref = self._client.dataset(self.config.dataset or 'default')
             list(self._client.list_dataset_refs(dataset_ref))
             return True
         except Exception:
@@ -159,7 +162,7 @@ class AsyncBigQueryBackend(
         # a caller leaves unqualified.
         return BigQueryDialect(
             version=self._version,
-            default_dataset=getattr(self.config, "dataset", None),
+            default_dataset=self.config.dataset,
         )
 
     def _create_introspector(self) -> Any:
@@ -210,28 +213,28 @@ class AsyncBigQueryBackend(
         from .backend import BigQueryBackend
 
         if options is not None:
-            column_adapters = column_adapters or getattr(options, 'column_adapters', None)
-            column_mapping = getattr(options, 'column_mapping', None)
-            if getattr(options, 'process_result_set', None) is not None:
+            column_adapters = column_adapters or options.column_adapters
+            column_mapping = options.column_mapping
+            if options.process_result_set is not None:
                 is_select = options.process_result_set
             else:
-                is_select = getattr(options, 'stmt_type', None) == StatementType.DQL
+                is_select = options.stmt_type == StatementType.DQL
         else:
             column_mapping = None
             is_select = sql.strip().upper().startswith(("SELECT", "WITH"))
-        stmt_type = getattr(options, 'stmt_type', None) if options is not None else None
+        stmt_type = options.stmt_type if options is not None else None
         if stmt_type is None:
             stmt_type = StatementType.DQL if is_select else StatementType.OTHER
         log_execution_start(self, sql, params, options)
         try:
-            if getattr(self.config, 'api_endpoint', None):
+            if self.config.api_endpoint:
                 # Emulator REST fast path: see BigQueryBackend.execute.
                 result = BigQueryBackend._execute_via_rest(
                     self, sql, params, is_select, column_adapters, column_mapping
                 )
                 log_result_summary(self, stmt_type, sql, result, options)
                 return result
-            if not getattr(self, '_connected', False) or getattr(self, '_client', None) is None:
+            if not self._connected or self._client is None:
                 await self.connect()
             job_config = BigQueryBackend._build_job_config(params)
             job = self._client.query(sql, job_config=job_config)
@@ -293,7 +296,7 @@ class AsyncBigQueryBackend(
     async def insert(self, options) -> QueryResult:
         from dataclasses import replace
 
-        pk = getattr(options, 'primary_key', None)
+        pk = options.primary_key
         data = options.data
         if pk and isinstance(pk, str) and data.get(pk) is None:
             new_id = await self._next_pk_value(options.table, options.schema_name, pk)
@@ -309,7 +312,7 @@ class AsyncBigQueryBackend(
     async def bulk_insert(self, options) -> QueryResult:
         from dataclasses import replace
 
-        pk = getattr(options, 'primary_key', None)
+        pk = options.primary_key
         if pk and isinstance(pk, str) and options.rows:
             columns = list(options.columns or [])
             if pk not in columns:
@@ -386,13 +389,13 @@ class AsyncBigQueryBackend(
         if options.auto_commit:
             await self._handle_auto_commit_if_needed()
         if result.affected_rows == 0 and self._is_emulator_mode():
-            result.affected_rows = len(getattr(options, "pk_values", None) or [])
+            result.affected_rows = len(options.pk_values or [])
         return result
 
     # -- Emulator DML row-count fallback (see BigQueryBackend) -------------------
 
     def _is_emulator_mode(self) -> bool:
-        return bool(getattr(self.config, 'api_endpoint', None))
+        return bool(self.config.api_endpoint)
 
     async def _count_matching(self, table: str, schema_name, where):
         if where is None:
@@ -483,10 +486,10 @@ class AsyncBigQueryBackend(
 
     async def introspect_and_adapt(self) -> None:
         """See :meth:`BigQueryBackend.introspect_and_adapt`."""
-        if not getattr(self, '_client', None):
+        if not self._client:
             return
         try:
-            dataset_name = getattr(self.config, 'dataset', None)
+            dataset_name = self.config.dataset
             if dataset_name:
                 self._client.get_dataset(dataset_name)
             else:

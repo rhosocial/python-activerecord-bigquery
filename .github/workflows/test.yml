@@ -26,6 +26,35 @@ env:
   TESTSUITE_PKG: "rhosocial-activerecord-testsuite @ git+https://github.com/rhosocial/python-activerecord-testsuite.git@feature/activerecord-migration"
 
 jobs:
+  formal-rules:
+    name: Formal rules contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: |
+          pip install "$CORE_PKG" "$TESTSUITE_PKG"
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+
+      - name: Install package
+        run: |
+          pip install -e . --no-deps
+
+      - name: Formal rules contracts
+        # Isolated from the emulator-backed suite: these are pure source and
+        # contract assertions and must not depend on any database or scenario.
+        run: |
+          export PYTHONPATH=src:tests
+          python -m pytest tests/rhosocial/activerecord_bigquery_test/feature/rules -q -p no:warnings
+
   test:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest

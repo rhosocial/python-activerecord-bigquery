@@ -28,7 +28,7 @@ def _rows_from_result(result: Any) -> List[Dict[str, Any]]:
     happen; returning an empty list keeps a surprising result from turning
     into an ``AttributeError`` deep inside a ``parse_*`` method.
     """
-    data = getattr(result, "data", None)
+    data = result.data
     if not data:
         return []
     return list(data)

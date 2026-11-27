@@ -398,15 +398,17 @@ def _validate_name(args) -> None:
     question that forgot would answer a wider question than the one asked
     and look successful doing it.
 
-    The name is read with ``getattr`` because the parser only declares the
-    positional for the subcommands that have one, so an absent attribute is
-    "no name was given" rather than an error. A *missing* name is an
-    incomplete invocation and leaves with 1, the code a missing ``--dataset``
-    gets; a name the command has no question for is a request this command
-    declines and leaves with 2.
+    The parser declares the positional only for subcommands that have one, so
+    an absent attribute is read as "no name was given" rather than an error. A
+    *missing* name is an incomplete invocation and leaves with 1, the code a
+    missing ``--dataset`` gets; a name the command has no question for is a
+    request this command declines and leaves with 2.
     """
     rule = _NAME_RULE.get(args.command)
-    name = getattr(args, "name", None)
+    try:
+        name = args.name
+    except AttributeError:
+        name = None
     if rule == "required" and not name:
         print(
             f"Error: a table name is required for the '{args.command}' command",
@@ -424,7 +426,10 @@ def _validate_name(args) -> None:
 
 def _require_column(command: str, args) -> str:
     """The ``--column`` a value listing or an overlap measurement needs."""
-    column = getattr(args, "column", None)
+    try:
+        column = args.column
+    except AttributeError:
+        column = None
     if not column:
         print(
             f"Error: --column is required for the '{command}' command",
@@ -436,7 +441,10 @@ def _require_column(command: str, args) -> str:
 
 def _require_right_table(args) -> str:
     """The ``--right-table`` an overlap measurement needs."""
-    right_table = getattr(args, "right_table", None)
+    try:
+        right_table = args.right_table
+    except AttributeError:
+        right_table = None
     if not right_table:
         print(
             "Error: --right-table and --right-column are required for the "
@@ -449,7 +457,10 @@ def _require_right_table(args) -> str:
 
 def _require_right_column(args) -> str:
     """The ``--right-column`` an overlap measurement needs."""
-    right_column = getattr(args, "right_column", None)
+    try:
+        right_column = args.right_column
+    except AttributeError:
+        right_column = None
     if not right_column:
         print(
             "Error: --right-table and --right-column are required for the "
@@ -469,13 +480,23 @@ def _refuse_unused_arguments(args) -> None:
     takes a column read ``--column``, and only ``join-coverage`` reads the
     two right-hand names, so only they may be given them.
 
-    The flags are read with ``getattr`` because the handler is also driven
-    with hand-built namespaces (the offline tests), which carry no flags at
-    all -- an absent attribute is "not given", not an error.
+    The handler is also driven with hand-built namespaces (the offline
+    tests), which carry no flags at all -- an absent attribute is "not
+    given", not an error. Each declared flag is read directly and an absent
+    one is handled explicitly.
     """
-    column = getattr(args, "column", None)
-    right_table = getattr(args, "right_table", None)
-    right_column = getattr(args, "right_column", None)
+    try:
+        column = args.column
+    except AttributeError:
+        column = None
+    try:
+        right_table = args.right_table
+    except AttributeError:
+        right_table = None
+    try:
+        right_column = args.right_column
+    except AttributeError:
+        right_column = None
 
     if column is not None and args.command not in _COLUMN_COMMANDS:
         print(
@@ -507,13 +528,24 @@ def _require_capability(backend, args) -> None:
     switch = _TYPE_CAPABILITIES.get(args.command)
     if switch is None:
         return
-    dialect = getattr(backend, "dialect", None)
-    if dialect is None:
+    try:
+        dialect = backend.dialect
+    except AttributeError:
         # A stub standing in for the backend (the offline CLI tests) has no
         # dialect to ask; a real one always does.
         return
-    supported = getattr(dialect, switch, None)
-    if supported is None or supported():
+    # The switch is a declared dialect probe, named by the family table above.
+    # Resolve it through the class MRO instead of probing the instance.
+    descriptor = None
+    for cls in type(dialect).__mro__:
+        descriptor = vars(cls).get(switch)
+        if descriptor is not None:
+            break
+    if descriptor is None:
+        return
+    # Bind the declared descriptor (plain method, staticmethod or classmethod)
+    # once, then call the bound probe with no extra argument.
+    if descriptor.__get__(dialect, type(dialect))():
         return
     print(
         f"Error: {args.command} introspection is not supported by this server",
@@ -639,13 +671,17 @@ def _report(result: Any, args, provider) -> None:
     together -- columns and primary key -- are now the ``columns`` command
     and the key columns it reports.
     """
-    if args.command == "routines" and getattr(args, "name", None):
+    try:
+        routine_name = args.name
+    except AttributeError:
+        routine_name = None
+    if args.command == "routines" and routine_name:
         # A named-routine answer is one record, not a listing. ``None`` is
         # "the dataset has no routine with that name", which is not an empty
         # listing and should not exit 0 with a blank table.
         if result is None:
             print(
-                f"Error: no routine named '{args.name}' in the dataset",
+                f"Error: no routine named '{routine_name}' in the dataset",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -767,7 +803,7 @@ def _run_sync(args, backend, provider) -> None:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
     finally:
-        if getattr(backend, "_client", None):
+        if backend._client:
             backend.disconnect()
 
 
@@ -790,7 +826,7 @@ async def _run_async(args, backend, provider) -> None:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
     finally:
-        if getattr(backend, "_client", None):
+        if backend._client:
             await backend.disconnect()
 
 

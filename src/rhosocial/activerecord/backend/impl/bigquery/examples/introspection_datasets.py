@@ -242,7 +242,7 @@ def main() -> int:
         warm = len(executor.questions) - cold
         print(f"warm pass: {warm} question(s) asked (the answers were cached)")
     finally:
-        if getattr(backend, "_client", None):
+        if backend._client:
             backend.disconnect()
     return 0
 

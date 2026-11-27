@@ -74,6 +74,19 @@ from ..expression.introspection import (
 )
 from ..introspection.introspector import _VIEW_TYPES
 
+
+def _opaque_columns_of(expr: Any) -> Tuple[str, ...]:
+    """The typed-column subset a profile statement carries, if it declares one.
+
+    Core's statement has no column types, so its answer is the empty subset;
+    a BigQuery statement declares ``opaque_columns`` and passes it through.
+    """
+    try:
+        return tuple(expr.opaque_columns)
+    except AttributeError:
+        return ()
+
+
 if TYPE_CHECKING:  # pragma: no cover
     from rhosocial.activerecord.backend.expression.introspection import (
         ColumnDataProfileQueryStatement,
@@ -336,7 +349,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 column.name
                 for column in columns
                 if _profile_aggregates_are_blind(
-                    getattr(column, "data_type_full", None) or column.data_type
+                    column.data_type_full or column.data_type
                 )
             ),
         )
@@ -644,13 +657,14 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         )
         return self.format_query_statement(query)
 
-    def format_bigquery_foreign_key_query_statement(self, expr: Any) -> Tuple[str, tuple]:
+    def refuse_bigquery_foreign_key_query_statement(self, expr: Any) -> Tuple[str, tuple]:
         """Refuse: the catalog never names the referenced relation.
 
-        Kept as a formatter that raises rather than removed, so a caller
+        Kept as a refusal helper that raises rather than removed, so a caller
         that reaches for it gets the reason instead of a silent empty
         result. The public ``list_foreign_keys()`` returns an empty list and
-        never calls this.
+        never calls this. It is deliberately not named ``format_*``: there is
+        no foreign-key statement kind for a dialect formatter to answer.
         """
         del expr
         raise UnsupportedFeatureError(
@@ -1237,7 +1251,13 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         truth about a table with no columns and not an error.
         """
         relation = self._user_relation(expr.table_name, expr.schema)
-        opaque = frozenset(getattr(expr, "opaque_columns", ()))
+        try:
+            opaque_columns = expr.opaque_columns
+        except AttributeError:
+            # Core's statement carries no type information: every column is
+            # treated as readable, which is the caller's only honest default.
+            opaque_columns = ()
+        opaque = frozenset(opaque_columns)
         select: List[Any] = []
         for index, column_name in enumerate(expr.columns, start=1):
             select.extend(
@@ -1272,7 +1292,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 table_name=expr.table_name,
                 schema=expr.schema,
                 columns=expr.columns,
-                opaque_columns=getattr(expr, "opaque_columns", ()),
+                opaque_columns=_opaque_columns_of(expr),
             )
         )
 

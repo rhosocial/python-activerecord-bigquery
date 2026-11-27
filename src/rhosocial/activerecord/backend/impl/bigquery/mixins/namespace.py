@@ -128,7 +128,7 @@ class BigQueryNamespaceMixin:
         Returns:
             A ``(sql, params)`` tuple for the full statement.
         """
-        names = {cte.name for cte in getattr(expr, "ctes", ())}
+        names = {cte.name for cte in expr.ctes}
         if not names:
             return super().format_with_statement(expr)
         scopes = self._cte_scopes()
@@ -140,8 +140,9 @@ class BigQueryNamespaceMixin:
 
     def _cte_scopes(self) -> list:
         """The CTE names visible at this point of the render."""
-        scopes = getattr(self, "_cte_name_scopes", None)
-        if scopes is None:
+        try:
+            scopes = self._cte_name_scopes
+        except AttributeError:
             scopes = self._cte_name_scopes = []
         return scopes
 

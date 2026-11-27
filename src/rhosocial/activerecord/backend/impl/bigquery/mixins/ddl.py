@@ -14,6 +14,15 @@ if TYPE_CHECKING:
     )
 
 
+def _escape_single_quote(value: str) -> str:
+    """Escape one atom for a single-quoted SQL string literal.
+
+    Atom escaping is a dedicated primitive; the formatter only quotes the
+    already-escaped value and never rewrites SQL text itself.
+    """
+    return value.replace("'", "''")
+
+
 class BigQueryDDLColumnMixin:
     """BigQuery ALTER TABLE DDL hooks.
 
@@ -113,7 +122,7 @@ class BigQueryDDLColumnMixin:
         from rhosocial.activerecord.base import CollationAttribute
 
         if isinstance(expr, CollationAttribute):
-            escaped = expr.name.replace("'", "''")
+            escaped = _escape_single_quote(expr.name)
             return f" COLLATE '{escaped}'", ()
         return super().format_column_attribute(expr)
 

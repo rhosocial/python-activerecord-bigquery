@@ -343,7 +343,8 @@ class BigQueryRangeAdapter(RangeAdapterBase):
             return {"start": value.lower, "end": value.upper}
         raise ValueError(
             "BigQuery RANGE is written either as a {'start','end'} dict or as a "
-            f"[start, end) literal string, not {getattr(target_type, '__name__', target_type)!r}"
+            f"[start, end) literal string, not "
+            f"{target_type.__name__ if isinstance(target_type, type) else target_type!r}"
         )
 
     def _decode(
