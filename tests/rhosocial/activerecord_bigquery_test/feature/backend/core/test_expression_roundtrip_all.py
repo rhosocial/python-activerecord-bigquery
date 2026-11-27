@@ -991,18 +991,10 @@ register_specials()
 #: that stops building fails with its own name and the reason the constructor
 #: gave; the fix is a registered constructor, never a skip.
 UNCONSTRUCTIBLE = (
-    # The three UUID value nodes. BigQuery generates UUIDs client-side and
-    # spells no UUID SQL, so each of these refuses in __init__ with
-    # UnsupportedFeatureError and carries a suggestion to write the literal by
-    # hand. That is the honest answer for this dialect, but it arrives while
-    # constructing rather than while rendering, and make_instance reports a
-    # constructor that raises as "failed" -- so a registered constructor cannot
-    # stand in for them the way it does for a class whose guesses are merely
-    # wrong. They are named here instead, which keeps them out of the matrix
-    # rather than letting one of them fail it.
-    "rhosocial.activerecord.backend.expression.uuid.UUIDConstantExpression",
-    "rhosocial.activerecord.backend.expression.uuid.UUIDGenerationExpression",
-    "rhosocial.activerecord.backend.expression.uuid.UUIDCastFunction",
+    # The three UUID value nodes left this list when their constructors stopped
+    # refusing a dialect: instantiation collects, and BigQuery's "no UUID SQL"
+    # answer now arrives as UnsupportedFeatureError from `format_uuid_*` while
+    # rendering, which is an outcome the matrix classifies rather than a skip.
     # Core replaced the old partition-strategy enum with dedicated PartitionBy*
     # expression nodes. Their required arguments (a strategy expression plus a
     # column list) are not ones the generic constructor filler can guess, so
@@ -1582,6 +1574,13 @@ UNMODELLED_FORMATTERS = {
     "renders elsewhere)": ("format_temporal_options_expression",),
     "the TableSource root (every concrete row source overrides its formatter; "
     "the root carries nothing but an alias and is never rendered)": ("format_table_source",),
+    "the UUID value nodes (this dialect composes no UUID support mixin: "
+    "BigQuery spells no UUID generation, constant or text-to-UUID cast, so "
+    "all three nodes reach the dispatch and find no base method declared)": (
+        "format_uuid_generation_expression",
+        "format_uuid_constant_expression",
+        "format_uuid_cast",
+    ),
 }
 
 
