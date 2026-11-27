@@ -219,6 +219,9 @@ class BigQueryIdentityColumnMixin:
         """
         from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 
+        # A malformed two-spelling option is judged here, at render time, by
+        # core's public validation rather than in the constructor.
+        expr.validate()
         if not self.supports_identity_column():
             raise UnsupportedFeatureError(
                 self.name, "IDENTITY column",
