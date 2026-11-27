@@ -310,6 +310,84 @@ class BigQueryPartitionMixin(PartitionMixin):
         """
         return False
 
+    # ------------------------------------------------------------------
+    # The action family: what a plan may ask to do to a partition
+    # ------------------------------------------------------------------
+    # A BigQuery partition is a property of the table, not an object a plan
+    # creates, moves or drops: the engine derives it from the value in each
+    # row's partition column. Every action below is therefore a definite
+    # False -- the statement does not exist -- rather than a gap in the
+    # implementation. A backend with no such action says so, so a caller can
+    # enumerate the vocabulary and get one answer per name.
+
+    def supports_add_partition(self) -> bool:
+        """False: partitions appear as rows arrive; there is no ADD PARTITION."""
+        return False
+
+    def supports_drop_partition(self) -> bool:
+        """False: no DROP PARTITION; rows are deleted or expired by policy."""
+        return False
+
+    def supports_truncate_partition(self) -> bool:
+        """False: there is no TRUNCATE PARTITION statement."""
+        return False
+
+    def supports_attach_partition(self) -> bool:
+        """False: a partition is not a standalone table that can be attached."""
+        return False
+
+    def supports_detach_partition(self) -> bool:
+        """False: a partition is not a standalone table that can be detached."""
+        return False
+
+    def supports_split_partition(self) -> bool:
+        """False: boundaries come from the partitioning expression; no SPLIT."""
+        return False
+
+    def supports_merge_partition(self) -> bool:
+        """False: no MERGE PARTITION statement."""
+        return False
+
+    def supports_exchange_partition(self) -> bool:
+        """False: no partition can be swapped with a standalone table."""
+        return False
+
+    def supports_reorganize_partition(self) -> bool:
+        """False: MySQL's REORGANIZE PARTITION has no BigQuery counterpart."""
+        return False
+
+    def supports_coalesce_partition(self) -> bool:
+        """False: the partition count is not a hash modulus that can be reduced."""
+        return False
+
+    def supports_move_partition(self) -> bool:
+        """False: no MOVE PARTITION statement."""
+        return False
+
+    def supports_analyze_partition(self) -> bool:
+        """False: no ANALYZE PARTITION; the service maintains statistics."""
+        return False
+
+    def supports_check_partition(self) -> bool:
+        """False: no CHECK PARTITION statement."""
+        return False
+
+    def supports_optimize_partition(self) -> bool:
+        """False: no OPTIMIZE PARTITION statement."""
+        return False
+
+    def supports_rebuild_partition(self) -> bool:
+        """False: no REBUILD PARTITION statement."""
+        return False
+
+    def supports_repair_partition(self) -> bool:
+        """False: no REPAIR PARTITION statement."""
+        return False
+
+    def supports_remove_partitioning(self) -> bool:
+        """False: partitioning cannot be removed in place; the table is recreated."""
+        return False
+
     def format_partition_clause(self, expr) -> Tuple[str, tuple]:
         """Refuse core's generic ``PARTITION BY`` clause shapes.
 
