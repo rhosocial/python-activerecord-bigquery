@@ -186,6 +186,12 @@ from rhosocial.activerecord.backend.expression.statements.ddl_domain import (
     DomainCheckConstraint,
     RenameDomainAction,
 )
+from rhosocial.activerecord.backend.expression.statements.ddl_partition import (
+    PartitionByHashClause,
+    PartitionByListClause,
+    PartitionByRangeClause,
+    PartitionClause,
+)
 from rhosocial.activerecord.backend.expression.statements.ddl_table import (
     ColumnConstraint,
     ColumnNotNullConstraint,
@@ -774,6 +780,31 @@ def register_specials():
         lambda d: TemporalOptionsExpression(d, {"as_of": "2020-01-01"}),
     )
 
+    # -- core partition clauses ---------------------------------------------
+    # Core replaced the partition-strategy enum with dedicated clause nodes.
+    # Their arguments are a strategy word and a non-empty key list, which the
+    # introspective filler cannot guess: it supplies an empty list where
+    # ``check_renderable`` requires at least one key. Real ``Column`` keys are
+    # what these nodes exist to spell. BigQuery renders partitions through its
+    # own PARTITION BY option clause, so the generic clauses then refuse
+    # through the dialect's capability gates -- answers the matrix classifies.
+    register_special_constructor(
+        "statements.ddl_partition.PartitionClause",
+        lambda d: PartitionClause(d, "RANGE", [Column(d, "id")]),
+    )
+    register_special_constructor(
+        "statements.ddl_partition.PartitionByRangeClause",
+        lambda d: PartitionByRangeClause(d, [Column(d, "id")]),
+    )
+    register_special_constructor(
+        "statements.ddl_partition.PartitionByListClause",
+        lambda d: PartitionByListClause(d, [Column(d, "id")]),
+    )
+    register_special_constructor(
+        "statements.ddl_partition.PartitionByHashClause",
+        lambda d: PartitionByHashClause(d, [Column(d, "id")]),
+    )
+
     # -- types that need a member type or a member value --------------------
     register_special_constructor(
         # ``element_type`` is keyword-only behind an optional ``dialect`` now,
@@ -990,29 +1021,7 @@ register_specials()
 #: checks it re-derives the set from ``make_instance`` and compares. A class
 #: that stops building fails with its own name and the reason the constructor
 #: gave; the fix is a registered constructor, never a skip.
-UNCONSTRUCTIBLE = (
-    # The three UUID value nodes left this list when their constructors stopped
-    # refusing a dialect: instantiation collects, and BigQuery's "no UUID SQL"
-    # answer now arrives as UnsupportedFeatureError from `format_uuid_*` while
-    # rendering, which is an outcome the matrix classifies rather than a skip.
-    # Core replaced the old partition-strategy enum with dedicated PartitionBy*
-    # expression nodes. Their required arguments (a strategy expression plus a
-    # column list) are not ones the generic constructor filler can guess, so
-    # these four classes cannot be built by make_instance. BigQuery renders
-    # partitions through its own PARTITION BY option clause instead, so giving
-    # them a meaningful construction here would be inventing a dialect feature.
-    "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionClause",
-    "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionByHashClause",
-    "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionByListClause",
-    "rhosocial.activerecord.backend.expression.statements.ddl_partition.PartitionByRangeClause",
-    # CustomType sat here while its ``raw`` parameter was defaulted to the
-    # empty string -- a defaulted parameter the filler skips, and a name the
-    # class refuses as empty. The parameter is required now, so the filler
-    # supplies a real name and the class builds; the entry is gone rather than
-    # pinned as a non-render it can never reach: this dialect spells no custom
-    # type, and a constructed instance refuses through the generic-type probe
-    # the way the other unsupported types do.
-)
+UNCONSTRUCTIBLE = ()
 
 #: The dispatch failure -- ``format_method`` named a method this dialect does not
 #: define, so ``to_sql()`` never called anything. Core reported that as
@@ -1197,9 +1206,6 @@ LEGITIMATE_NON_RENDERS = {
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_drop_database_statement'",
     ),
     # ---- COMMENT ON, PIVOT, ILIKE -------------------------------------------
-    # ``PartitionClause`` used to sit here; core replaced it with the
-    # PartitionBy* nodes, which this dialect's filler cannot construct, so it
-    # now belongs in UNCONSTRUCTIBLE rather than in this render-failure table.
     "rhosocial.activerecord.backend.expression.statements.ddl_comment.CommentOnStatement": (
         UnsupportedFeatureError, f"{_NO_FORMATTER} 'format_comment_on_statement'",
     ),
