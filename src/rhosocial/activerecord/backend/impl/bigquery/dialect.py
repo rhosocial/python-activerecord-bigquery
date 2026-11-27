@@ -324,20 +324,3 @@ class BigQueryDialect(
         """BigQuery has no ALTER TABLE ADD/DROP INDEX."""
         return False
 
-    def supports_multi_action_alter_table(self) -> bool:
-        """GoogleSQL permits exactly one action per ``ALTER TABLE`` statement.
-
-        The documented ALTER TABLE grammar lists the actions (ADD COLUMN,
-        DROP COLUMN, ALTER COLUMN, SET OPTIONS, ...) as alternatives joined by
-        ``|`` -- there is no comma-separated action list. Core's generic
-        ``format_alter_table_statement`` comma-joins actions when this probe is
-        True (its default), which produced ``ALTER TABLE ... ADD COLUMN ...,
-        DROP COLUMN ...`` -- SQL the service rejects. Declaring False here makes
-        core emit one ``ALTER TABLE`` per action instead.
-
-        Note: core joins those statements with ``;`` into a single string;
-        whether that string can be submitted in one standard-API execute call
-        is a separate concern owned by the step-2 migration planner, not by
-        this capability declaration.
-        """
-        return False

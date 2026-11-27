@@ -1,14 +1,15 @@
 # tests/rhosocial/activerecord_bigquery_test/feature/backend/ddl/test_alter_table_single_action.py
-"""BigQuery ALTER TABLE is one action per statement (P0 architecture fix).
+"""BigQuery ALTER TABLE is one action per statement.
 
 GoogleSQL's ALTER TABLE grammar lists its actions as alternatives; it has no
-comma-separated action list. Core's generic renderer comma-joins actions when
-``supports_multi_action_alter_table()`` is True (its default), so BigQuery must
-declare False. On a dialect declaring False, core now fails fast with
-``UnsupportedFeatureError`` instead of semicolon-joining actions into one
-unexecutable string: one expression must render as exactly one SQL statement.
-Single-action statements still render normally. These are pure construction
-tests -- no instance required.
+comma-separated action list. The framework reaches the same shape everywhere:
+one expression renders one action, and a statement carrying two fails fast with
+``UnsupportedFeatureError`` instead of comma-joining them. Comma-joining would
+hide the second action from the caller's plan -- its own phase, permission and
+destructive check -- and semicolon-joining would emit two statements from one
+expression. BigQuery's grammar and the framework rule agree here, but the test
+asserts the rule, not only the spelling. These are pure construction tests --
+no instance required.
 """
 
 import pytest
@@ -31,10 +32,7 @@ def dialect():
 
 
 class TestBigQueryAlterTableSingleAction:
-    """Capability declaration and fail-fast rendering for multi-action ALTER TABLE."""
-
-    def test_supports_multi_action_alter_table_is_false(self, dialect):
-        assert dialect.supports_multi_action_alter_table() is False
+    """Fail-fast rendering for a multi-action ALTER TABLE."""
 
     def test_two_actions_fail_fast(self, dialect):
         expr = AlterTableStatement(

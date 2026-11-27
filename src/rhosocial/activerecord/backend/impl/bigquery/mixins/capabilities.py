@@ -332,8 +332,10 @@ class BigQueryCapabilityMixin:
         ``ALTER TABLE [ IF EXISTS ] table_name RENAME COLUMN [ IF EXISTS ]
         column_name TO new_column_name [, ...]``.  Several renames may appear
         in one statement, but a rename cannot be combined with another
-        ``ALTER TABLE`` action; this dialect already answers ``False`` to
-        ``supports_multi_action_alter_table`` for that reason.
+        ``ALTER TABLE`` action. That is also why the framework emits one action
+        per statement and refuses a multi-action statement, though here it
+        refuses for the framework's reason (each action needs its own plan
+        entry) rather than GoogleSQL's.
 
         Availability: preview on 2022-08-19, generally available on
         2023-02-21, per the BigQuery release-notes archive.
