@@ -188,7 +188,7 @@ def test_alter_table_add_index_refuses_by_name(dialect):
     expression = AlterTableStatement(
         dialect,
         table=Table(dialect, "t"),
-        actions=[AddIndexAction(dialect, IndexDefinition(dialect, "i", ["a"]))],
+        action=AddIndexAction(dialect, IndexDefinition(dialect, "i", ["a"])),
     )
     with pytest.raises(UnsupportedFeatureError) as caught:
         expression.to_sql()
@@ -200,7 +200,7 @@ def test_alter_table_drop_index_refuses_by_name(dialect):
     expression = AlterTableStatement(
         dialect,
         table=Table(dialect, "t"),
-        actions=[DropIndexAction(dialect, Index(dialect, "i"))],
+        action=DropIndexAction(dialect, Index(dialect, "i")),
     )
     with pytest.raises(UnsupportedFeatureError) as caught:
         expression.to_sql()

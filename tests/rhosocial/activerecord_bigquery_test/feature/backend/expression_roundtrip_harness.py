@@ -561,7 +561,7 @@ def _alter_type_expr(dialect):
     )
 
     return AlterTypeStatement(
-        dialect, Type(dialect, "t"), [_DummyTypeAlterAction(dialect, "t2")]
+        dialect, Type(dialect, "t"), _DummyTypeAlterAction(dialect, "t2")
     )
 
 
@@ -593,7 +593,7 @@ def _alter_domain_expr(dialect):
     )
 
     return AlterDomainStatement(
-        dialect, Domain(dialect, "d"), [SetDomainDefaultAction(dialect, Literal(dialect, 1))]
+        dialect, Domain(dialect, "d"), SetDomainDefaultAction(dialect, Literal(dialect, 1))
     )
 
 
@@ -839,14 +839,13 @@ def _alter_table_expr(dialect):
     from rhosocial.activerecord.backend.expression.statements.ddl_alter import (
         AddColumnAction,
         AlterTableStatement,
-        DropColumnAction,
     )
 
     column = _column_definition(dialect)
     return AlterTableStatement(
         dialect,
         table=_table(dialect, "t"),
-        actions=[DropColumnAction(dialect, "a"), AddColumnAction(dialect, column=column)],
+        action=AddColumnAction(dialect, column=column),
     )
 
 

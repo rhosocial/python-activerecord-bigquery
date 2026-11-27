@@ -179,7 +179,7 @@ def test_rename_column_renders(dialect):
     expression = AlterTableStatement(
         dialect,
         table=Table(dialect, "t"),
-        actions=[RenameColumnAction(dialect, "old", "new")],
+        action=RenameColumnAction(dialect, "old", "new"),
     )
     sql, params = expression.to_sql()
     assert sql == "ALTER TABLE `t` RENAME COLUMN `old` TO `new`"
@@ -197,9 +197,7 @@ def test_drop_constraint_if_exists_renders(dialect):
     expression = AlterTableStatement(
         dialect,
         table=Table(dialect, "t"),
-        actions=[
-            DropTableConstraintAction(dialect, "fk", if_exists=True),
-        ],
+        action=DropTableConstraintAction(dialect, "fk", if_exists=True),
     )
     sql, params = expression.to_sql()
     assert sql == "ALTER TABLE `t` DROP CONSTRAINT IF EXISTS `fk`"

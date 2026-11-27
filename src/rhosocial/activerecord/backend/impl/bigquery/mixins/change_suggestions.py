@@ -150,12 +150,12 @@ class BigQueryTableConstraintChangeSuggestionMixin:
             kept = new_by_name.get(constraint.name)
             if kept is None or _signature(kept) != _signature(constraint):
                 action = DropTableConstraintAction(self, constraint.name, if_exists=True)
-                chain.append(AlterTableStatement(self, table, [action]))
+                chain.append(AlterTableStatement(self, table, action))
         for constraint in new:
             previous = old_by_name.get(constraint.name)
             if previous is None or _signature(previous) != _signature(constraint):
                 action = AddTableConstraintAction(self, constraint)
-                chain.append(AlterTableStatement(self, table, [action]))
+                chain.append(AlterTableStatement(self, table, action))
         operations = tuple(chain)
         if not operations:
             return TableConstraintChangeSuggestion(operations=None)

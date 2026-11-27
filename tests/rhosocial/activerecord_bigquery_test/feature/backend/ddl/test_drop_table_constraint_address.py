@@ -61,7 +61,7 @@ def _foreign_key(dialect, name="fk"):
 
 
 def _alter_table(dialect, action):
-    return AlterTableStatement(dialect, table=Table(dialect, "t"), actions=[action])
+    return AlterTableStatement(dialect, table=Table(dialect, "t"), action=action)
 
 
 class TestDropConstraintByKindIsRefused:

@@ -196,7 +196,7 @@ class TestConstraintChange:
             "REFERENCES `p`(`id`) NOT ENFORCED"
         ]
         assert all(isinstance(op, AlterTableStatement) for op in answer.operations)
-        assert all(len(op.actions) == 1 for op in answer.operations)
+        assert all(op.action is not None for op in answer.operations)
         assert resolve_point(point, dialect).state == "actions"
 
     def test_drops_a_named_foreign_key(self, dialect):
@@ -206,7 +206,7 @@ class TestConstraintChange:
         )
         answer = dialect.suggest_table_constraint_change(point)
         assert _sql(answer) == ["ALTER TABLE `t` DROP CONSTRAINT IF EXISTS `fk_a`"]
-        assert all(len(op.actions) == 1 for op in answer.operations)
+        assert all(op.action is not None for op in answer.operations)
 
     def test_redefinition_drops_before_adding(self, dialect):
         """There is no ALTER CONSTRAINT, so a changed FK is drop then add."""
@@ -221,7 +221,7 @@ class TestConstraintChange:
             "ALTER TABLE `t` ADD CONSTRAINT `fk_a` FOREIGN KEY (`b`) "
             "REFERENCES `p`(`id`) NOT ENFORCED",
         ]
-        assert all(len(op.actions) == 1 for op in answer.operations)
+        assert all(op.action is not None for op in answer.operations)
 
     def test_unchanged_foreign_key_is_no_answer(self, dialect):
         """Equal declarations need no statement: the third tri-state value."""
