@@ -193,7 +193,7 @@ class TestIdentityClausePairs:
 
     def test_cycle_and_no_cycle_are_api_misuse_together(self, dialect):
         with pytest.raises(ValueError, match="cycle and no_cycle are mutually exclusive"):
-            IdentityClause(dialect, cycle=True, no_cycle=True)
+            IdentityClause(dialect, cycle=True, no_cycle=True).to_sql()
 
     def test_order_and_no_order_are_refused_by_name(self, dialect):
         with pytest.raises(UnsupportedFeatureError) as exc:
@@ -205,7 +205,7 @@ class TestIdentityClausePairs:
 
     def test_order_and_no_order_are_api_misuse_together(self, dialect):
         with pytest.raises(ValueError, match="order and no_order are mutually exclusive"):
-            IdentityClause(dialect, order=True, no_order=True)
+            IdentityClause(dialect, order=True, no_order=True).to_sql()
 
     def test_cache_and_no_cache_are_refused_by_name(self, dialect):
         with pytest.raises(UnsupportedFeatureError) as exc:
@@ -217,12 +217,12 @@ class TestIdentityClausePairs:
 
     def test_cache_and_no_cache_are_api_misuse_together(self, dialect):
         with pytest.raises(ValueError, match="cache and no_cache are mutually exclusive"):
-            IdentityClause(dialect, cache=10, no_cache=True)
+            IdentityClause(dialect, cache=10, no_cache=True).to_sql()
 
     def test_cache_zero_is_no_longer_a_sentinel(self, dialect):
         """``cache=0`` was the old spelling of NO CACHE; it is refused now."""
         with pytest.raises(ValueError, match="cache must be a positive integer"):
-            IdentityClause(dialect, cache=0)
+            IdentityClause(dialect, cache=0).to_sql()
 
     def test_start_and_increment_still_render(self, dialect):
         """The two documented options stay reachable in every state table."""

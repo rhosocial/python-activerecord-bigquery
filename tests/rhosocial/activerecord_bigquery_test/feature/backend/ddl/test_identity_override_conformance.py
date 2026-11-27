@@ -181,8 +181,9 @@ def test_every_identity_option_is_rendered_or_refused_by_name(field):
 
 def test_cache_zero_is_refused_at_construction():
     """The old ``cache=0`` sentinel is gone; the negative spelling has a name."""
+    clause = IdentityClause(BigQueryDialect(), cache=0)
     with pytest.raises(ValueError, match="cache must be a positive integer"):
-        IdentityClause(BigQueryDialect(), cache=0)
+        clause.to_sql()
 
 
 class _FutureIdentityClause(IdentityClause):
