@@ -1043,7 +1043,7 @@ class BigQueryBackend(
         from rhosocial.activerecord.backend.expression import (
             Column, Parameter, UpdateStatement, ComparisonPredicate, InPredicate,
         )
-        from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
+        from rhosocial.activerecord.backend.expression.functions import CaseExpression
         from rhosocial.activerecord.backend.expression.objects import Table
 
         pk_col = Column(self.dialect, options.pk_column)

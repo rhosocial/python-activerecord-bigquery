@@ -3,7 +3,7 @@
 
 This mixin owns every decision the option statement makes: which option names
 exist, which value shapes each accepts, which capability answer reaches a
-caller, and which requests are refused. The node in ``..expression.table_options``
+caller, and which requests are refused. The node in ``..expression.statements.table_options``
 only collects parameters, so nothing here has to discover a half-built SQL
 fragment or a value that was silently quoted somewhere else.
 
@@ -33,7 +33,7 @@ from ..table_option_catalog import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ..expression.table_options import BigQueryAlterTableSetOptionsStatement
+    from ..expression.statements.table_options import BigQueryAlterTableSetOptionsStatement
 
 
 class BigQueryTableOptionsMixin:

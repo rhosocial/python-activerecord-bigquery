@@ -18,7 +18,7 @@ from rhosocial.activerecord.backend.dialect.protocols.ddl.partition import (
     PartitionSupport,
 )
 from rhosocial.activerecord.backend.expression import BaseExpression
-from rhosocial.activerecord.backend.expression.core import Column
+from rhosocial.activerecord.backend.expression.column_types.column import Column
 from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.expression.statements.ddl_partition import (
     PartitionByHashClause,

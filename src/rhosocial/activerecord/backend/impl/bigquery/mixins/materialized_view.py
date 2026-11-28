@@ -3,7 +3,7 @@
 
 BigQuery's materialized view DDL diverges from the SQL-standard statement in
 ways that must not be papered over — see
-:mod:`..expression.materialized_view` for the grammar. Anything the generic
+:mod:`..expression.statements.materialized_view` for the grammar. Anything the generic
 expressions carry that BigQuery cannot express is rejected with
 ``UnsupportedFeatureError`` instead of being silently dropped.
 
@@ -23,12 +23,12 @@ from rhosocial.activerecord.backend.expression.objects import MaterializedView
 from ..materialized_view_options import resolve_materialized_view_option
 
 if TYPE_CHECKING:  # pragma: no cover
-    from rhosocial.activerecord.backend.expression.statements.ddl_view import (
+    from rhosocial.activerecord.backend.expression.statements import (
         CreateMaterializedViewStatement,
         DropMaterializedViewStatement,
     )
 
-    from ..expression.materialized_view import (
+    from ..expression.statements.materialized_view import (
         BigQueryAlterMaterializedViewSetOptionsStatement,
         BigQueryCreateMaterializedViewReplicaStatement,
         BigQueryCreateMaterializedViewStatement,

@@ -44,11 +44,11 @@ from typing import Any
 from rhosocial.activerecord.backend.expression import AlterTableStatement
 from rhosocial.activerecord.backend.expression.bases import BaseExpression
 from rhosocial.activerecord.backend.expression.objects import Table
-from rhosocial.activerecord.backend.expression.statements.ddl_alter import (
+from rhosocial.activerecord.backend.expression.statements import (
     AddTableConstraintAction,
     DropTableConstraintAction,
 )
-from rhosocial.activerecord.backend.expression.statements.ddl_table import (
+from rhosocial.activerecord.backend.expression.statements import (
     TableConstraint,
     TableForeignKeyConstraint,
 )

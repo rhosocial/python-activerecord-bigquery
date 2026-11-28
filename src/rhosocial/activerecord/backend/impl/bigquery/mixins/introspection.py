@@ -14,7 +14,7 @@ from expression nodes -- a
 :class:`~rhosocial.activerecord.backend.expression.sources.NamedRelationRef`
 over a
 :class:`~rhosocial.activerecord.backend.expression.objects.Table` for the
-``FROM``, :class:`~rhosocial.activerecord.backend.expression.core.Column`
+``FROM``, :class:`~rhosocial.activerecord.backend.expression.column_types.column.Column`
 for the projection and the predicates, and renders it through core's own
 ``format_query_statement``. The backtick quoting, the qualifier order and
 the bind marker are therefore this dialect's answer and nobody else's: a
@@ -30,16 +30,14 @@ from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
 from rhosocial.activerecord.backend.dialect.mixins import IntrospectionMixin
-from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
-from rhosocial.activerecord.backend.expression.core import (
-    CastExpression,
-    Column,
-    FunctionCall,
-    Parameter,
-    RowCountWildcard,
-    Subquery,
-)
-from rhosocial.activerecord.backend.expression.functions.aggregate import (
+from rhosocial.activerecord.backend.expression.functions import CaseExpression
+from rhosocial.activerecord.backend.expression.functions import CastExpression
+from rhosocial.activerecord.backend.expression.column_types import Column
+from rhosocial.activerecord.backend.expression.functions import FunctionCall
+from rhosocial.activerecord.backend.expression.value_types import Parameter
+from rhosocial.activerecord.backend.expression.value_types import RowCountWildcard
+from rhosocial.activerecord.backend.expression.sources import Subquery
+from rhosocial.activerecord.backend.expression.functions import (
     CountFunction,
     SumFunction,
 )
@@ -57,8 +55,8 @@ from rhosocial.activerecord.backend.expression.query_parts import (
     OrderByClause,
 )
 from rhosocial.activerecord.backend.expression.sources import NamedRelationRef
-from rhosocial.activerecord.backend.expression.statements.dql import QueryStatement
-from rhosocial.activerecord.backend.expression.types.string import CharType
+from rhosocial.activerecord.backend.expression.statements import QueryStatement
+from rhosocial.activerecord.backend.expression.types import CharType
 from rhosocial.activerecord.backend.introspection.types import ProfileSource
 from rhosocial.activerecord.backend.introspection.types import IntrospectionScope
 
@@ -1114,7 +1112,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
     def _profile_label(self, text: Optional[str], alias: str) -> CastExpression:
         """A constant label as a named projection.
 
-        A :class:`~...expression.core.Parameter` is deliberately unaliasable -- a
+        A :class:`~...expression.value_types.parameter.Parameter` is deliberately unaliasable -- a
         value has nothing to name -- so the constant is cast to ``STRING``,
         which is the smallest node that carries a result name. ``None`` is the
         same node holding SQL ``NULL``, which is how an absent figure is

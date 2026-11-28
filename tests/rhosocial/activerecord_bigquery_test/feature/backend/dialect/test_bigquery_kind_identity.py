@@ -20,7 +20,7 @@ import importlib
 import pkgutil
 
 import pytest
-from rhosocial.activerecord.backend.expression.core import BaseExpression
+from rhosocial.activerecord.backend.expression.bases.bases import BaseExpression
 
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 
@@ -72,25 +72,25 @@ class TestThreeSourcesAgree:
         passing the parametrised tests silently.
         """
         assert set(NODES) == {
-            f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryAlterMaterializedViewSetOptionsStatement",
-            f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryCreateMaterializedViewReplicaStatement",
-            f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryCreateMaterializedViewStatement",
-            f"{BIGQUERY_EXPR_PKG}.materialized_view.BigQueryDropMaterializedViewStatement",
-            f"{BIGQUERY_EXPR_PKG}.partition.BigQueryCreateTableStatement",
-            f"{BIGQUERY_EXPR_PKG}.partition.BigQueryPartitionDecoratedTable",
-            f"{BIGQUERY_EXPR_PKG}.partition.BigQueryTablePartitionByClause",
-            f"{BIGQUERY_EXPR_PKG}.table_options.BigQueryAlterTableSetOptionsStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryDatabaseInfoQueryStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryTableListQueryStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryColumnInfoQueryStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryIndexInfoQueryStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryViewListQueryStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryViewInfoQueryStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryRoutineListQueryStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryColumnDataProfileQueryStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryDatasetListQueryStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryTableOptionsQueryStatement",
-            f"{BIGQUERY_EXPR_PKG}.introspection.BigQueryPartitionListQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.statements.materialized_view.BigQueryAlterMaterializedViewSetOptionsStatement",
+            f"{BIGQUERY_EXPR_PKG}.statements.materialized_view.BigQueryCreateMaterializedViewReplicaStatement",
+            f"{BIGQUERY_EXPR_PKG}.statements.materialized_view.BigQueryCreateMaterializedViewStatement",
+            f"{BIGQUERY_EXPR_PKG}.statements.materialized_view.BigQueryDropMaterializedViewStatement",
+            f"{BIGQUERY_EXPR_PKG}.statements.partition.BigQueryCreateTableStatement",
+            f"{BIGQUERY_EXPR_PKG}.objects.table.BigQueryPartitionDecoratedTable",
+            f"{BIGQUERY_EXPR_PKG}.query_parts.partition.BigQueryTablePartitionByClause",
+            f"{BIGQUERY_EXPR_PKG}.statements.table_options.BigQueryAlterTableSetOptionsStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryDatabaseInfoQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryTableListQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryColumnInfoQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryIndexInfoQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryViewListQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryViewInfoQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryRoutineListQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryColumnDataProfileQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryDatasetListQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryTableOptionsQueryStatement",
+            f"{BIGQUERY_EXPR_PKG}.introspection.introspection.BigQueryPartitionListQueryStatement",
         }
 
     @pytest.mark.parametrize("fqn", sorted(NODES))

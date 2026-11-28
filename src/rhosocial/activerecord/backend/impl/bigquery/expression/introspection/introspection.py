@@ -1,4 +1,4 @@
-# src/rhosocial/activerecord/backend/impl/bigquery/expression/introspection.py
+# src/rhosocial/activerecord/backend/impl/bigquery/expression/introspection/introspection.py
 """BigQuery introspection statements, as expression nodes.
 
 BigQuery answers metadata questions from its ``INFORMATION_SCHEMA`` views
@@ -9,7 +9,7 @@ declares the dialect entry that renders it. The dialect mixin
 (:class:`~...mixins.introspection.BigQueryIntrospectionMixin`) owns the
 spelling -- the backtick quoting, the ``project.dataset`` qualifier, the
 bind markers -- and assembles the statement from core expression nodes
-(:class:`~rhosocial.activerecord.backend.expression.core.Column`,
+(:class:`~rhosocial.activerecord.backend.expression.column_types.column.Column`,
 :class:`~rhosocial.activerecord.backend.expression.predicates.InPredicate`,
 :class:`~rhosocial.activerecord.backend.expression.predicates.LogicalPredicate`,
 :class:`~rhosocial.activerecord.backend.expression.query_parts.OrderByClause`
@@ -84,7 +84,7 @@ from rhosocial.activerecord.backend.expression.introspection import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ..dialect import BigQueryDialect
+    from ...dialect import BigQueryDialect
 
 #: Every column BigQuery's ``COLUMNS`` view documents, in documented order.
 #: This is what a real server is asked, because it is what a real server

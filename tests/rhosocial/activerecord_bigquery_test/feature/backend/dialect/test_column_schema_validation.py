@@ -16,7 +16,7 @@ green and the data gone. It now raises `UnsupportedFeatureError`.
 import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression.core import Column
+from rhosocial.activerecord.backend.expression.column_types.column import Column
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 
 

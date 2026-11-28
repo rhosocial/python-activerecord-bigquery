@@ -13,19 +13,15 @@ from .introspection import (
     BigQueryViewInfoQueryStatement,
     BigQueryViewListQueryStatement,
 )
-from .materialized_view import (
+from .objects import BigQueryPartitionDecoratedTable
+from .query_parts import BigQueryTablePartitionByClause
+from .statements import (
     BigQueryAlterMaterializedViewSetOptionsStatement,
+    BigQueryAlterTableSetOptionsStatement,
     BigQueryCreateMaterializedViewReplicaStatement,
     BigQueryCreateMaterializedViewStatement,
-    BigQueryDropMaterializedViewStatement,
-)
-from .partition import (
     BigQueryCreateTableStatement,
-    BigQueryPartitionDecoratedTable,
-    BigQueryTablePartitionByClause,
-)
-from .table_options import (
-    BigQueryAlterTableSetOptionsStatement,
+    BigQueryDropMaterializedViewStatement,
 )
 
 __all__ = [
@@ -66,7 +62,7 @@ __all__ = [
 import importlib as _importlib
 import pkgutil as _pkgutil
 
-from rhosocial.activerecord.backend.expression.core import BaseExpression as _BaseExpression
+from rhosocial.activerecord.backend.expression.bases.bases import BaseExpression as _BaseExpression
 
 _BIGQUERY_OWNED_NAMES = frozenset({
     "BigQueryAlterMaterializedViewSetOptionsStatement",

@@ -525,7 +525,7 @@ class TestDocsOnlyMarkers:
         being read as covering the range family. When fix item #8 lands, this
         test is what should fail and be revisited -- not silently left passing.
         """
-        from rhosocial.activerecord.backend.expression.type_name import (
+        from rhosocial.activerecord.backend.expression.bases.type_name import (
             InvalidTypeNameError,
         )
         from rhosocial.activerecord.backend.impl.bigquery.introspection.type_parser import (

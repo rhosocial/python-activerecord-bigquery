@@ -62,7 +62,7 @@ class BigQueryPartitionBuildSuggestionMixin:
     def suggest_partition_build(
         self, strategy: "PartitionByClause", plan: object
     ) -> PartitionBuildSuggestion:
-        from ..expression.partition import BigQueryTablePartitionByClause
+        from ..expression.query_parts.partition import BigQueryTablePartitionByClause
 
         partition_expression = _get(plan, "partition_expression")
         cluster_by = _get(plan, "cluster_by")

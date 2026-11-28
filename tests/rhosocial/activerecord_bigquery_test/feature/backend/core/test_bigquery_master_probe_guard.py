@@ -56,12 +56,12 @@ probes were declared) and the failing ids are recorded in the round's report.
 import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression.core import Column
+from rhosocial.activerecord.backend.expression.column_types.column import Column
 from rhosocial.activerecord.backend.expression.objects import (
     MaterializedView,
     Table,
 )
-from rhosocial.activerecord.backend.expression.query_sources import (
+from rhosocial.activerecord.backend.expression.sources.query_sources import (
     CTEClause,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_table import (
@@ -77,7 +77,7 @@ from rhosocial.activerecord.backend.expression.statements.ddl_view import (
 from rhosocial.activerecord.backend.expression.statements.dql import (
     QueryStatement,
 )
-from rhosocial.activerecord.backend.expression.transaction import (
+from rhosocial.activerecord.backend.expression.statements.transaction import (
     BeginTransactionStatement,
     SetTransactionStatement,
 )

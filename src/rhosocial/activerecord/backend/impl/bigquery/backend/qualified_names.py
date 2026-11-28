@@ -23,17 +23,19 @@ answer.
 
 from typing import Any, Optional
 
-from rhosocial.activerecord.backend.expression.core import Column, Parameter, RowCountWildcard
-from rhosocial.activerecord.backend.expression.functions.aggregate import (
+from rhosocial.activerecord.backend.expression.column_types import Column
+from rhosocial.activerecord.backend.expression.value_types import Parameter
+from rhosocial.activerecord.backend.expression.value_types import RowCountWildcard
+from rhosocial.activerecord.backend.expression.functions import (
     CountFunction,
     MaxFunction,
 )
-from rhosocial.activerecord.backend.expression.functions.string import CoalesceFunction
+from rhosocial.activerecord.backend.expression.functions import CoalesceFunction
 from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.expression.operators import ArithmeticOperation
 from rhosocial.activerecord.backend.expression.query_parts import WhereClause
 from rhosocial.activerecord.backend.expression.sources import NamedRelationRef
-from rhosocial.activerecord.backend.expression.statements.dql import QueryStatement
+from rhosocial.activerecord.backend.expression.statements import QueryStatement
 
 
 class BigQueryQualifiedNameMixin:
@@ -75,7 +77,7 @@ class BigQueryQualifiedNameMixin:
         """``SELECT COALESCE(MAX(pk), 0) + 1 AS next_id FROM <relation>``.
 
         The expression behind :meth:`_next_pk_value`. The zero and the one are
-        :class:`~...expression.core.Parameter` values marked ``inline=True``: they
+        :class:`~...expression.value_types.parameter.Parameter` values marked ``inline=True``: they
         are constants of the statement rather than caller data, and inlining
         keeps the rendered text what the f-string used to produce.
         """

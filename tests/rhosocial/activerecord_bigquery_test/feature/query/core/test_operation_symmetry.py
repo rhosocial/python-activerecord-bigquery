@@ -34,7 +34,7 @@ from rhosocial.activerecord.backend.expression import (
     UUIDColumn,
     XMLColumn,
 )
-from rhosocial.activerecord.backend.expression.declared import (
+from rhosocial.activerecord.backend.expression.column_types.declared import (
     ArrayAnnotation,
     BinaryAnnotation,
     BooleanAnnotation,
@@ -46,7 +46,7 @@ from rhosocial.activerecord.backend.expression.declared import (
     UUIDAnnotation,
     XMLAnnotation,
 )
-from rhosocial.activerecord.backend.expression.mixins import NotANumberMixin
+from rhosocial.activerecord.backend.expression.bases.mixins import NotANumberMixin
 
 OPERATORS = {
     "__add__",

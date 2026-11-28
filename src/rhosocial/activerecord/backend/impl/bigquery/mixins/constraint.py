@@ -165,7 +165,7 @@ two groups are kept apart deliberately, and every docstring says which it is.
 from typing import TYPE_CHECKING, Tuple, Union
 
 if TYPE_CHECKING:  # pragma: no cover
-    from rhosocial.activerecord.backend.expression.statements.ddl_table import (
+    from rhosocial.activerecord.backend.expression.statements import (
         ColumnConstraint,
         TableConstraint,
     )

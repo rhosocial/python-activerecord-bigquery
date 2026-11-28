@@ -2,7 +2,7 @@
 """BigQuery table-partition DDL formatter mixin.
 
 This is the backend-named feature group for the proprietary partition clause
-in ``impl.bigquery.expression.partition``.  It composes core's
+in ``impl.bigquery.expression.query_parts.partition``.  It composes core's
 ``PartitionMixin`` -- the capability surface (``supports_table_partitioning``,
 ``partition_capability`` and the per-strategy gates) -- and adds the one
 formatter core has no counterpart for: the BigQuery-specific
@@ -26,11 +26,9 @@ from rhosocial.activerecord.backend.dialect.mixins.partition import PartitionMix
 from .._scan import Scanner
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ..expression.partition import (
-        BigQueryCreateTableStatement,
-        BigQueryPartitionDecoratedTable,
-        BigQueryTablePartitionByClause,
-    )
+    from ..expression.objects import BigQueryPartitionDecoratedTable
+    from ..expression.query_parts import BigQueryTablePartitionByClause
+    from ..expression.statements import BigQueryCreateTableStatement
 
 
 #: The words that open a time-unit column partition expression: the bare

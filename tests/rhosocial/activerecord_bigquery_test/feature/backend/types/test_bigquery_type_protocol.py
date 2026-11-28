@@ -27,7 +27,7 @@ import pytest
 from rhosocial.activerecord.backend.dialect.exceptions import (
     UnsupportedFeatureError,
 )
-from rhosocial.activerecord.backend.expression.type_name import (
+from rhosocial.activerecord.backend.expression.bases.type_name import (
     InvalidTypeNameError,
 )
 from rhosocial.activerecord.backend.expression.types import (

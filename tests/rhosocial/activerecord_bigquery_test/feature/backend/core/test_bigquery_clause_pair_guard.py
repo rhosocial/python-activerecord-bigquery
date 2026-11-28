@@ -40,13 +40,13 @@ report.
 import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression.core import Column
+from rhosocial.activerecord.backend.expression.column_types.column import Column
 from rhosocial.activerecord.backend.expression.objects import (
     MaterializedView,
     Schema,
     Table,
 )
-from rhosocial.activerecord.backend.expression.query_sources import (
+from rhosocial.activerecord.backend.expression.sources.query_sources import (
     SetOperation,
 )
 from rhosocial.activerecord.backend.expression.statements.ddl_schema import (

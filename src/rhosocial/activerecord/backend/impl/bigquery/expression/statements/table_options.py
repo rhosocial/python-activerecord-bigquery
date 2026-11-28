@@ -1,4 +1,4 @@
-# src/rhosocial/activerecord/backend/impl/bigquery/expression/table_options.py
+# src/rhosocial/activerecord/backend/impl/bigquery/expression/statements/table_options.py
 """BigQuery ``ALTER TABLE`` option DDL expressions.
 
 GoogleSQL syntax (BigQuery Standard SQL DDL reference)::
@@ -45,11 +45,11 @@ is never rendered and an unverified capability is never advertised.
 """
 from typing import Any, TYPE_CHECKING
 
-from rhosocial.activerecord.backend.expression.bases import BaseExpression
+from rhosocial.activerecord.backend.expression.bases.bases import BaseExpression
 from rhosocial.activerecord.backend.expression.objects import Table
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ..dialect import BigQueryDialect
+    from ...dialect import BigQueryDialect
 
 
 __all__ = [

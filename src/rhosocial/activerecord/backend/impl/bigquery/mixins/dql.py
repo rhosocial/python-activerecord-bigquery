@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression.query_sources import SetOperation
+from rhosocial.activerecord.backend.expression.sources import SetOperation
 
 if TYPE_CHECKING:
-    from rhosocial.activerecord.backend.expression.core import Column
+    from rhosocial.activerecord.backend.expression.column_types import Column
     from rhosocial.activerecord.backend.expression.predicates import LikePredicate
 
 #: The node's operation words mapped to the spelling GoogleSQL needs. Every

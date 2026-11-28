@@ -20,7 +20,7 @@ import re
 
 import pytest
 
-from rhosocial.activerecord.backend.expression.core import BaseExpression
+from rhosocial.activerecord.backend.expression.bases.bases import BaseExpression
 from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
@@ -115,7 +115,7 @@ def test_the_modules_warn_against_adding_unset_options():
     """The prohibition is written where a future contributor will read it."""
     for module in (
         importlib.import_module(
-            "rhosocial.activerecord.backend.impl.bigquery.expression.table_options"
+            "rhosocial.activerecord.backend.impl.bigquery.expression.statements.table_options"
         ),
         importlib.import_module(
             "rhosocial.activerecord.backend.impl.bigquery.mixins.table_options"

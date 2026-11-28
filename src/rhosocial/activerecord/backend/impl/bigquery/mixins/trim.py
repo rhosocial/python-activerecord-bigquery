@@ -23,7 +23,7 @@ release because the dialect has no mechanism for it.
 from typing import Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ....expression.advanced_functions import TrimExpression
+    from ....expression.functions.advanced_functions import TrimExpression
 
 
 class BigQueryTrimMixin:

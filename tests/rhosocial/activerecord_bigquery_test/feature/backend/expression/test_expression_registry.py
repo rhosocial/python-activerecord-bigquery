@@ -10,8 +10,10 @@ Everything here is construction and rendering; nothing opens a connection.
 
 import pytest
 
-from rhosocial.activerecord.backend.expression.coerce import value_expression
-from rhosocial.activerecord.backend.expression.core import Column, FunctionCall, Parameter
+from rhosocial.activerecord.backend.expression.bases.coerce import value_expression
+from rhosocial.activerecord.backend.expression.column_types.column import Column
+from rhosocial.activerecord.backend.expression.functions.function_call import FunctionCall
+from rhosocial.activerecord.backend.expression.value_types.parameter import Parameter
 from rhosocial.activerecord.backend.expression.predicates import ComparisonPredicate
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 

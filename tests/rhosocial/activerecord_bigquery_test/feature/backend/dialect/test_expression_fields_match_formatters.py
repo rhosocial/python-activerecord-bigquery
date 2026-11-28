@@ -53,7 +53,7 @@ class TestQualifiedStatementsRender:
     def test_create_materialized_view(self, dialect):
         """A class defined in this repository, qualified by a formatter here."""
         from rhosocial.activerecord.backend.expression import Column, QueryStatement
-        from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
+        from rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view import (
             BigQueryCreateMaterializedViewStatement,
         )
 
@@ -73,7 +73,7 @@ class TestQualifiedStatementsRender:
         ), qualified.to_sql()[0]
 
     def test_drop_materialized_view(self, dialect):
-        from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
+        from rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view import (
             BigQueryDropMaterializedViewStatement,
         )
 
@@ -94,7 +94,7 @@ class TestQualifiedStatementsRender:
         That is precisely the shape a source scan could not attribute to a
         class, so it is one of the two that reached CI this way.
         """
-        from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
+        from rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view import (
             BigQueryAlterMaterializedViewSetOptionsStatement,
         )
 
@@ -128,7 +128,7 @@ class TestQualifiedStatementsRender:
         """
         from rhosocial.activerecord.backend.expression import Column, QueryStatement
         from rhosocial.activerecord.backend.expression.objects import Table
-        from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
+        from rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view import (
             BigQueryAlterMaterializedViewSetOptionsStatement,
             BigQueryCreateMaterializedViewStatement,
             BigQueryCreateMaterializedViewReplicaStatement,
@@ -212,7 +212,7 @@ class TestQualifiedStatementsRender:
         object is the assertion that the path is shared.
         """
         from rhosocial.activerecord.backend.expression import Column, QueryStatement
-        from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
+        from rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view import (
             BigQueryAlterMaterializedViewSetOptionsStatement,
             BigQueryCreateMaterializedViewStatement,
             BigQueryDropMaterializedViewStatement,
@@ -252,7 +252,7 @@ class TestQualifiedStatementsRender:
         the way the inner one was before the outer namespace was declared.
         """
         from rhosocial.activerecord.backend.expression import Column, QueryStatement
-        from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
+        from rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view import (
             BigQueryDropMaterializedViewStatement,
         )
 
@@ -270,7 +270,7 @@ class TestQualifiedStatementsRender:
         The refusal comes from the dialect, while rendering, where the dialect
         is known -- not from the constructor, where it is not.
         """
-        from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
+        from rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view import (
             BigQueryDropMaterializedViewStatement,
         )
 
@@ -309,19 +309,19 @@ class TestExpressionSignatures:
         "import_path,class_name",
         [
             (
-                "rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view",
+                "rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view",
                 "BigQueryCreateMaterializedViewStatement",
             ),
             (
-                "rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view",
+                "rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view",
                 "BigQueryDropMaterializedViewStatement",
             ),
             (
-                "rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view",
+                "rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view",
                 "BigQueryAlterMaterializedViewSetOptionsStatement",
             ),
             (
-                "rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view",
+                "rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view",
                 "BigQueryCreateMaterializedViewReplicaStatement",
             ),
         ],
@@ -356,7 +356,7 @@ class TestExpressionSignatures:
         leaving the slot off the object rather than by passing ``None``
         separately.
         """
-        from rhosocial.activerecord.backend.impl.bigquery.expression.materialized_view import (
+        from rhosocial.activerecord.backend.impl.bigquery.expression.statements.materialized_view import (
             BigQueryAlterMaterializedViewSetOptionsStatement,
             BigQueryCreateMaterializedViewStatement,
             BigQueryDropMaterializedViewStatement,

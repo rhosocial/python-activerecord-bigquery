@@ -81,7 +81,7 @@ class TestDateDiffRenders:
 
     def test_every_framework_unit_has_a_bigquery_spelling(self, started_at, ended_at):
         """No unit the framework allows may be left unrendable here."""
-        from rhosocial.activerecord.backend.expression.datetime import IntervalUnit
+        from rhosocial.activerecord.backend.expression.functions.datetime import IntervalUnit
 
         for member in IntervalUnit:
             sql, _ = started_at.date_diff(member.value, ended_at).to_sql()

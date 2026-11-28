@@ -1,4 +1,4 @@
-# src/rhosocial/activerecord/backend/impl/bigquery/expression/materialized_view.py
+# src/rhosocial/activerecord/backend/impl/bigquery/expression/statements/materialized_view.py
 
 """BigQuery materialized view DDL expressions.
 
@@ -45,17 +45,17 @@ Divergence from the SQL-standard statement
 """
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from rhosocial.activerecord.backend.expression.bases import BaseExpression
+from rhosocial.activerecord.backend.expression.bases.bases import BaseExpression
 from rhosocial.activerecord.backend.expression.objects import MaterializedView
 from rhosocial.activerecord.backend.expression.statements.ddl_view import (
     CreateMaterializedViewStatement,
     DropMaterializedViewStatement,
 )
 
-from ..materialized_view_options import validate_materialized_view_options
+from ...materialized_view_options import validate_materialized_view_options
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ..dialect import BigQueryDialect
+    from ...dialect import BigQueryDialect
 
 
 __all__ = [
