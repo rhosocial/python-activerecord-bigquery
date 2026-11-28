@@ -5,6 +5,9 @@ import importlib
 
 import pytest
 
+from rhosocial.activerecord.backend.impl.bigquery.expression_registry import (
+    BIGQUERY_EXPRESSION_REGISTRY,
+)
 from rhosocial.activerecord.testsuite.feature.rules.backend.support import impl_root_of
 from rhosocial.activerecord.testsuite.feature.rules.contracts.subject import (
     ExpressionSubject,
@@ -27,3 +30,9 @@ def subject() -> ExpressionSubject:
         open_package_root=root,
         impl_module_prefix=IMPL,
     )
+
+
+@pytest.fixture
+def registry():
+    """bigquery's frozen published expression table, as a value."""
+    return BIGQUERY_EXPRESSION_REGISTRY
