@@ -33,6 +33,11 @@ for path in sorted(root.rglob("*")):
         continue
     if any(part.startswith((".", "_")) or part == "__pycache__" for part in path.parts):
         continue
+    # The formal rules are a gate job of their own: pure source and signature
+    # assertions, no dataset and no emulator. Sharding them here would only
+    # repeat the gate after the expensive emulator work had already started.
+    if path.name == "rules" and path.parent.name == "feature":
+        continue
     if not any(path.glob("test_*.py")):
         continue
     if any(child.parent != path for child in path.rglob("test_*.py")):
