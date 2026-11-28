@@ -10,6 +10,7 @@ and large content from the testsuite sample files.
 import json
 import math
 import os
+from functools import lru_cache
 from datetime import date, datetime, time, timedelta
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional
@@ -22,14 +23,9 @@ from rhosocial.activerecord.relation.cache_backends._protocol import CacheSerial
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SAMPLE_DIR = None
-
-
+@lru_cache(maxsize=1)
 def _find_samples() -> Optional[str]:
     """Locate the testsuite sample directory."""
-    global _SAMPLE_DIR
-    if _SAMPLE_DIR is not None:
-        return _SAMPLE_DIR
     try:
         import rhosocial.activerecord.testsuite as _ts
 
@@ -40,8 +36,7 @@ def _find_samples() -> Optional[str]:
         ]:
             path = os.path.abspath(attempt)
             if os.path.isdir(path):
-                _SAMPLE_DIR = path
-                return _SAMPLE_DIR
+                return path
     except Exception:
         pass
     return None
