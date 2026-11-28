@@ -175,7 +175,7 @@ class BigQueryNamespaceMixin:
         """
         return True
 
-    def validate_catalog_name(self, expr: Any) -> None:
+    def validate_catalog_name(self, expr: Any) -> bool:
         """Accept or reject the project *expr* carries.
 
         A BigQuery path is ``project.dataset.table``: the project never stands
@@ -204,12 +204,13 @@ class BigQueryNamespaceMixin:
         """
         if expr.catalog_name and not expr.schema_name:
             if expr.name == "INFORMATION_SCHEMA.SCHEMATA":
-                return
+                return True
             raise ValueError(
                 f"BigQuery renders a project only together with a dataset; "
                 f"{type(expr).__name__} {expr.name!r} carries "
                 f"catalog_name={expr.catalog_name!r} but no schema_name"
             )
+        return True
 
 
 __all__ = ["BigQueryNamespaceMixin"]
