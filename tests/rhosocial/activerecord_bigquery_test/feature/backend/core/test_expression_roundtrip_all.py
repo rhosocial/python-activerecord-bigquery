@@ -237,9 +237,9 @@ from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryTablePartitionByClause,
 )
 from rhosocial.activerecord_bigquery_test.feature.backend.expression_roundtrip_harness import (
+    SpecialConstructorRegistry,
     collect_expression_classes,
     make_instance,
-    register_special_constructor,
     trusted_registry,
 )
 
@@ -335,17 +335,17 @@ def _integer_column(dialect, name="col"):
     return ddl_table.ColumnDefinition(dialect, name, IntegerType(dialect))
 
 
-def register_specials():
+def register_specials(registry):
     """Replace every introspective guess that would cost a real assertion."""
     # -- nodes whose ``op`` is a closed word set, not a free string ----------
     # Both refuse an ``op`` outside their set at construction, so the
     # introspective guess (which supplies a placeholder string) cannot build
     # them at all. Naming one real word is what lets the matrix exercise them.
-    register_special_constructor(
+    registry.register(
         "operators.ArithmeticOperation",
         lambda d: ArithmeticOperation(d, "add", Column(d, "a"), Literal(d, 1)),
     )
-    register_special_constructor(
+    registry.register(
         "query_sources.SetOperation",
         lambda d: SetOperation(
             d,
@@ -357,7 +357,7 @@ def register_specials():
     # The statement half of the same pair: the word-form enum refuses the
     # guess's bare string at construction, and BigQuery spells a compound
     # SELECT, so a factory turns it into an instance the matrix can assert.
-    register_special_constructor(
+    registry.register(
         "statements.dql.SetOperationStatement",
         lambda d: SetOperationStatement(
             d, op="union_all", parts=_compound_arms(d)
@@ -365,11 +365,11 @@ def register_specials():
     )
 
     # -- the FROM side ------------------------------------------------------
-    register_special_constructor(
+    registry.register(
         "sources.relation.NamedRelationRef",
         lambda d: NamedRelationRef(d, _table(d)),
     )
-    register_special_constructor(
+    registry.register(
         "query_parts.JoinClause",
         lambda d: JoinClause(
             d,
@@ -380,38 +380,38 @@ def register_specials():
     )
 
     # -- tables -------------------------------------------------------------
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.CreateTableStatement",
         lambda d: ddl_table.CreateTableStatement(d, _table(d), [_integer_column(d)]),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.DropTableStatement",
         lambda d: ddl_table.DropTableStatement(d, _table(d)),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.CreateTableLikeStatement",
         lambda d: ddl_table.CreateTableLikeStatement(d, _table(d), Table(d, "other")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.CreateTableCloneStatement",
         lambda d: ddl_table.CreateTableCloneStatement(d, _table(d), Table(d, "other")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.CreateTableAsStatement",
         lambda d: ddl_table.CreateTableAsStatement(d, _table(d), _one_column_query(d)),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.CreateTableFromTemplateStatement",
         lambda d: ddl_table.CreateTableFromTemplateStatement(
             d, _table(d), _one_column_query(d)
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_truncate.TruncateStatement",
         lambda d: ddl_truncate.TruncateStatement(d, _table(d)),
     )
     # Overrides the shared testsuite factory, which binds no dialect to its type.
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.ColumnDefinition", _integer_column
     )
 
@@ -420,17 +420,17 @@ def register_specials():
     # be built without saying what kind it is, and the branches whose payload
     # is a column list or a referenced table need real values the heuristic
     # guess has nothing to supply.
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.ColumnConstraint",
         lambda d: ColumnConstraint(d, branch=ColumnNotNullConstraint(d), name="c"),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.TableConstraint",
         lambda d: TableConstraint(
             d, branch=TableUniqueConstraint(d, ["a"]), name="c"
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.ForeignKeyConstraint",
         lambda d: ForeignKeyConstraint(
             d,
@@ -440,47 +440,47 @@ def register_specials():
             name="fk",
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.ReferencesClause",
         lambda d: ReferencesClause(d, Table(d, "other"), ["b"]),
     )
 
     # -- indexes, and the ALTER TABLE actions over them ---------------------
-    register_special_constructor(
+    registry.register(
         "statements.ddl_index.CreateIndexStatement",
         lambda d: ddl_index.CreateIndexStatement(
             d, index=Index(d, "i"), table=_table(d), columns=["a"]
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_index.DropIndexStatement",
         lambda d: ddl_index.DropIndexStatement(d, index=Index(d, "i")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_index.CreateFulltextIndexStatement",
         lambda d: ddl_index.CreateFulltextIndexStatement(
             d, index=Index(d, "i"), table=_table(d), columns=["a"]
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_index.DropFulltextIndexStatement",
         lambda d: ddl_index.DropFulltextIndexStatement(
             d, index=Index(d, "i"), table=_table(d)
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_alter.DropIndexAction",
         lambda d: ddl_alter.DropIndexAction(d, Index(d, "i")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_alter.AddIndexAction",
         lambda d: ddl_alter.AddIndexAction(d, IndexDefinition(d, "i", ["a"])),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_alter.AddColumnAction",
         lambda d: ddl_alter.AddColumnAction(d, _integer_column(d)),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_alter.AddTableConstraintAction",
         lambda d: ddl_alter.AddTableConstraintAction(
             d,
@@ -494,7 +494,7 @@ def register_specials():
     # the keyword-only ``constraint`` declaration, so it builds an action with
     # no address at all -- which the formatter refuses. BigQuery can only drop
     # by name, so the constructor supplies the name.
-    register_special_constructor(
+    registry.register(
         "statements.ddl_alter.DropTableConstraintAction",
         lambda d: ddl_alter.DropTableConstraintAction(d, "c"),
     )
@@ -503,13 +503,13 @@ def register_specials():
     # arrives incomplete. The enforcement keyword is mandatory in
     # AlterConstraintAction's grammar (exactly one of enforced / not_enforced),
     # so the constructor names one of them.
-    register_special_constructor(
+    registry.register(
         "statements.ddl_alter.AlterConstraintAction",
         lambda d: ddl_alter.AlterConstraintAction(
             d, "c", enforced=True, constraint_kind=TableCheckConstraint
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_alter.ValidateConstraintAction",
         # The action names its constraint positionally now; the keyword-only
         # ``name`` must repeat it exactly, so naming it twice says less than
@@ -518,35 +518,35 @@ def register_specials():
     )
 
     # -- schemas, sequences, databases, domains, types ---------------------
-    register_special_constructor(
+    registry.register(
         "statements.ddl_schema.CreateSchemaStatement",
         lambda d: ddl_schema.CreateSchemaStatement(d, Schema(d, "s")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_schema.DropSchemaStatement",
         lambda d: ddl_schema.DropSchemaStatement(d, Schema(d, "s")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_sequence.CreateSequenceStatement",
         lambda d: ddl_sequence.CreateSequenceStatement(d, Sequence(d, "s")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_sequence.AlterSequenceStatement",
         lambda d: ddl_sequence.AlterSequenceStatement(d, Sequence(d, "s"), restart=1),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_sequence.DropSequenceStatement",
         lambda d: ddl_sequence.DropSequenceStatement(d, Sequence(d, "s")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_database.CreateDatabaseStatement",
         lambda d: ddl_database.CreateDatabaseStatement(d, Database(d, "db")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_database.DropDatabaseStatement",
         lambda d: ddl_database.DropDatabaseStatement(d, Database(d, "db")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_database.AlterDatabaseStatement",
         lambda d: ddl_database.AlterDatabaseStatement(
             d,
@@ -555,15 +555,15 @@ def register_specials():
             target="renamed_db",
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_domain.CreateDomainStatement",
         lambda d: ddl_domain.CreateDomainStatement(d, Domain(d, "dom"), IntegerType(d)),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_domain.DropDomainStatement",
         lambda d: ddl_domain.DropDomainStatement(d, Domain(d, "dom")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_domain.AlterDomainStatement",
         lambda d: ddl_domain.AlterDomainStatement(
             d, Domain(d, "dom"), RenameDomainAction(d, "other")
@@ -571,11 +571,11 @@ def register_specials():
     )
     # A DOMAIN CHECK is DDL: it must render without bind parameters, so its
     # condition compares two columns rather than a column and a literal.
-    register_special_constructor(
+    registry.register(
         "statements.ddl_domain.DomainCheckConstraint",
         lambda d: DomainCheckConstraint(d, _column_predicate(d), name="chk"),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_domain.AddDomainCheckAction",
         lambda d: ddl_domain.AddDomainCheckAction(
             d, DomainCheckConstraint(d, _column_predicate(d), name="chk")
@@ -583,17 +583,17 @@ def register_specials():
     )
 
     # -- routines, triggers, comments --------------------------------------
-    register_special_constructor(
+    registry.register(
         "statements.ddl_function.CreateFunctionStatement",
         lambda d: ddl_function.CreateFunctionStatement(
             d, Function(d, "fn"), returns="integer", body="SELECT 1"
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_function.DropFunctionStatement",
         lambda d: ddl_function.DropFunctionStatement(d, Function(d, "fn")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_trigger.CreateTriggerStatement",
         lambda d: ddl_trigger.CreateTriggerStatement(
             d,
@@ -604,11 +604,11 @@ def register_specials():
             function=Function(d, "fn"),
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_trigger.DropTriggerStatement",
         lambda d: ddl_trigger.DropTriggerStatement(d, trigger=Trigger(d, "trg")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_comment.CommentOnStatement",
         lambda d: ddl_comment.CommentOnStatement(d, "table", _table(d), comment="c"),
     )
@@ -618,27 +618,27 @@ def register_specials():
     # generic guess sets every bool, which now trips the dialect's
     # OR-REPLACE/IF-NOT-EXISTS exclusivity guard, so name a valid one.  The
     # class stays pinned in LEGITIMATE_NON_ROUNDTRIPS for its ViewOptions slot.
-    register_special_constructor(
+    registry.register(
         "statements.ddl_view.CreateViewStatement",
         lambda d: ddl_view.CreateViewStatement(
             d, View(d, "v"), _one_column_query(d), if_not_exists=True
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_view.DropViewStatement",
         lambda d: ddl_view.DropViewStatement(d, View(d, "v")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_view.CreateMaterializedViewStatement",
         lambda d: ddl_view.CreateMaterializedViewStatement(
             d, MaterializedView(d, "mv"), _one_column_query(d)
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_view.DropMaterializedViewStatement",
         lambda d: ddl_view.DropMaterializedViewStatement(d, MaterializedView(d, "mv")),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_view.RefreshMaterializedViewStatement",
         lambda d: ddl_view.RefreshMaterializedViewStatement(
             d, MaterializedView(d, "mv")
@@ -646,19 +646,19 @@ def register_specials():
     )
 
     # -- DML ----------------------------------------------------------------
-    register_special_constructor(
+    registry.register(
         "statements.dml.InsertStatement",
         lambda d: dml.InsertStatement(
             d, into=_table(d), source=dml.ValuesSource(d, [[Literal(d, 1)]])
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.dml.DeleteStatement",
         lambda d: dml.DeleteStatement(d, _table(d)),
     )
     # The guess gives MERGE a bare string for its row source and no matched
     # action, and the action itself a sequence with no alias.
-    register_special_constructor(
+    registry.register(
         "statements.dml.MergeStatement",
         lambda d: dml.MergeStatement(
             d,
@@ -676,7 +676,7 @@ def register_specials():
             ],
         ),
     )
-    register_special_constructor(
+    registry.register(
         "statements.dml.MergeAction",
         lambda d: MergeAction(
             d,
@@ -694,15 +694,15 @@ def register_specials():
     # ``op`` is normalised at construction now (core 9659c483), and the guess
     # hands the slot a bare string that is neither a member nor a spelling it
     # accepts -- so the class is constructible but the guess cannot build it.
-    register_special_constructor(
+    registry.register(
         "predicates.ComparisonPredicate",
         lambda d: ComparisonPredicate(d, "=", Column(d, "a"), Column(d, "b")),
     )
-    register_special_constructor(
+    registry.register(
         "predicates.LikePredicate",
         lambda d: LikePredicate(d, LikeOperator.LIKE, Column(d, "a"), Literal(d, "%x%")),
     )
-    register_special_constructor(
+    registry.register(
         "predicates.ILikePredicate",
         lambda d: ILikePredicate(d, Column(d, "a"), "%x%"),
     )
@@ -711,11 +711,11 @@ def register_specials():
     # The constructor declares the position inline-only and refuses a residual
     # bind value, so the guess's Literal-bearing comparison cannot render. Two
     # columns compose the same predicate with nothing that binds in it.
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.TableCheckConstraint",
         lambda d: TableCheckConstraint(d, _column_predicate(d)),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_table.ColumnGeneratedConstraint",
         # The node defaults to VIRTUAL, which BigQuery's probe refuses; STORED
         # is the spelling this dialect supports, so the constructor names it.
@@ -743,13 +743,13 @@ def register_specials():
         "XMLAnnotation",
         "ArrayAnnotation",
     ):
-        register_special_constructor(
+        registry.register(
             f"declared.{_annotation}",
             lambda d, _n=_annotation: getattr(declared, _n)(d, Column(d, "c")),
         )
 
     # -- expressions that must not be empty ---------------------------------
-    register_special_constructor(
+    registry.register(
         "advanced_functions.CaseExpression",
         lambda d: CaseExpression(
             d,
@@ -757,17 +757,17 @@ def register_specials():
             else_result=Literal(d, 0),
         ),
     )
-    register_special_constructor(
+    registry.register(
         "advanced_functions.WindowSpecification",
         lambda d: WindowSpecification(d, partition_by=["a"]),
     )
-    register_special_constructor(
+    registry.register(
         "advanced_functions.WindowDefinition",
         lambda d: WindowDefinition(
             d, "w", WindowSpecification(d, partition_by=["a"])
         ),
     )
-    register_special_constructor(
+    registry.register(
         "advanced_functions.WindowClause",
         lambda d: WindowClause(
             d, [WindowDefinition(d, "w", WindowSpecification(d, partition_by=["a"]))]
@@ -775,7 +775,7 @@ def register_specials():
     )
     # An empty options dict is refused by the formatter, so a time-travel clause
     # needs an actual option to be worth building.
-    register_special_constructor(
+    registry.register(
         "datetime.TemporalOptionsExpression",
         lambda d: TemporalOptionsExpression(d, {"as_of": "2020-01-01"}),
     )
@@ -788,25 +788,25 @@ def register_specials():
     # what these nodes exist to spell. BigQuery renders partitions through its
     # own PARTITION BY option clause, so the generic clauses then refuse
     # through the dialect's capability gates -- answers the matrix classifies.
-    register_special_constructor(
+    registry.register(
         "statements.ddl_partition.PartitionClause",
         lambda d: PartitionClause(d, "RANGE", [Column(d, "id")]),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_partition.PartitionByRangeClause",
         lambda d: PartitionByRangeClause(d, [Column(d, "id")]),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_partition.PartitionByListClause",
         lambda d: PartitionByListClause(d, [Column(d, "id")]),
     )
-    register_special_constructor(
+    registry.register(
         "statements.ddl_partition.PartitionByHashClause",
         lambda d: PartitionByHashClause(d, [Column(d, "id")]),
     )
 
     # -- types that need a member type or a member value --------------------
-    register_special_constructor(
+    registry.register(
         # ``element_type`` is keyword-only behind an optional ``dialect`` now,
         # so a positional member type is not expressible; the keyword is the
         # only spelling left.
@@ -815,7 +815,7 @@ def register_specials():
     )
     # ``values`` is keyword-only behind a defaulted positional, so the guess
     # skips it and the type declares no members.
-    register_special_constructor(
+    registry.register(
         "types.enum_.EnumType", lambda d: EnumType(d, values=["a", "b"])
     )
 
@@ -824,7 +824,7 @@ def register_specials():
     # guess (an int) constructs it and the kind follows the host value. The
     # kinds an int cannot state are exercised by the literal spelling tests;
     # here the matrix needs one representative per shape, not twelve.
-    register_special_constructor(
+    registry.register(
         "core.Literal", lambda d: Literal(d, 1)
     )
 
@@ -833,23 +833,23 @@ def register_specials():
     # the filler cannot resolve structurally, and its name-based fallback hands
     # a bare ``"x"`` that the nodes' typed-operand coercers refuse. Real
     # operands construct exactly what each node exists to spell.
-    register_special_constructor(
+    registry.register(
         "functions.string.ChrFunction", lambda d: ChrFunction(d, 65)
     )
-    register_special_constructor(
+    registry.register(
         "functions.string.LeftFunction", lambda d: LeftFunction(d, "abc", 2)
     )
-    register_special_constructor(
+    registry.register(
         "functions.string.RightFunction", lambda d: RightFunction(d, "abc", 2)
     )
-    register_special_constructor(
+    registry.register(
         "functions.string.SpaceFunction", lambda d: SpaceFunction(d, 3)
     )
-    register_special_constructor(
+    registry.register(
         "functions.string.SubstringExpression",
         lambda d: SubstringExpression(d, "abc", 2),
     )
-    register_special_constructor(
+    registry.register(
         "functions.string.OverlayExpression",
         lambda d: OverlayExpression(d, "abc", "xy", 2),
     )
@@ -860,11 +860,11 @@ def register_specials():
     # ``"x"`` the class refuses. A real field and a column source are what
     # the node spells; both classes render through the shared
     # ``format_extract_expression``.
-    register_special_constructor(
+    registry.register(
         "datetime.ExtractFieldExpression",
         lambda d: ExtractFieldExpression(d, "YEAR", Column(d, "ts")),
     )
-    register_special_constructor(
+    registry.register(
         "datetime._ExtractBase",
         lambda d: _ExtractBase(d, "YEAR", Column(d, "ts")),
     )
@@ -879,36 +879,36 @@ def register_specials():
     def path_pattern(d):
         return graph_mod.PathPattern(d, graph_mod.GraphVertex(d, "n", node_table(d)))
 
-    register_special_constructor(
+    registry.register(
         "graph.GraphVertex", lambda d: graph_mod.GraphVertex(d, "n", node_table(d))
     )
-    register_special_constructor(
+    registry.register(
         "graph.GraphEdge", lambda d: graph_mod.GraphEdge(d, "e", edge_table(d))
     )
-    register_special_constructor(
+    registry.register(
         "graph.VertexTable",
         lambda d: graph_mod.VertexTable(d, node_table(d), key_columns=["id"]),
     )
     # graph.EdgeTable is gone: core renamed the element to EdgeTableDefinition,
     # which the heuristic constructor builds on its own (a guessed source
     # element and no edge columns), so no registered factory stands in for it.
-    register_special_constructor(
+    registry.register(
         "graph.QuantifiedPath",
         lambda d: graph_mod.QuantifiedPath(
             d, graph_mod.GraphEdge(d, "e", edge_table(d)), min_repeats=1, max_repeats=3
         ),
     )
-    register_special_constructor(
+    registry.register(
         "graph.MatchClause", lambda d: graph_mod.MatchClause(d, path_pattern(d))
     )
-    register_special_constructor(
+    registry.register(
         "graph.ColumnsClause",
         lambda d: graph_mod.ColumnsClause(d, graph_mod.GraphColumn("n", "id")),
     )
-    register_special_constructor(
+    registry.register(
         "graph.PathPattern", path_pattern
     )
-    register_special_constructor(
+    registry.register(
         "graph.GraphTableExpression",
         lambda d: graph_mod.GraphTableExpression(
             d,
@@ -917,7 +917,7 @@ def register_specials():
             columns=graph_mod.ColumnsClause(d, graph_mod.GraphColumn("n", "id")),
         ),
     )
-    register_special_constructor(
+    registry.register(
         "graph.CreatePropertyGraphStatement",
         lambda d: graph_mod.CreatePropertyGraphStatement(
             d, graph=PropertyGraph(d, "g"), vertex_tables=[graph_mod.VertexTable(d, node_table(d))]
@@ -925,7 +925,7 @@ def register_specials():
     )
     # The formatter accepts "add"/"drop" against "vertex tables"/"edge tables"/
     # "tables"; anything else is refused.
-    register_special_constructor(
+    registry.register(
         "graph.AlterPropertyGraphStatement",
         lambda d: graph_mod.AlterPropertyGraphStatement(
             d,
@@ -935,28 +935,28 @@ def register_specials():
             vertex_tables=[graph_mod.VertexTable(d, node_table(d))],
         ),
     )
-    register_special_constructor(
+    registry.register(
         "graph.DropPropertyGraphStatement",
         lambda d: graph_mod.DropPropertyGraphStatement(d, graph=PropertyGraph(d, "g")),
     )
 
     # -- SQL/XML ------------------------------------------------------------
-    register_special_constructor(
+    registry.register(
         "xml.XMLAttributesExpression",
         lambda d: XMLAttributesExpression(d, [XMLAttribute(Literal(d, "v"), "a")]),
     )
-    register_special_constructor(
+    registry.register(
         "xml.XMLForestExpression",
         lambda d: XMLForestExpression(d, [XMLForestItem(Literal(d, "v"), "a")]),
     )
-    register_special_constructor(
+    registry.register(
         "xml.XMLConcatExpression",
         lambda d: XMLConcatExpression(d, [Literal(d, "a"), Literal(d, "b")]),
     )
     # An XMLTABLE needs a row source document and a COLUMNS list; with neither
     # it is not a statement at all. The document is an expression, and the
     # columns are typed projections rather than a plain name.
-    register_special_constructor(
+    registry.register(
         "xml.XMLTableExpression",
         lambda d: XMLTableExpression(
             d, RawSQL(d, "SELECT 1 AS a"), [XMLTableColumn("a", "int")]
@@ -966,7 +966,7 @@ def register_specials():
     # -- this backend's own four expressions --------------------------------
     # OPTIONS must be a non-empty mapping, which the introspective guess
     # supplies as ``{}``.
-    register_special_constructor(
+    registry.register(
         "materialized_view.BigQueryAlterMaterializedViewSetOptionsStatement",
         lambda d: BigQueryAlterMaterializedViewSetOptionsStatement(
             d, MaterializedView(d, "mv"), {"enable_refresh": True}
@@ -975,7 +975,7 @@ def register_specials():
     # The table-option nodes collect a frozen tuple of pairs: a real table
     # object and real option names/values, so the matrix asserts a renderable
     # statement rather than a shape the formatter would refuse.
-    register_special_constructor(
+    registry.register(
         "table_options.BigQueryAlterTableSetOptionsStatement",
         lambda d: BigQueryAlterTableSetOptionsStatement(
             d,
@@ -986,11 +986,11 @@ def register_specials():
     # The proprietary partition clause collects parameters only; the
     # introspective guess leaves it empty and the formatter rightly refuses it.
     # A real partition expression is what this matrix must render.
-    register_special_constructor(
+    registry.register(
         "partition.BigQueryTablePartitionByClause",
         lambda d: BigQueryTablePartitionByClause(d, "DATE(ts)", ["a", "b"]),
     )
-    register_special_constructor(
+    registry.register(
         "partition.BigQueryCreateTableStatement",
         lambda d: BigQueryCreateTableStatement(
             d,
@@ -1001,13 +1001,18 @@ def register_specials():
     )
     # A decorated table is a Table-derived relation; the introspective guess
     # cannot supply the decorator, so register a real one.
-    register_special_constructor(
+    registry.register(
         "partition.BigQueryPartitionDecoratedTable",
         lambda d: BigQueryPartitionDecoratedTable(d, "events", "20260101"),
     )
 
 
-register_specials()
+@pytest.fixture(scope="session")
+def special_registry():
+    """The explicit registry every matrix case builds its instances through."""
+    registry = SpecialConstructorRegistry()
+    register_specials(registry)
+    return registry
 
 
 # ---------------------------------------------------------------------------
@@ -1747,7 +1752,7 @@ def dialect():
 
 
 @pytest.fixture(params=sorted(REGISTERED), ids=sorted(REGISTERED))
-def expr_case(request, dialect):
+def expr_case(request, dialect, special_registry):
     fqn = request.param
     if fqn in UNCONSTRUCTIBLE:
         pytest.skip(
@@ -1762,7 +1767,7 @@ def expr_case(request, dialect):
     # TABLE with a BigQuery partition clause) resolves without any per-test
     # registration. Decoding in the matrix goes through ``trusted_registry()``
     # only to admit the two caller-vouched raw-SQL nodes.
-    instance, source = make_instance(cls, dialect)
+    instance, source = make_instance(cls, dialect, special_registry)
     assert instance is not None, (
         f"{fqn} cannot be built by the constructors this module registers "
         f"({source}). Register a special constructor for it -- the matrix has "
@@ -1784,7 +1789,7 @@ class TestExpressionRoundtripAll:
 class TestMatrixIntegrity:
     """Guards on the matrix and its lists, so neither can quietly change."""
 
-    def test_nothing_is_skipped(self, dialect):
+    def test_nothing_is_skipped(self, dialect, special_registry):
         """Every covered class builds. There is no skip, and no ceiling either.
 
         The set is re-derived from ``make_instance`` and compared with
@@ -1795,7 +1800,7 @@ class TestMatrixIntegrity:
             sorted(
                 fqn
                 for fqn in REGISTERED
-                if make_instance(REGISTERED[fqn], dialect)[0] is None
+                if make_instance(REGISTERED[fqn], dialect, special_registry)[0] is None
             )
         )
         assert actual == tuple(sorted(UNCONSTRUCTIBLE)), (
@@ -1824,14 +1829,14 @@ class TestMatrixIntegrity:
                 f"{table} names classes that were not collected: {sorted(unknown)}"
             )
 
-    def test_pinned_non_renders_still_raise_what_they_claim(self, dialect):
+    def test_pinned_non_renders_still_raise_what_they_claim(self, dialect, special_registry):
         """Each pinned entry still fails the way the table says, for that reason.
 
         Without this an entry could sit in the table for a class that now renders
         perfectly well, and the matrix would be asserting nothing about it.
         """
         for fqn, (expected_type, fragment) in LEGITIMATE_NON_RENDERS.items():
-            instance, source = make_instance(REGISTERED[fqn], dialect)
+            instance, source = make_instance(REGISTERED[fqn], dialect, special_registry)
             assert instance is not None, (
                 f"{fqn} is pinned as a non-render but could not be constructed "
                 f"({source})"
@@ -1843,7 +1848,7 @@ class TestMatrixIntegrity:
                 f"{exc_info.value}"
             )
 
-    def test_pinned_non_roundtrip_refuses_as_pinned(self, dialect):
+    def test_pinned_non_roundtrip_refuses_as_pinned(self, dialect, special_registry):
         """Each pinned channel still fails the way the table says, for that reason.
 
         The mirror of the non-render pin, one level down: a class may render and
@@ -1851,7 +1856,7 @@ class TestMatrixIntegrity:
         hidden among the classes that do not render at all.
         """
         for fqn, entry in LEGITIMATE_NON_ROUNDTRIPS.items():
-            instance, source = make_instance(REGISTERED[fqn], dialect)
+            instance, source = make_instance(REGISTERED[fqn], dialect, special_registry)
             assert instance is not None, (
                 f"{fqn} is pinned as a non-roundtrip but could not be "
                 f"constructed ({source})"
@@ -1859,10 +1864,10 @@ class TestMatrixIntegrity:
             for channel, pin in entry["channels"].items():
                 _assert_pinned_channel(fqn, channel, instance, dialect, pin)
 
-    def test_pinned_not_implementeds_still_raise_what_they_claim(self, dialect):
+    def test_pinned_not_implementeds_still_raise_what_they_claim(self, dialect, special_registry):
         """Each pinned entry still raises, and says the reason the table names."""
         for fqn, fragment in LEGITIMATE_NOT_IMPLEMENTED.items():
-            instance, source = make_instance(REGISTERED[fqn], dialect)
+            instance, source = make_instance(REGISTERED[fqn], dialect, special_registry)
             assert instance is not None, (
                 f"{fqn} is pinned as not-implemented but could not be constructed "
                 f"({source})"
@@ -1874,7 +1879,7 @@ class TestMatrixIntegrity:
                 f"{exc_info.value}"
             )
 
-    def test_unmodelled_formatter_list_is_exact(self, dialect):
+    def test_unmodelled_formatter_list_is_exact(self, dialect, special_registry):
         """Pin the unmodelled-formatter table against what the dialect lacks.
 
         Observed rather than assumed: for each class the matrix covers, either
@@ -1900,7 +1905,7 @@ class TestMatrixIntegrity:
         """
         observed = set()
         for fqn in sorted(REGISTERED):
-            instance, source = make_instance(REGISTERED[fqn], dialect)
+            instance, source = make_instance(REGISTERED[fqn], dialect, special_registry)
             if instance is None:
                 continue
             try:
@@ -2018,7 +2023,7 @@ class TestMatrixIntegrity:
             "no class in the matrix resolves; the registry is the wrong table"
         )
 
-    def test_coverage_report(self, dialect):
+    def test_coverage_report(self, dialect, special_registry):
         """Surface the classification, so what the matrix covers stays visible.
 
         Every number below is counted by rendering each class once in this
@@ -2030,7 +2035,7 @@ class TestMatrixIntegrity:
         """
         counts = {}
         for fqn, cls in REGISTERED.items():
-            instance, source = make_instance(cls, dialect)
+            instance, source = make_instance(cls, dialect, special_registry)
             if instance is None:
                 assert fqn in UNCONSTRUCTIBLE, (
                     f"{fqn} could not be constructed ({source}) and is not "
