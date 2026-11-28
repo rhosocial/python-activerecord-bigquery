@@ -57,14 +57,38 @@ __all__ = [
 # from that declaration: ``KIND_RESERVED`` is data, not behaviour, so no class
 # overrides ``kind()`` and class name, kind and formatting entry keep one source.
 #
-# The loop walks this package's own modules rather than the ``__all__`` list
-# above, for the reason the sqlite and mysql packages give: a hand-maintained
-# list can only ever be out of date, and a node defined but not re-exported here
-# would silently keep the split spelling.
+# Ownership is declared by name, once, below: the names of every expression
+# class this package defines are written out whole and the loop matches against
+# that declaration, so no prefix test or name slicing guesses at ownership.
+# The set covers the introspection statement that is deliberately not
+# re-exported above (BigQueryRoutineListQueryStatement); the kind-identity test
+# pins the complete list, so adding a node requires declaring it here too.
 import importlib as _importlib
 import pkgutil as _pkgutil
 
 from rhosocial.activerecord.backend.expression.core import BaseExpression as _BaseExpression
+
+_BIGQUERY_OWNED_NAMES = frozenset({
+    "BigQueryAlterMaterializedViewSetOptionsStatement",
+    "BigQueryAlterTableSetOptionsStatement",
+    "BigQueryColumnDataProfileQueryStatement",
+    "BigQueryColumnInfoQueryStatement",
+    "BigQueryCreateMaterializedViewReplicaStatement",
+    "BigQueryCreateMaterializedViewStatement",
+    "BigQueryCreateTableStatement",
+    "BigQueryDatabaseInfoQueryStatement",
+    "BigQueryDatasetListQueryStatement",
+    "BigQueryDropMaterializedViewStatement",
+    "BigQueryIndexInfoQueryStatement",
+    "BigQueryPartitionDecoratedTable",
+    "BigQueryPartitionListQueryStatement",
+    "BigQueryRoutineListQueryStatement",
+    "BigQueryTableListQueryStatement",
+    "BigQueryTableOptionsQueryStatement",
+    "BigQueryTablePartitionByClause",
+    "BigQueryViewInfoQueryStatement",
+    "BigQueryViewListQueryStatement",
+})
 
 for _module_info in _pkgutil.walk_packages(
     __path__, prefix=__name__ + ".", onerror=lambda _error: None
@@ -75,7 +99,7 @@ for _module_info in _pkgutil.walk_packages(
             isinstance(_value, type)
             and issubclass(_value, _BaseExpression)
             and _value.__module__ == _module_info.name
-            and _value.__name__.startswith("BigQuery")
+            and _value.__name__ in _BIGQUERY_OWNED_NAMES
         ):
             _value.KIND_RESERVED = ("BigQuery",)
-del _module_info, _module, _value, _importlib, _pkgutil, _BaseExpression
+del _module_info, _module, _value, _importlib, _pkgutil, _BaseExpression, _BIGQUERY_OWNED_NAMES
