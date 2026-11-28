@@ -410,12 +410,12 @@ DML 语句接受带限定的 `TableExpression`，限定方式一致。不带 `WH
 ```python
 InsertStatement(
     d, TableExpression(d, "users", schema_name="app"),
-    ValuesSource(d, [[Literal(d, "x")]]), columns=["name"],
+    ValuesSource(d, [[Parameter(d, "x")]]), columns=["name"],
 ).to_sql()
 # ('INSERT INTO `app`.`users` (`name`) VALUES (?)', ('x',))
 
 UpdateStatement(
-    d, TableExpression(d, "users", schema_name="app"), {"name": Literal(d, "x")}
+    d, TableExpression(d, "users", schema_name="app"), {"name": Parameter(d, "x")}
 ).to_sql()
 # ('UPDATE `app`.`users` SET `name` = ?', ('x',))
 

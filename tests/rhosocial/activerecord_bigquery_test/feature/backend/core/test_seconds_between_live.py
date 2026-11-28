@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from rhosocial.activerecord.backend.expression import Literal, seconds_between
+from rhosocial.activerecord.backend.expression import Parameter, seconds_between
 
 
 @pytest.fixture
@@ -74,8 +74,8 @@ def _elapsed(backend, start, end):
     dialect = backend.dialect
     expr = seconds_between(
         dialect,
-        Literal(dialect, start, inline=True),
-        Literal(dialect, end, inline=True),
+        Parameter(dialect, start, inline=True),
+        Parameter(dialect, end, inline=True),
     )
     sql, params = expr.to_sql()
     assert params == ()

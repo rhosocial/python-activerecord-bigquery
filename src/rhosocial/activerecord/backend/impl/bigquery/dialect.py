@@ -263,18 +263,6 @@ class BigQueryDialect(
         # ``BigQueryNamespaceMixin.format_qualified_name``.
         self.default_dataset = default_dataset
 
-    def artifact_registry(self):
-        """The kinds this backend can read: core's kinds plus BigQuery's own.
-
-        BigQuery owns its expression package, so the composition lives here
-        rather than in core: ``backend_registry()`` is
-        ``registry_for_packages("...impl.bigquery.expression", base=core_registry())``,
-        frozen and cached. It holds no other backend's kinds.
-        """
-        from .registry import backend_registry
-
-        return backend_registry()
-
     def get_parameter_placeholder(self, position: int = 0) -> str:
         """BigQuery Standard SQL uses ``?`` positional bind markers."""
         return "?"

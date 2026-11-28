@@ -35,7 +35,7 @@ from rhosocial.activerecord.backend.expression.core import (
     CastExpression,
     Column,
     FunctionCall,
-    Literal,
+    Parameter,
     RowCountWildcard,
     Subquery,
 )
@@ -441,8 +441,8 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         return ComparisonPredicate(
             self,
             ComparisonPredicate.coerce_operator("="),
-            Literal(self, 1, inline=True),
-            Literal(self, 2, inline=True),
+            Parameter(self, 1, inline=True),
+            Parameter(self, 2, inline=True),
         )
 
     def _expand_table_type(self, table_type: Optional[str]) -> Tuple[str, ...]:
@@ -514,7 +514,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 InPredicate(
                     self,
                     Column(self, "table_type"),
-                    Literal(self, list(values)),
+                    Parameter(self, list(values)),
                 )
                 if values
                 else self._no_catalog_spelling_predicate()
@@ -526,7 +526,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 InPredicate(
                     self,
                     Column(self, "table_type"),
-                    Literal(self, list(_VIEW_TYPES)),
+                    Parameter(self, list(_VIEW_TYPES)),
                 ),
             )
         query = QueryStatement(
@@ -578,7 +578,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 self,
                 ComparisonPredicate.coerce_operator("="),
                 Column(self, "table_name"),
-                Literal(self, expr.table_name),
+                Parameter(self, expr.table_name),
             ),
             order_by=self._order_by_first("ordinal_position"),
         )
@@ -638,13 +638,13 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                     self,
                     ComparisonPredicate.coerce_operator("="),
                     Column(self, "table_name", table="tc"),
-                    Literal(self, expr.table_name),
+                    Parameter(self, expr.table_name),
                 ),
                 ComparisonPredicate(
                     self,
                     ComparisonPredicate.coerce_operator("="),
                     Column(self, "constraint_type", table="tc"),
-                    Literal(self, "PRIMARY KEY"),
+                    Parameter(self, "PRIMARY KEY"),
                 ),
             ),
             order_by=OrderByClause(
@@ -723,7 +723,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 self,
                 ComparisonPredicate.coerce_operator("="),
                 Column(self, "table_name"),
-                Literal(self, expr.view_name),
+                Parameter(self, expr.view_name),
             ),
         )
         return self.format_query_statement(query)
@@ -753,7 +753,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 self,
                 ComparisonPredicate.coerce_operator("="),
                 Column(self, "routine_name"),
-                Literal(self, expr.routine_name),
+                Parameter(self, expr.routine_name),
             )
         query = QueryStatement(
             self,
@@ -842,7 +842,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 self,
                 ComparisonPredicate.coerce_operator("="),
                 Column(self, "table_name"),
-                Literal(self, expr.table_name),
+                Parameter(self, expr.table_name),
             ),
             order_by=self._order_by_first("option_name"),
         )
@@ -877,7 +877,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                     self,
                     ComparisonPredicate.coerce_operator("="),
                     Column(self, "table_name"),
-                    Literal(self, expr.table_name),
+                    Parameter(self, expr.table_name),
                 )
                 if expr.table_name is not None
                 else None
@@ -990,7 +990,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                 self,
                 ComparisonPredicate.coerce_operator("="),
                 Column(self, "table_name"),
-                Literal(self, expr.table_name),
+                Parameter(self, expr.table_name),
             ),
         )
         return self.format_query_statement(query)
@@ -1114,7 +1114,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
     def _profile_label(self, text: Optional[str], alias: str) -> CastExpression:
         """A constant label as a named projection.
 
-        A :class:`~...expression.core.Literal` is deliberately unaliasable -- a
+        A :class:`~...expression.core.Parameter` is deliberately unaliasable -- a
         value has nothing to name -- so the constant is cast to ``STRING``,
         which is the smallest node that carries a result name. ``None`` is the
         same node holding SQL ``NULL``, which is how an absent figure is
@@ -1127,7 +1127,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
         """
         return CastExpression(
             self,
-            Literal(self, text, inline=True),
+            Parameter(self, text, inline=True),
             CharType(self),
             alias=alias,
         )
@@ -1165,10 +1165,10 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                     cases=[
                         (
                             IsNullPredicate(self, column),
-                            Literal(self, 1, inline=True),
+                            Parameter(self, 1, inline=True),
                         )
                     ],
-                    else_result=Literal(self, 0, inline=True),
+                    else_result=Parameter(self, 0, inline=True),
                 ),
             ).as_(self._profile_slot(index, "null_count")),
         ]
@@ -1395,7 +1395,7 @@ class BigQueryIntrospectionMixin(IntrospectionMixin):
                     self,
                     "NULLIF",
                     CountFunction(self, column, distinct=True),
-                    Literal(self, 0, inline=True),
+                    Parameter(self, 0, inline=True),
                 )
             ],
             from_=source,

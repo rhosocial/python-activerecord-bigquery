@@ -9,7 +9,7 @@ except ImportError:
 
 import pytest
 
-from rhosocial.activerecord.backend.expression.core import Column, Literal
+from rhosocial.activerecord.backend.expression.core import Column, Parameter
 from rhosocial.activerecord.backend.expression import ComparisonPredicate
 from rhosocial.activerecord.backend.expression.statements import (
     ColumnCheckConstraint,
@@ -57,7 +57,7 @@ UNIQUE_CONSTRAINT = UseConstraint(
     name="uq_value",
 )
 CHECK_CONDITION = ComparisonPredicate(
-    None, "=", Column(None, "physical_value"), Literal(None, "active")
+    None, "=", Column(None, "physical_value"), Parameter(None, "active")
 )
 CHECK_CONSTRAINT = UseConstraint(
     ColumnCheckConstraint,
@@ -102,7 +102,7 @@ TABLE_CONSTRAINT_TWO = TableConstraint(
     branch=TableCheckConstraint(
         None,
         ComparisonPredicate(
-            None, "=", Column(None, "physical_value"), Literal(None, "active")
+            None, "=", Column(None, "physical_value"), Parameter(None, "active")
         ),
     ),
     name="ck_physical_quantity",

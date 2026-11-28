@@ -107,8 +107,8 @@ class BigQueryLiteralValueMixin:
                 literal form for, and this is the same refusal.
         """
         # ``datetime`` is a ``date`` subclass, so the narrower type has to be
-        # tested first: the order of these branches is host-type order, the way
-        # ``LiteralKind``'s member order is.
+        # tested first: the order of these branches is host-type order, narrower
+        # types ahead of the general ones that would also accept them.
         if isinstance(expr, (bytes, bytearray)):
             return "b'" + "".join(f"\\x{b:02x}" for b in bytes(expr)) + "'"
         if isinstance(expr, uuid.UUID):

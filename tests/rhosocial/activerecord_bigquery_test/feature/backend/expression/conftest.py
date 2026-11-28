@@ -20,12 +20,10 @@ pure-render targets and the caller has not chosen a worker count itself. The
 plugin is the availability check too: with pytest-xdist absent it enables
 nothing and says so.
 
-This backend's pure-render tests are not all in this one directory. ``dialect/``
+This backend's pure-render tests are not all in this one directory: ``dialect/``
 holds the same kind of test (formatting, literal spellings, kind identity), and
-``../core/test_expression_roundtrip_all.py`` walks both core's expression package
-and this backend's, so it lives in the topic's ``core/`` directory. The plugin
-covers all three and nothing else -- the backend modules that start a client, and
-the emulator scenario loader, stay serial.
+the plugin covers both and nothing else -- the backend modules that start a
+client, and the emulator scenario loader, stay serial.
 
 Serial cases: a test that genuinely cannot share a worker marks ``xdist_group``
 explicitly and states the reason beside the mark. None does today -- no case

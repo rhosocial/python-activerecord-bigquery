@@ -7,12 +7,8 @@ directory holds test files or subject subdirectories, never both.
 
 ## Core
 
-| File | Description |
-|------|-------------|
-| `core/test_expression_roundtrip_all.py` | Every expression class in core's package and in this backend's, round-tripped through dict/JSON/XML and classified by render outcome. Core's classes are in scope because BigQuery's SQL surface is the narrowest in the family, so which of them it refuses is worth pinning. |
-
-`expression_roundtrip_harness.py` stays at the topic root: it is shared support
-code, not a test file, and both `core/` and the other subjects may import it.
+`core/` holds cross-subject tests: backend lifecycle, driver error mapping and
+capability assertions that belong to no single vendor subject tree.
 
 ## Subject matrix
 

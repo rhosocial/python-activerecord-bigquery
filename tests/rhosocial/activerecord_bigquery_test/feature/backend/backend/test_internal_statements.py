@@ -14,7 +14,7 @@ offline leg.
 
 import pytest
 
-from rhosocial.activerecord.backend.expression.core import Column, Literal
+from rhosocial.activerecord.backend.expression.core import Column, Parameter
 from rhosocial.activerecord.backend.expression.predicates import ComparisonPredicate
 from rhosocial.activerecord.backend.expression.query_parts import WhereClause
 from rhosocial.activerecord.backend.impl.bigquery.backend.backend import BigQueryBackend
@@ -72,7 +72,7 @@ class TestCountExpression:
     def test_a_where_clause_renders_its_own_keyword(self, statements, dialect):
         where = WhereClause(
             dialect,
-            ComparisonPredicate(dialect, "=", Column(dialect, "a"), Literal(dialect, 1)),
+            ComparisonPredicate(dialect, "=", Column(dialect, "a"), Parameter(dialect, 1)),
         )
         sql, params = statements._count_expression("t", "app", where).to_sql()
         assert sql == "SELECT COUNT(*) AS `n` FROM `app`.`t` WHERE `a` = ?"
@@ -81,7 +81,7 @@ class TestCountExpression:
     def test_a_bare_predicate_is_wrapped_rather_than_stripped(self, statements, dialect):
         """The condition arrives as the options carry it, in either shape."""
         predicate = ComparisonPredicate(
-            dialect, "=", Column(dialect, "a"), Literal(dialect, 1)
+            dialect, "=", Column(dialect, "a"), Parameter(dialect, 1)
         )
         sql, params = statements._count_expression("t", None, predicate).to_sql()
         assert sql == "SELECT COUNT(*) AS `n` FROM `t` WHERE `a` = ?"
@@ -91,7 +91,7 @@ class TestCountExpression:
         """The old path cut \"WHERE \" off the rendered text; the clause owns it."""
         where = WhereClause(
             dialect,
-            ComparisonPredicate(dialect, "=", Column(dialect, "a"), Literal(dialect, 1)),
+            ComparisonPredicate(dialect, "=", Column(dialect, "a"), Parameter(dialect, 1)),
         )
         sql, _ = statements._count_expression("t", None, where).to_sql()
         assert sql.count("WHERE") == 1
@@ -100,7 +100,7 @@ class TestCountExpression:
         where = WhereClause(
             dialect,
             ComparisonPredicate(
-                dialect, "=", Column(dialect, "a"), Literal(dialect, "x'y")
+                dialect, "=", Column(dialect, "a"), Parameter(dialect, "x'y")
             ),
         )
         sql, params = statements._count_expression("t", None, where).to_sql()

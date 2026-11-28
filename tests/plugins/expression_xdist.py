@@ -13,13 +13,11 @@ The plugin is deliberately narrow in what it touches:
 * **Availability**: with pytest-xdist not installed it enables nothing --
   installation is not this plugin's business, and the run proceeds serially the
   way it always has.
-* **Scope**: only when every named target is a pure-render test location. This
-  repository keeps them in two places rather than one: ``expression/`` and
-  ``dialect/``, plus the top-level round-trip matrix, because the matrix spans
-  both packages and cannot live inside either. A whole-repository run, a mixed
-  run, or a run of any other directory keeps the serial default; the backend
-  modules that start a client, and the emulator scenario loader, are not dragged
-  into a worker pool they did not ask for.
+* **Scope**: only when every named target is a pure-render test location --
+  ``expression/`` and ``dialect/``. A whole-repository run, a mixed run, or a
+  run of any other directory keeps the serial default; the backend modules that
+  start a client, and the emulator scenario loader, are not dragged into a
+  worker pool they did not ask for.
 * **Choice respected**: an explicit ``-n`` / ``--numprocesses`` is never
   overridden. An explicit ``--dist`` is never overridden either, except that
   ``loadscope`` and ``loadfile`` are refused outright (§12.1: they bind whole
@@ -43,14 +41,6 @@ _BACKEND_TEST_ROOT = os.path.join(
 _EXPRESSION_AREAS = (
     os.path.join(_BACKEND_TEST_ROOT, "expression"),
     os.path.join(_BACKEND_TEST_ROOT, "dialect"),
-)
-
-#: Single files that are pure render too, and live above the two directories
-#: because they span both packages. The round-trip matrix walks core's package
-#: and this backend's, so it lives in the topic's ``core/`` directory rather
-#: than inside either subject tree.
-_EXPRESSION_FILES = (
-    os.path.join(_BACKEND_TEST_ROOT, "core", "test_expression_roundtrip_all.py"),
 )
 
 #: Options that take a separate value, so the value must not be mistaken for a
@@ -83,7 +73,7 @@ def _repository_root() -> Path:
 def _pure_render_locations() -> tuple[Path, ...]:
     """The absolute directories and files the parallel default covers."""
     root = _repository_root()
-    return tuple(root / area for area in _EXPRESSION_AREAS + _EXPRESSION_FILES)
+    return tuple(root / area for area in _EXPRESSION_AREAS)
 
 
 def _is_pure_render_target(arg: str) -> bool:

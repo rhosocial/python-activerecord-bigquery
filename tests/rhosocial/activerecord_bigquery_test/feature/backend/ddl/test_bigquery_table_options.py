@@ -22,7 +22,6 @@ import pytest
 
 from rhosocial.activerecord.backend.expression.core import BaseExpression
 from rhosocial.activerecord.backend.expression.objects import Table
-from rhosocial.activerecord.backend.expression.serialization import core_registry
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.expression import (
     BigQueryAlterTableSetOptionsStatement,
@@ -99,8 +98,6 @@ def test_no_unset_options_node_probe_formatter_or_kind_exists(dialect):
         assert "unset_options" not in name.lower(), name
     for name in dir(dialect):
         assert "unset_options" not in name.lower(), name
-    for kind in dialect.artifact_registry().node_kinds():
-        assert "unset_options" not in kind.lower(), kind
 
 
 def test_clearing_an_option_uses_set_options_with_null(dialect):
@@ -265,13 +262,3 @@ def test_a_wrong_object_kind_is_refused_by_name(dialect):
     )
     with pytest.raises(TypeError, match=".table must be a Table, got View"):
         expr.to_sql()
-
-
-def test_the_kind_is_bigquery_proprietary(dialect):
-    """The node is this backend's, never re-exported through core's registry."""
-    expr = BigQueryAlterTableSetOptionsStatement(
-        dialect, Table(dialect, "t"), (("description", "x"),)
-    )
-    assert expr.kind().startswith("bigquery_")
-    assert expr.kind() not in core_registry().node_kinds()
-    assert dialect.artifact_registry().resolve_node(expr.kind()) is type(expr)

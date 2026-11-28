@@ -17,7 +17,7 @@ silently rewrite SQL callers depend on.
 import pytest
 
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression.core import Column, Literal
+from rhosocial.activerecord.backend.expression.core import Column, Parameter
 from rhosocial.activerecord.backend.expression.predicates import (
     ILikePredicate,
     LikeOperator,
@@ -34,14 +34,14 @@ def dialect():
 @pytest.fixture
 def pattern(dialect):
     return LikePredicate(
-        dialect, LikeOperator.LIKE, Column(dialect, "name"), Literal(dialect, "%a%")
+        dialect, LikeOperator.LIKE, Column(dialect, "name"), Parameter(dialect, "%a%")
     )
 
 
 class TestTheWordsBigQuerySpells:
     def test_like(self, dialect):
         expr = LikePredicate(
-            dialect, LikeOperator.LIKE, Column(dialect, "name"), Literal(dialect, "%a%")
+            dialect, LikeOperator.LIKE, Column(dialect, "name"), Parameter(dialect, "%a%")
         )
         assert expr.to_sql() == ("`name` LIKE ?", ("%a%",))
 
@@ -50,7 +50,7 @@ class TestTheWordsBigQuerySpells:
             dialect,
             LikeOperator.NOT_LIKE,
             Column(dialect, "name"),
-            Literal(dialect, "%a%"),
+            Parameter(dialect, "%a%"),
         )
         assert expr.to_sql() == ("`name` NOT LIKE ?", ("%a%",))
 
@@ -64,7 +64,7 @@ class TestTheWordsBigQuerySpells:
 class TestTheWordBigQueryRefuses:
     def test_ilike_is_refused_by_name(self, dialect):
         expr = LikePredicate(
-            dialect, LikeOperator.ILIKE, Column(dialect, "name"), Literal(dialect, "%a%")
+            dialect, LikeOperator.ILIKE, Column(dialect, "name"), Parameter(dialect, "%a%")
         )
         with pytest.raises(UnsupportedFeatureError) as exc_info:
             expr.to_sql()
@@ -73,7 +73,7 @@ class TestTheWordBigQueryRefuses:
     def test_the_refusal_points_at_the_portable_answer(self, dialect):
         """A caller told no should be told what to do instead."""
         expr = LikePredicate(
-            dialect, LikeOperator.ILIKE, Column(dialect, "name"), Literal(dialect, "%a%")
+            dialect, LikeOperator.ILIKE, Column(dialect, "name"), Parameter(dialect, "%a%")
         )
         with pytest.raises(UnsupportedFeatureError, match="LOWER"):
             expr.to_sql()
@@ -92,7 +92,7 @@ class TestTheWordBigQueryRefuses:
                 dialect,
                 LikeOperator.ILIKE,
                 Column(dialect, "name"),
-                Literal(dialect, "%a%"),
+                Parameter(dialect, "%a%"),
             ).to_sql()
         with pytest.raises(UnsupportedFeatureError) as ilike_exc:
             ILikePredicate(dialect, Column(dialect, "name"), "a%").to_sql()

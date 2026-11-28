@@ -17,7 +17,7 @@ import pytest
 
 from rhosocial.activerecord.backend.errors import DatabaseError
 from rhosocial.activerecord.backend.expression import (
-    Column, ComparisonPredicate, Literal,
+    Column, ComparisonPredicate, Parameter,
 )
 from rhosocial.activerecord.backend.impl.bigquery.async_transaction import (
     AsyncBigQueryTransactionManager,
@@ -268,7 +268,7 @@ def test_sync_count_matching_uses_log_context(monkeypatch):
 
     dialect = backend.dialect
     where = ComparisonPredicate(
-        dialect, "=", Column(dialect, "id"), Literal(dialect, 7)
+        dialect, "=", Column(dialect, "id"), Parameter(dialect, 7)
     )
     assert backend._count_matching("users", "dataset", where) == 3
     assert captured["options"].log_context.operation == "count"
@@ -368,7 +368,7 @@ async def test_async_count_matching_uses_log_context(monkeypatch):
 
     dialect = backend.dialect
     where = ComparisonPredicate(
-        dialect, "=", Column(dialect, "id"), Literal(dialect, 9)
+        dialect, "=", Column(dialect, "id"), Parameter(dialect, 9)
     )
     assert await backend._count_matching("users", "dataset", where) == 5
     assert captured["options"].log_context.operation == "count"

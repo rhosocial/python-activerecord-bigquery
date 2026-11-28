@@ -25,7 +25,7 @@ from typing import Dict, Optional, Tuple
 
 import pytest
 from rhosocial.activerecord.backend.dialect.exceptions import UnsupportedFeatureError
-from rhosocial.activerecord.backend.expression import Literal
+from rhosocial.activerecord.backend.expression import Parameter
 from rhosocial.activerecord.backend.expression.objects import Table
 from rhosocial.activerecord.backend.expression.sources import NamedRelationRef
 from rhosocial.activerecord.backend.expression.statements import (
@@ -73,7 +73,7 @@ def _render(
     """Render an ``EXPLAIN SELECT ...`` statement with the given options."""
     query = QueryStatement(
         dialect=dialect,
-        select=[Literal(dialect, "*")],
+        select=[Parameter(dialect, "*")],
         from_=NamedRelationRef(dialect, Table(dialect, "users")),
     )
     expr = ExplainStatement(dialect, statement=query, options=options)

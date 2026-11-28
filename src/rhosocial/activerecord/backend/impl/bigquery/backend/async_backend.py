@@ -350,7 +350,7 @@ class AsyncBigQueryBackend(
         # See BigQueryBackend.bulk_update: explicit ELSE branch per CASE.
         from rhosocial.activerecord.backend.base.operations import execution_log_context
         from rhosocial.activerecord.backend.expression import (
-            Column, Literal, UpdateStatement, ComparisonPredicate, InPredicate,
+            Column, Parameter, UpdateStatement, ComparisonPredicate, InPredicate,
         )
         from rhosocial.activerecord.backend.expression.advanced_functions import CaseExpression
         from rhosocial.activerecord.backend.expression.objects import Table
@@ -360,14 +360,14 @@ class AsyncBigQueryBackend(
         for field_name, values in options.field_values.items():
             cases = []
             for pk_val, field_val in zip(options.pk_values, values):  # noqa: B905 - Python 3.8 has no zip(strict=)
-                condition = ComparisonPredicate(self.dialect, "=", pk_col, Literal(self.dialect, pk_val))
-                result_expr = Literal(self.dialect, field_val)
+                condition = ComparisonPredicate(self.dialect, "=", pk_col, Parameter(self.dialect, pk_val))
+                result_expr = Parameter(self.dialect, field_val)
                 cases.append((condition, result_expr))
             assignments[field_name] = CaseExpression(
                 self.dialect, cases=cases, else_result=Column(self.dialect, field_name),
             )
-        pk_literals = Literal(self.dialect, options.pk_values)
-        where_predicate = InPredicate(self.dialect, pk_col, pk_literals)
+        pk_parameters = Parameter(self.dialect, options.pk_values)
+        where_predicate = InPredicate(self.dialect, pk_col, pk_parameters)
         update_expr = UpdateStatement(
             dialect=self.dialect,
             # One construction whether or not a dataset was given; see

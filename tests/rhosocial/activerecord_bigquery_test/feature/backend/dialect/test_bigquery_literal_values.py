@@ -7,10 +7,10 @@ literal grammar (lexical structure and syntax / data types, read 2026-10-17
 repository). Each claim is asserted at both positions the one value node
 splits rendering into:
 
-* the **data position** -- ``Literal(dialect, value)``, ``inline`` at its
+* the **data position** -- ``Parameter(dialect, value)``, ``inline`` at its
   default ``False`` -- binds the host value behind ``?`` and converts
   nothing;
-* the **DDL syntax position** -- ``Literal(dialect, value, inline=True)`` --
+* the **DDL syntax position** -- ``Parameter(dialect, value, inline=True)`` --
   writes the inline literal text through ``format_literal``.
 
 The explicit refusals -- an INTERVAL step that cannot fit the ``INT64`` the
@@ -26,7 +26,7 @@ import uuid
 import pytest
 
 from rhosocial.activerecord.backend.dialect.base import SQLDialectBase
-from rhosocial.activerecord.backend.expression.core import Literal
+from rhosocial.activerecord.backend.expression.core import Parameter
 from rhosocial.activerecord.backend.impl.bigquery.dialect import BigQueryDialect
 from rhosocial.activerecord.backend.impl.bigquery.mixins import (
     BigQueryLiteralValueMixin,
@@ -40,7 +40,7 @@ def dialect():
 
 def _inline(dialect, value):
     """The DDL-position rendering of *value* as ``(sql, params)``."""
-    return Literal(dialect, value, inline=True).to_sql()
+    return Parameter(dialect, value, inline=True).to_sql()
 
 
 class TestWiring:
@@ -61,7 +61,7 @@ class TestBindingDecision:
     """``inline`` decides bind-or-text; BigQuery's placeholder is ``?``."""
 
     def test_data_position_binds_the_host_value(self, dialect):
-        assert Literal(dialect, 42).to_sql() == ("?", (42,))
+        assert Parameter(dialect, 42).to_sql() == ("?", (42,))
 
     def test_inline_position_writes_text(self, dialect):
         assert _inline(dialect, 42) == ("42", ())
@@ -69,7 +69,7 @@ class TestBindingDecision:
 
 class TestBinary:
     def test_data_position_binds_the_bytes(self, dialect):
-        assert Literal(dialect, b"\x01\x02").to_sql() == ("?", (b"\x01\x02",))
+        assert Parameter(dialect, b"\x01\x02").to_sql() == ("?", (b"\x01\x02",))
 
     def test_inline_position_spells_the_bytes_literal(self, dialect):
         assert _inline(dialect, b"\x01\x02") == ("b'\\x01\\x02'", ())
@@ -85,7 +85,7 @@ class TestUUID:
     _VALUE = uuid.UUID("123e4567-e89b-12d3-a456-426614174000")
 
     def test_data_position_binds_the_uuid(self, dialect):
-        assert Literal(dialect, self._VALUE).to_sql() == ("?", (self._VALUE,))
+        assert Parameter(dialect, self._VALUE).to_sql() == ("?", (self._VALUE,))
 
     def test_inline_position_is_the_bare_quoted_text(self, dialect):
         assert _inline(dialect, self._VALUE) == (
@@ -97,7 +97,7 @@ class TestUUID:
 class TestInterval:
     def test_data_position_binds_the_timedelta(self, dialect):
         value = datetime.timedelta(days=1)
-        assert Literal(dialect, value).to_sql() == ("?", (value,))
+        assert Parameter(dialect, value).to_sql() == ("?", (value,))
 
     @pytest.mark.parametrize(
         "value, expected",
@@ -144,7 +144,7 @@ class TestInterval:
 class TestDecimal:
     def test_data_position_binds_the_decimal(self, dialect):
         value = decimal.Decimal("3.14")
-        assert Literal(dialect, value).to_sql() == ("?", (value,))
+        assert Parameter(dialect, value).to_sql() == ("?", (value,))
 
     @pytest.mark.parametrize(
         "value, expected",
@@ -227,7 +227,7 @@ class TestDecimal:
 class TestDate:
     def test_data_position_binds_the_date(self, dialect):
         value = datetime.date(2014, 9, 27)
-        assert Literal(dialect, value).to_sql() == ("?", (value,))
+        assert Parameter(dialect, value).to_sql() == ("?", (value,))
 
     def test_inline_position_spells_the_typed_literal(self, dialect):
         assert _inline(dialect, datetime.date(2014, 9, 27)) == ("DATE '2014-09-27'", ())
@@ -236,7 +236,7 @@ class TestDate:
 class TestTime:
     def test_data_position_binds_the_time(self, dialect):
         value = datetime.time(12, 30)
-        assert Literal(dialect, value).to_sql() == ("?", (value,))
+        assert Parameter(dialect, value).to_sql() == ("?", (value,))
 
     def test_inline_position_spells_the_typed_literal(self, dialect):
         assert _inline(dialect, datetime.time(12, 30, 0, 450000)) == (
@@ -255,7 +255,7 @@ class TestTime:
 class TestTimestamp:
     def test_data_position_binds_the_datetime(self, dialect):
         value = datetime.datetime(2014, 9, 27, 12, 30)
-        assert Literal(dialect, value).to_sql() == ("?", (value,))
+        assert Parameter(dialect, value).to_sql() == ("?", (value,))
 
     def test_a_naive_datetime_is_the_zoneless_datetime_literal(self, dialect):
         assert _inline(dialect, datetime.datetime(2014, 9, 27, 12, 30, 0, 450000)) == (
@@ -279,7 +279,7 @@ class TestTheKindsBigQueryAgreesWith:
     """
 
     def test_null_binds_and_spells_the_keyword(self, dialect):
-        assert Literal(dialect, None).to_sql() == ("?", (None,))
+        assert Parameter(dialect, None).to_sql() == ("?", (None,))
         assert _inline(dialect, None) == ("NULL", ())
 
     @pytest.mark.parametrize("value, expected", [(True, "TRUE"), (False, "FALSE")])

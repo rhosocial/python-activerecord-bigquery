@@ -50,7 +50,7 @@ sql, params = seconds_between(dialect, started, ended).to_sql()
 换成绑定参数时，结束参数的绑定顺序在前——格式化函数按 SQL 的书写顺序收集参数：
 
 ```python
-seconds_between(dialect, Literal(dialect, start_dt), Literal(dialect, end_dt)).to_sql()
+seconds_between(dialect, Parameter(dialect, start_dt), Parameter(dialect, end_dt)).to_sql()
 # ("TIMESTAMP_DIFF(?, ?, MILLISECOND) / 1000.0", (end_value, start_value))
 ```
 

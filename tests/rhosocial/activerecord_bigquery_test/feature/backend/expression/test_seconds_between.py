@@ -18,7 +18,7 @@ documented on the formatter and in the feature page.
 import pytest
 
 from rhosocial.activerecord.backend.expression import (
-    Literal,
+    Parameter,
     SecondsBetweenExpression,
     seconds_between,
 )
@@ -88,8 +88,8 @@ class TestSecondsBetweenRendering:
 
     def test_bind_parameters_follow_sql_order(self, dialect):
         """``end`` is written first, so its bind parameter is also first."""
-        start = Literal(dialect, "2026-01-01T00:00:00+00:00")
-        end = Literal(dialect, "2026-01-01T00:00:02.500+00:00")
+        start = Parameter(dialect, "2026-01-01T00:00:00+00:00")
+        end = Parameter(dialect, "2026-01-01T00:00:02.500+00:00")
         sql, params = seconds_between(dialect, start, end).to_sql()
         assert sql == "TIMESTAMP_DIFF(?, ?, MILLISECOND) / 1000.0"
         assert params == (

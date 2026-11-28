@@ -42,7 +42,7 @@ The dataset qualifies the target table in the DML statement:
 
 ```python
 UpdateStatement(
-    d, TableExpression(d, "users", schema_name="app"), {"name": Literal(d, "x")}
+    d, TableExpression(d, "users", schema_name="app"), {"name": Parameter(d, "x")}
 ).to_sql()
 # ('UPDATE `app`.`users` SET `name` = ?', ('x',))
 ```

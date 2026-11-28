@@ -23,7 +23,7 @@ answer.
 
 from typing import Any, Optional
 
-from rhosocial.activerecord.backend.expression.core import Column, Literal, RowCountWildcard
+from rhosocial.activerecord.backend.expression.core import Column, Parameter, RowCountWildcard
 from rhosocial.activerecord.backend.expression.functions.aggregate import (
     CountFunction,
     MaxFunction,
@@ -75,7 +75,7 @@ class BigQueryQualifiedNameMixin:
         """``SELECT COALESCE(MAX(pk), 0) + 1 AS next_id FROM <relation>``.
 
         The expression behind :meth:`_next_pk_value`. The zero and the one are
-        :class:`~...expression.core.Literal` values marked ``inline=True``: they
+        :class:`~...expression.core.Parameter` values marked ``inline=True``: they
         are constants of the statement rather than caller data, and inlining
         keeps the rendered text what the f-string used to produce.
         """
@@ -84,8 +84,8 @@ class BigQueryQualifiedNameMixin:
         next_value = ArithmeticOperation(
             dialect,
             "add",
-            CoalesceFunction(dialect, highest, Literal(dialect, 0, inline=True)),
-            Literal(dialect, 1, inline=True),
+            CoalesceFunction(dialect, highest, Parameter(dialect, 0, inline=True)),
+            Parameter(dialect, 1, inline=True),
         )
         return QueryStatement(
             dialect,

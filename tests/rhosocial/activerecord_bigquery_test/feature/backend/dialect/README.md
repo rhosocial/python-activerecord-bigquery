@@ -10,4 +10,3 @@ and protocol conformance.
 | `test_column_schema_validation.py` | A dataset on a bare column is reported, never dropped. |
 | `test_expression_fields_match_formatters.py` | Every statement whose formatter qualifies a name builds with the object that carries the namespace, and refuses the wrong object kind. |
 | `test_column_type.py` | The twenty-four-entry `BIGQUERY_COLUMN_TYPES` table -- every common type answered, none refused (`None`) -- plus the documentation-only markers (待云验, 议题 A, fix item #8). No server. |
-| `test_dialect_artifact_registry.py` | The dialect's artifact registry: core plus this backend's kinds, frozen and cached; a proprietary kind resolves through it, a foreign kind is refused. |
